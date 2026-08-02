@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: /stacks/village-production
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: /stacks/pkgs-production
+    schedule:
+      interval: weekly
