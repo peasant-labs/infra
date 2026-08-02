@@ -1,0 +1,134 @@
+name: Terraform deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: Terraform stack to operate
+        required: true
+        type: choice
+        options:
+          - village-production
+          - pkgs-production
+      operation:
+        description: Operation to run
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ inputs.stack }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Check deployment request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Refuse apply outside main
+        if: inputs.operation == 'apply' && github.ref != 'refs/heads/main'
+        run: |
+          printf '%s\n' 'Apply is allowed only from the main branch.' >&2
+          exit 1
+
+  plan:
+    name: Plan ${{ inputs.stack }}
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.stack == 'pkgs-production' && 'pkgs-infra' || 'village-infra' }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+      TF_WORKSPACE: ${{ inputs.stack }}
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check production destruction guards
+        run: bash scripts/check-production-guards.sh
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Initialize remote state
+        run: terraform -chdir="stacks/${{ inputs.stack }}" init -lockfile=readonly
+
+      - name: Validate configuration
+        run: terraform -chdir="stacks/${{ inputs.stack }}" validate
+
+      - name: Create saved plan
+        run: terraform -chdir="stacks/${{ inputs.stack }}" plan -lock-timeout=5m -no-color -out="${{ runner.temp }}/tfplan"
+
+      - name: Show saved plan
+        run: terraform -chdir="stacks/${{ inputs.stack }}" show -no-color "${{ runner.temp }}/tfplan"
+
+      - name: Retain saved plan for this run
+        if: inputs.operation == 'apply'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terraform-plan-${{ inputs.stack }}-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/tfplan
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  apply:
+    name: Apply ${{ inputs.stack }}
+    if: inputs.operation == 'apply'
+    needs:
+      - guard
+      - plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.stack == 'pkgs-production' && 'pkgs-infra' || 'village-infra' }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+      TF_WORKSPACE: ${{ inputs.stack }}
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check production destruction guards
+        run: bash scripts/check-production-guards.sh
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Initialize remote state
+        run: terraform -chdir="stacks/${{ inputs.stack }}" init -lockfile=readonly
+
+      - name: Download saved plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: terraform-plan-${{ inputs.stack }}-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/planned
+
+      - name: Apply saved plan
+        if: inputs.operation == 'apply'
+        run: terraform -chdir="stacks/${{ inputs.stack }}" apply -lock-timeout=5m "${{ runner.temp }}/planned/tfplan"
