@@ -28,6 +28,7 @@ permissions:
 jobs:
   determine-runner:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
     steps:
@@ -37,15 +38,22 @@ jobs:
           GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
         run: |
           set -euo pipefail
-          online=$(gh api /orgs/peasant-labs/actions/runners --paginate \
-            --jq '[.runners[] | select(.status == "online") | select(any(.labels[]; .name == "nixos"))] | length' 2>/dev/null || echo 0)
-          if [ "${online:-0}" -gt 0 ]; then
+          if ! online=$(gh api /orgs/peasant-labs/actions/runners --paginate \
+              --jq '.runners[] | select(.status == "online") | select(any(.labels[]; .name == "nixos")) | .name' 2>/dev/null | wc -l); then
+            echo "::warning::runner availability query failed; using the fallback"
+            online=0
+          fi
+          echo "online runners: ${online}"
+          if [ "${online}" -gt 0 ]; then
             echo 'runner=["self-hosted","nixos"]' >> "$GITHUB_OUTPUT"
           else
             echo 'runner=["ubuntu-24.04"]' >> "$GITHUB_OUTPUT"
           fi
       - name: Report chosen runner
-        run: 'echo "chosen: ${{ steps.pick.outputs.runner }}"'
+        env:
+          CHOSEN: ${{ steps.pick.outputs.runner }}
+        run: 'echo "chosen: $CHOSEN"'
+
   validate:
     name: Validate ${{ matrix.stack }}
     needs: determine-runner
