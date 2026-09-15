@@ -50,4 +50,4 @@ jobs:
           echo "runner: ${{ needs.determine-runner.outputs.runner }}"
           uname -m
           hostname
-          test -e /run/current-system && echo nixos
+          if [ -e /run/current-system ]; then echo nixos; else echo ubuntu; fi
