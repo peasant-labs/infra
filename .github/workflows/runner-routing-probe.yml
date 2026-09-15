@@ -1,0 +1,47 @@
+name: Runner routing probe
+
+# Diagnostic: runs the same routing block that every routed workflow uses, then
+# reports the machine it selected. Dispatch it once with the runner pool online
+# and once with the pool stopped to prove both branches.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  determine-runner:
+    name: Determine runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      - name: Pick a runner
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+        run: |
+          set -euo pipefail
+          online=$(gh api /orgs/peasant-labs/actions/runners --paginate \
+            --jq '[.runners[] | select(.status == "online") | select(any(.labels[]; .name == "nixos"))] | length' 2>/dev/null || echo 0)
+          if [ "${online:-0}" -gt 0 ]; then
+            echo 'runner=["self-hosted","nixos"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'runner=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Report chosen runner
+        run: 'echo "chosen: ${{ steps.pick.outputs.runner }}"'
+
+  probe:
+    name: Probe
+    needs: determine-runner
+    runs-on: ${{ fromJson(needs.determine-runner.outputs.runner) }}
+    timeout-minutes: 5
+    steps:
+      - name: Report the machine
+        run: |
+          echo "runner: ${{ needs.determine-runner.outputs.runner }}"
+          uname -m
+          hostname
