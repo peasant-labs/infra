@@ -9,9 +9,9 @@ name: Runner router
 #     secrets:
 #       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 #
-# and read needs.determine-runner.outputs.runner in their runs-on. The called
-# job itself always runs on ubuntu-latest, never on the pool, and uses no
-# third-party actions.
+# and route with runs-on: ${{ fromJson(needs.determine-runner.outputs.runner) }}.
+# The called job itself always runs on ubuntu-latest, never on the pool, and
+# uses no third-party actions.
 #
 # Inputs:
 #   fallback   JSON label array for runs-on when the pool is unavailable
@@ -20,15 +20,17 @@ name: Runner router
 #              (default '["self-hosted","container"]'). Every requested label
 #              must be present, so widen this to the full pool set
 #              (self-hosted, linux, x64, container) if an unrelated runner
-#              could ever carry one of the labels.
-#   pool_label the single label that identifies pool membership, used in
-#              diagnostic messages (default 'container').
+#              could ever carry one of the labels. Matching is
+#              case-insensitive on both sides, like the runner's own matching.
 # Outputs:
 #   runner     the label array for the caller's runs-on (pool set or fallback).
 #   pool       'true' when the pool was chosen, else 'false', so callers can
 #              condition pool-only adaptations on it.
 #   reason     'pool-online' | 'no-online-runners' | 'query-failed', so a
 #              silent regression to the fallback stays visible.
+#              'query-failed' covers every fallback path that is not an empty
+#              pool: a missing token (expected on fork PRs, notice-level, not
+#              an outage), an API failure, and an invalid 'labels' input.
 #
 # Behaviour: the fallback is written to the outputs before the pool query, so
 # any abort still yields a runnable label set. The query is bounded
@@ -47,14 +49,9 @@ on:
       labels:
         description: >-
           JSON array of labels an online pool runner must carry.
+          Matched case-insensitively.
         required: false
         default: '["self-hosted","container"]'
-        type: string
-      pool_label:
-        description: >-
-          The single label that identifies pool membership (diagnostics).
-        required: false
-        default: 'container'
         type: string
     secrets:
       RUNNER_STATUS_TOKEN:
@@ -91,15 +88,15 @@ jobs:
           GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
           FALLBACK: ${{ inputs.fallback }}
           LABELS: ${{ inputs.labels }}
-          POOL_LABEL: ${{ inputs.pool_label }}
           # The pool filter lives here (not inline below) so the shell
           # checker never sees jq's $variables inside shell quoting: $have
-          # and $want belong to jq and must reach it unexpanded.
+          # and $want belong to jq and must reach it unexpanded. Label
+          # matching is case-insensitive on both sides.
           ROUTER_FILTER: >-
             .runners[]
             | select(.status == "online")
-            | select((.labels | map(.name)) as $have
-                     | all($want[]; IN($have[])))
+            | select((.labels | map(.name | ascii_downcase)) as $have
+                     | all($want[] | ascii_downcase; IN($have[])))
             | .name
         run: |
           set -euo pipefail
@@ -112,8 +109,8 @@ jobs:
             echo "pool=false"
             echo "reason=query-failed"
           } >> "$GITHUB_OUTPUT"
-          if ! printf '%s' "${LABELS}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-            echo "::warning::invalid 'labels' input (must be a non-empty JSON array); using the fallback runner"
+          if ! printf '%s' "${LABELS}" | jq -e 'type == "array" and length > 0 and all(.[]; type == "string")' >/dev/null 2>&1; then
+            echo "::warning::invalid 'labels' input (must be a non-empty JSON array of strings); using the fallback runner"
             echo "chosen: ${FALLBACK} (pool=false, reason=query-failed)"
             exit 0
           fi
@@ -124,8 +121,11 @@ jobs:
             exit 0
           fi
           err_file="$(mktemp)"
-          if online=$(timeout 30s gh api /orgs/peasant-labs/actions/runners --paginate \
-              --jq --argjson want "${LABELS}" "${ROUTER_FILTER}" 2>"${err_file}" | wc -l); then
+          # gh prints the raw runner list; the real jq binary filters it.
+          # (gh api has no --argjson: it would swallow the flag as the query
+          # filter and fail, so filtering must happen downstream.)
+          if online=$(timeout 30s gh api /orgs/peasant-labs/actions/runners --paginate 2>"${err_file}" \
+              | jq -r --argjson want "${LABELS}" "${ROUTER_FILTER}" | wc -l); then
             online="${online//[[:space:]]/}"
             echo "online runners: ${online}"
             if [ "${online}" -gt 0 ]; then
@@ -139,7 +139,7 @@ jobs:
               echo "chosen: ${LABELS} (pool=true, reason=pool-online)"
             else
               echo "reason=no-online-runners" >> "$GITHUB_OUTPUT"
-              echo "::notice::no online pool runners (pool label '${POOL_LABEL}'); using the fallback runner"
+              echo "::notice::no online pool runners for ${LABELS}; using the fallback runner"
               echo "chosen: ${FALLBACK} (pool=false, reason=no-online-runners)"
             fi
           else
