@@ -1,0 +1,48 @@
+name: Runner router smoke
+
+# Production-path evidence for runner-router.yml: calls the reusable router
+# in this repository and asserts its output contract. Runs on every push
+# that touches the router, plus on demand.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/runner-router.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  route:
+    uses: ./.github/workflows/runner-router.yml
+    with:
+      fallback: '["ubuntu-24.04"]'
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+
+  assert:
+    needs: route
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert the router contract
+        env:
+          RUNNER: ${{ needs.route.outputs.runner }}
+          POOL: ${{ needs.route.outputs.pool }}
+          REASON: ${{ needs.route.outputs.reason }}
+          LABELS: '["self-hosted","container"]'
+          FALLBACK: '["ubuntu-24.04"]'
+        run: |
+          set -euo pipefail
+          echo "runner=${RUNNER}"
+          echo "pool=${POOL}"
+          echo "reason=${REASON}"
+          printf '%s' "${RUNNER}" | jq -e 'type == "array" and length > 0' >/dev/null
+          if [ "${REASON}" = "pool-online" ]; then
+            [ "${POOL}" = "true" ]
+            [ "${RUNNER}" = "${LABELS}" ]
+          else
+            [ "${POOL}" = "false" ]
+            [ "${RUNNER}" = "${FALLBACK}" ]
+          fi
