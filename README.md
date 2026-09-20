@@ -2,6 +2,9 @@
 
 Public Terraform configurations and deployment workflows for Peasant Labs.
 
+The repository also owns the shared runner router that organization CI calls;
+see [the runner pool](docs/runner-pool.md).
+
 ## Managed infrastructure
 
 | Stack | HCP Terraform workspace | GitHub environment | Resources |
