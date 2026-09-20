@@ -99,8 +99,10 @@ anonymous and unmetered. Images whose publishers run their own registries are
 not mirrored: Fedora and Arch publish on Quay, and openSUSE Leap on
 `registry.opensuse.org`.
 
-The mirrors are single-arch `linux/amd64` images. CI is amd64-only; compose
-files that use them pin `platform: linux/amd64`.
+The `ubuntu` mirror is a byte-identical multi-arch copy (the index and its
+children are preserved), so the release matrix resolves native amd64 and arm64
+images from it. The `postgres` and `caddy` mirrors are single-arch
+`linux/amd64` images; compose files that use them pin `platform: linux/amd64`.
 
 ### Quay quirk: digests depend on the Accept media type
 
