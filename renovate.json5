@@ -41,6 +41,16 @@
 
   "packageRules": [
     {
+      // The terraform versions are deliberate exact pins by AGENTS.md (Terraform
+      // CLI 1.15.8, Cloudflare provider 5.22.0 — "exactly ... in every root and
+      // shared module"). Bumping either is a ratified change with its own
+      // checklist (.terraform.lock.hcl regen), not an automated bump; the first
+      // Renovate run opened two PRs against them before this rule existed.
+      "description": "Terraform CLI and provider versions are exact pins, not drift to repair",
+      "matchManagers": ["terraform"],
+      "enabled": false
+    },
+    {
       "description": "Keep the runner base on its release line; refresh the digest only",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ubuntu", "peasant-labs/ubuntu"],
