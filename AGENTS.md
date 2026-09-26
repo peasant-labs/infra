@@ -67,6 +67,33 @@ image the organisation's self-hosted pool runs. **It is a trust anchor, not a
 convenience artifact**: every routed repository ultimately executes code from
 it, which is why it lives here and not in a personal dotfiles repository.
 
+### Invariants
+
+- The image is signed **keylessly** with the identity
+  `https://github.com/peasant-labs/infra/.github/workflows/runner-image.yml@refs/heads/main`.
+  Consumers verify that exact identity.
+- **Digest and signer move together.** A consumer pins both. Switching one
+  without the other makes pull-and-verify fail and no runner starts.
+- **Never pin a mutable tag.** Publishing produces a new digest every build; a
+  tag push is not a re-publish.
+- The publishing workflow resolves the digest from the served manifest bytes
+  and requires the registry to resolve that digest **before** signing. Quay
+  re-serialises per `Accept` media type and the converted form is not addressable
+  by digest, so neither the `Docker-Content-Digest` header nor a client-side
+  `RepoDigests` value is trustworthy on its own.
+- Pin every build input: the base image digest, the dated apt snapshot, the
+  exact apt versions, and the SHA-256 of each downloaded archive. The build
+  verifies each download and fails closed on a mismatch.
+- `UBUNTU_SNAPSHOT` has no upstream listing API, so it is a manual bump. Move it
+  together with the base digest and the apt version list, as the Containerfile
+  header says.
+- Publishing is **manual dispatch on purpose**. A build that is not deliberate
+  should not move the digest every consumer pins.
+- Consumers **deploy**; they never rebuild. The NixOS module that pulls,
+  verifies, and runs the image is machine configuration and stays in the
+  desktop's dotfiles repository.
+
+
 ## The runner-pool module
 
 `modules/nixos/services/github-runner` deploys the pool on a host. It is
@@ -109,30 +136,6 @@ a home-manager consumer would gain nothing from it.
 - **Never publish a runner image that the module's default pin cannot reach.**
   The default digest is what a zero-configuration host pulls; a new publish
   changes it, and the default must follow.
-
-- The image is signed **keylessly** with the identity
-  `https://github.com/peasant-labs/infra/.github/workflows/runner-image.yml@refs/heads/main`.
-  Consumers verify that exact identity.
-- **Digest and signer move together.** A consumer pins both. Switching one
-  without the other makes pull-and-verify fail and no runner starts.
-- **Never pin a mutable tag.** Publishing produces a new digest every build; a
-  tag push is not a re-publish.
-- The publishing workflow resolves the digest from the served manifest bytes
-  and requires the registry to resolve that digest **before** signing. Quay
-  re-serialises per `Accept` media type and the converted form is not addressable
-  by digest, so neither the `Docker-Content-Digest` header nor a client-side
-  `RepoDigests` value is trustworthy on its own.
-- Pin every build input: the base image digest, the dated apt snapshot, the
-  exact apt versions, and the SHA-256 of each downloaded archive. The build
-  verifies each download and fails closed on a mismatch.
-- `UBUNTU_SNAPSHOT` has no upstream listing API, so it is a manual bump. Move it
-  together with the base digest and the apt version list, as the Containerfile
-  header says.
-- Publishing is **manual dispatch on purpose**. A build that is not deliberate
-  should not move the digest every consumer pins.
-- Consumers **deploy**; they never rebuild. The NixOS module that pulls,
-  verifies, and runs the image is machine configuration and stays in the
-  desktop's dotfiles repository.
 
 ### Dependency updates
 
