@@ -113,6 +113,25 @@ value recorded at push time, can therefore name a digest that cannot be pulled.
 To resolve a digest reliably, hash the served manifest bytes and require the
 registry to resolve that digest before signing or pinning it.
 
+### Draining before a rebuild
+
+Stopping a runner unit while GitHub considers it busy cancels the in-flight
+job: the listener exits on SIGTERM rather than finishing, and `podman stop`
+delivers that SIGTERM at the end of the module's `ExecStop`. Whether a runner
+is busy is visible only in GitHub, so the module ships
+`github-runner-drain` (on the system PATH, enabled with the pool) to wait for
+idle before anything stops the units. It resolves the pool's runner ids from
+`url` + the instance names once, polls the per-runner status endpoint using
+the pool's PAT, and exits 0 when every runner is idle, 1 when a
+`--timeout` (default 15 minutes) expires with runners still busy, and 2 when
+the API cannot be reached — it never stops anything itself.
+
+A rebuild or a manual stop should drain first: the desktop's `switch.sh`
+calls it before `nixos-rebuild`, aborts on exit 1 with a named error, and
+forces past a timeout only via `SWITCH_NO_DRAIN=1`. Proceeding past exit 1
+cancels the in-flight jobs, so that flag exists so the cancellation is
+deliberate, never silent.
+
 ## Related
 
 - [`runner-router.yml`](../.github/workflows/runner-router.yml) — the shared

@@ -133,6 +133,86 @@ let
     printf '%s' ${escapeShellArg cfg.imageRef} > "$stamp"
   '';
 
+  # Drain: wait until every instance this pool manages reports idle in
+  # GitHub, so a host rebuild or manual stop never cancels an in-flight job.
+  # The busy flag lives in GitHub, not in the container, so the PAT is the
+  # only way to observe it. The script never stops anything itself: it exits
+  # 0 when drained, 1 on timeout (runners still busy), 2 when the API cannot
+  # be read — the caller decides what a timeout means. Failing open here
+  # would silently cancel jobs, so a caller that proceeds past exit 1 must
+  # say so deliberately.
+  drainPackage = pkgs.writeShellScriptBin "github-runner-drain" ''
+    set -euo pipefail
+    org=${escapeShellArg (lib.last (lib.splitString "/" cfg.url))}
+    api="https://api.github.com"
+    token="$(cat ${cfg.tokenFile})"
+    names_json=${escapeShellArg (builtins.toJSON instanceNames)}
+    names_list=${escapeShellArg (lib.concatStringsSep " " instanceNames)}
+    timeout_s=900 interval_s=15
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --timeout) timeout_s=$2; shift 2 ;;
+        --interval) interval_s=$2; shift 2 ;;
+        *) printf 'usage: github-runner-drain [--timeout SECONDS] [--interval SECONDS]\n' >&2; exit 64 ;;
+      esac
+    done
+    auth="Authorization: Bearer $token"
+    # Resolve each instance name to its runner id once; polls then hit the
+    # per-runner endpoint instead of paging the org-wide list every cycle.
+    resolved=""
+    page=1
+    while :; do
+      resp="$(curl -fsS -H "$auth" "$api/orgs/$org/actions/runners?per_page=100&page=$page")" || {
+        printf 'github-runner-drain: runner list request failed\n' >&2
+        exit 2
+      }
+      found="$(printf '%s' "$resp" | ${pkgs.jq}/bin/jq -r --argjson names "$names_json" '
+        .runners[] | select(.name | IN($names[])) | "\(.id):\(.name)"
+      ' | sort -u)"
+      for pair in $found; do
+        case " $resolved " in *" $pair "*) ;; *) resolved="$resolved $pair" ;; esac
+      done
+      # All instance names resolved, or the list ran out of pages.
+      missing=""
+      for name in $names_list; do
+        case "$resolved" in *":$name") ;; *) missing="$missing $name" ;; esac
+      done
+      [ -z "$missing" ] && break
+      count="$(printf '%s' "$resp" | ${pkgs.jq}/bin/jq '(.runners | length) // 0')"
+      [ "$count" -eq 0 ] && break
+      page=$((page + 1))
+    done
+    [ -n "$resolved" ] || {
+      printf 'github-runner-drain: no registered runners matched the pool instances\n' >&2
+      exit 2
+    }
+    deadline=$(( $(date +%s) + timeout_s ))
+    while :; do
+      busy=""
+      for pair in $resolved; do
+        id="''${pair%%:*}"
+        name="''${pair#*:}"
+        is_busy="$(curl -fsS -H "$auth" "$api/orgs/$org/actions/runners/$id" \
+          | ${pkgs.jq}/bin/jq '.busy // false')" || {
+          printf 'github-runner-drain: runner status request failed (%s)\n' "$name" >&2
+          exit 2
+        }
+        [ "$is_busy" = true ] && busy="$busy $name"
+      done
+      if [ -z "$busy" ]; then
+        printf 'drained: all pool runners idle\n'
+        exit 0
+      fi
+      now="$(date +%s)"
+      if [ "$now" -ge "$deadline" ]; then
+        printf 'github-runner-drain: TIMEOUT after %ss, still busy:%s\n' "$timeout_s" "$busy" >&2
+        exit 1
+      fi
+      printf 'waiting for in-flight jobs:%s (%ss left)\n' "$busy" "$((deadline - now))"
+      sleep "$interval_s"
+    done
+  '';
+
   prepareState = pkgs.writeShellScript "github-runner-prepare-state" ''
     set -euo pipefail
     ${concatMapStringsSep "\n" (instance: ''
@@ -446,5 +526,10 @@ in
       description = "GitHub Actions runner resource slice ${slice}";
       sliceConfig = mkSliceConfig cfg.resources.runner;
     });
+
+    # The drain tool goes on the system PATH so the host's deploy tooling can
+    # call it before a rebuild; the PAT is read at run time from the same
+    # tokenFile the registration path uses.
+    environment.systemPackages = lib.mkIf cfg.enable [ drainPackage ];
   };
 }
