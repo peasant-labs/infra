@@ -40,8 +40,29 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
+      # This repository's Actions policy allows GitHub-owned actions plus
+      # hashicorp/setup-terraform and nothing else, so sigstore/cosign-installer
+      # cannot be used here: a workflow referencing a non-allow-listed action
+      # fails at startup, before any job runs. The binary is installed inline
+      # instead and pinned by SHA-256, which is a stronger guarantee than the
+      # action's own version check. To bump it:
+      #   gh api repos/sigstore/cosign/releases/tags/v<COSIGN_VERSION> \
+      #     --jq '.assets[] | select(.name=="cosign-linux-amd64").digest'
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+        env:
+          COSIGN_VERSION: v3.0.6
+          COSIGN_SHA256: c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74
+        run: |
+          set -euo pipefail
+          bin_dir="$RUNNER_TEMP/cosign-bin"
+          mkdir -p "$bin_dir"
+          curl -fsSL --retry 3 \
+            -o "$bin_dir/cosign" \
+            "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  ${bin_dir}/cosign" | sha256sum -c -
+          chmod 0755 "$bin_dir/cosign"
+          echo "${bin_dir}" >> "$GITHUB_PATH"
+          "${bin_dir}/cosign" version
 
       - name: Log in to Quay
         env:
