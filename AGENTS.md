@@ -1,9 +1,19 @@
 # Agent instructions
 
-This repository owns Terraform control-plane resources and the workflows that
-plan and apply them.
+This repository is the organisation's shared infrastructure: **cloud control
+plane**, **reusable CI**, and **container image maintenance**. Anything another
+`peasant-labs` repository calls as a workflow, trusts as a build input, or
+deploys through belongs here rather than in a personal repository.
 
-## Boundaries
+| Area | Lives in | Consumers |
+|---|---|---|
+| Cloud control plane | `stacks/`, `modules/`, `scripts/` | nobody imports it; it owns production |
+| Reusable CI | `.github/workflows/runner-router*.yml` | every routed repository |
+| Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the NixOS runner module, every routed job |
+
+## Cloud control plane
+
+### Boundaries
 
 - Keep `village-production` and `pkgs-production` as separate Terraform roots,
   HCP Terraform workspaces, credentials, GitHub environments, and concurrency
@@ -20,17 +30,79 @@ plan and apply them.
 - Preserve `prevent_destroy` on production buckets and the package custom domain.
 - Do not add an automated destroy workflow.
 
-## Versions
+### Versions
 
 - Terraform CLI is exactly `1.15.8` in roots and shared modules.
 - Cloudflare provider is exactly `5.22.0` in every root and shared module.
-- GitHub Actions use immutable commit SHAs with a version comment.
 - Regenerate and commit every root's `.terraform.lock.hcl` when a provider pin
   changes.
 
-## Validation
+### Validation
 
 Run `make check` before committing. Tests must use Terraform mock providers and
 must not contact production services. Add separate `.tftest.hcl` fixtures for
 new stack contracts rather than embedding test-only resources in production
 configuration.
+
+## Reusable CI
+
+`runner-router.yml` is the single source of truth for pool routing. Callers use
+it as a job and read the label array from its output; they never inline their own
+runner-availability probe.
+
+- **Never copy the routing block into a consuming repository.** Duplicated
+  probes drift, and a silent fallback must never be invisible.
+- Every caller must pass a `fallback` label set, so a run never queues on a
+  machine that is off. A missing `RUNNER_STATUS_TOKEN` is notice-level, not an
+  error: fork pull requests legitimately have no secrets.
+- Keep the report step. Without it a fallback to the paid runner looks
+  identical to intended behaviour.
+- GitHub Actions use immutable commit SHAs with a version comment.
+
+## Container images
+
+`runner-image/` is the recipe for `quay.io/peasant-labs/github-runner`, the
+image the organisation's self-hosted pool runs. **It is a trust anchor, not a
+convenience artifact**: every routed repository ultimately executes code from
+it, which is why it lives here and not in a personal dotfiles repository.
+
+### Invariants
+
+- The image is signed **keylessly** with the identity
+  `https://github.com/peasant-labs/infra/.github/workflows/runner-image.yml@refs/heads/main`.
+  Consumers verify that exact identity.
+- **Digest and signer move together.** A consumer pins both. Switching one
+  without the other makes pull-and-verify fail and no runner starts.
+- **Never pin a mutable tag.** Publishing produces a new digest every build; a
+  tag push is not a re-publish.
+- The publishing workflow resolves the digest from the served manifest bytes
+  and requires the registry to resolve that digest **before** signing. Quay
+  re-serialises per `Accept` media type and the converted form is not addressable
+  by digest, so neither the `Docker-Content-Digest` header nor a client-side
+  `RepoDigests` value is trustworthy on its own.
+- Pin every build input: the base image digest, the dated apt snapshot, the
+  exact apt versions, and the SHA-256 of each downloaded archive. The build
+  verifies each download and fails closed on a mismatch.
+- `UBUNTU_SNAPSHOT` has no upstream listing API, so it is a manual bump. Move it
+  together with the base digest and the apt version list, as the Containerfile
+  header says.
+- Publishing is **manual dispatch on purpose**. A build that is not deliberate
+  should not move the digest every consumer pins.
+- Consumers **deploy**; they never rebuild. The NixOS module that pulls,
+  verifies, and runs the image is machine configuration and stays in the
+  desktop's dotfiles repository.
+
+### Dependency updates
+
+`renovate.json5` tracks the Containerfile pins that have an upstream feed. Those
+pins only update automatically while the Renovate app is enabled on this
+repository — if it is not, they go stale silently and the snapshot/version
+drift has to be found by hand.
+
+## Validation
+
+- `make check` for anything under `stacks/` or `modules/`.
+- `actionlint` for any workflow change.
+- For an image change, actually build the Containerfile and assert the tool you
+  added is present in the result. A pin that resolves in the apt index is not the
+  same as a working image.
