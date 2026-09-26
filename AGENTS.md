@@ -7,9 +7,10 @@ deploys through belongs here rather than in a personal repository.
 
 | Area | Lives in | Consumers |
 |---|---|---|
-| Cloud control plane | `stacks/`, `modules/`, `scripts/` | nobody imports it; it owns production |
+| Cloud control plane | `stacks/`, `modules/terraform/`, `scripts/` | nobody imports it; it owns production |
 | Reusable CI | `.github/workflows/runner-router*.yml` | every routed repository |
 | Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the NixOS runner module, every routed job |
+| Runner pool module | `modules/nixos/`, `flake.nix` | any host that imports `nixosModules.default` |
 
 ## Cloud control plane
 
@@ -66,7 +67,48 @@ image the organisation's self-hosted pool runs. **It is a trust anchor, not a
 convenience artifact**: every routed repository ultimately executes code from
 it, which is why it lives here and not in a personal dotfiles repository.
 
+## The runner-pool module
+
+`modules/nixos/services/github-runner` deploys the pool on a host. It is
+published as `nixosModules.default` so any configuration can consume it:
+
+```nix
+{
+  inputs.infra.url = "github:peasant-labs/infra";
+
+  outputs = { nixpkgs, infra, ... }: {
+    nixosConfigurations.desktop = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        infra.nixosModules.default
+        ({ ... }: {
+          CUSTOM.services.github-runner = {
+            enable = true;
+            tokenFile = config.sops.secrets.runner-token.path;
+            count = 4;
+          };
+        })
+      ];
+    };
+  };
+}
+```
+
+There is deliberately no `homeModules` output. The pool is a system concern:
+image pull, the systemd user units, and the podman socket are all host-level, so
+a home-manager consumer would gain nothing from it.
+
 ### Invariants
+
+- **The module must not depend on any other repository's module.** It sets the
+  nixpkgs podman options it needs itself rather than reaching into a
+  host-specific wrapper namespace, so it evaluates in a configuration that
+  imports nothing else. Verified by evaluating it standalone.
+- `imageRef` and `imageSigner` are **options with the peasant-labs defaults**,
+  not constants. A host running its own pool overrides both.
+- **Never publish a runner image that the module's default pin cannot reach.**
+  The default digest is what a zero-configuration host pulls; a new publish
+  changes it, and the default must follow.
 
 - The image is signed **keylessly** with the identity
   `https://github.com/peasant-labs/infra/.github/workflows/runner-image.yml@refs/heads/main`.

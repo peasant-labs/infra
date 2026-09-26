@@ -10,9 +10,42 @@ input, or deploys through lives here.
 
 | Area | Path | What it is |
 |---|---|---|
-| Cloud control plane | `stacks/`, `modules/` | Terraform roots for `village-production` and `pkgs-production` |
+| Cloud control plane | `stacks/`, `modules/terraform/` | Terraform roots for `village-production` and `pkgs-production` |
 | Reusable CI | `.github/workflows/runner-router.yml` | the single source of truth for routing jobs to the self-hosted runner pool |
 | Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the `quay.io/peasant-labs/github-runner` recipe, its publishing, and its keyless signing |
+| Runner pool module | `modules/nixos/`, `flake.nix` | run your own pool by importing `nixosModules.default` |
+
+## Running your own pool
+
+Add `infra` as a flake input and import the module. It configures the podman
+options it needs, pulls and verifies the signed image, and runs the containers.
+The defaults point at the `peasant-labs` image, so a minimal host needs only a
+registration token:
+
+```nix
+{
+  inputs.infra.url = "github:peasant-labs/infra";
+
+  outputs = { nixpkgs, infra, ... }: {
+    nixosConfigurations.desktop = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        infra.nixosModules.default
+        ({ config, ... }: {
+          CUSTOM.services.github-runner = {
+            enable = true;
+            tokenFile = config.sops.secrets.runner-token.path;
+            count = 4;
+          };
+        })
+      ];
+    };
+  };
+}
+```
+
+Publishing your own image means overriding `imageRef` **and** `imageSigner`
+together; the signer must be the workflow that signed the digest. See `AGENTS.md`.
 
 ## The runner pool
 
