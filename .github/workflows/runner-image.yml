@@ -1,0 +1,108 @@
+# Builds, pushes, and keylessly signs the runner container image on Quay.
+#
+# This workflow is the ORG's trust anchor for CI. The image is published to the
+# peasant-labs Quay namespace and every routed repository ultimately runs code
+# from it, so the recipe and its signing identity live here in infra rather than
+# in any personal dotfiles repository. A rename or a private flip on a personal
+# repo would otherwise break verification org-wide.
+#
+# The signature is keyless (Sigstore): Fulcio binds it to this workflow's OIDC
+# identity and Rekor logs it, so consumers verify the image without a stored key.
+# The identity consumers pin is:
+#
+#   https://github.com/peasant-labs/infra/.github/workflows/runner-image.yml@refs/heads/main
+#
+# CUTOVER WARNING: the consuming NixOS module pins BOTH the image digest and
+# that signer identity. They must move in the same commit, and the module must
+# not be switched to a digest this workflow has not signed, or pull-and-verify
+# fails and no runner starts.
+#
+# Manual dispatch on purpose: publishing an image is a deliberate act, and the
+# digest this workflow reports is the one the module pins. The digest changes
+# with every build, so pin the new one; a tag push is not a re-publish.
+name: Runner image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: build, sign, push
+    runs-on: ubuntu-26.04
+    env:
+      IMAGE: quay.io/peasant-labs/github-runner
+      IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/runner-image.yml@${{ github.ref }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Log in to Quay
+        env:
+          QUAY_ROBOT_TOKEN: ${{ secrets.QUAY_ROBOT_TOKEN }}
+        run: echo "$QUAY_ROBOT_TOKEN" | docker login quay.io --username 'peasant-labs+builder' --password-stdin
+
+      - name: Build
+        working-directory: runner-image
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^ARG RUNNER_VERSION=([^[:space:]]+)$/\1/p' Containerfile)"
+          test -n "$version"
+          echo "runner_version=$version" >> "$GITHUB_ENV"
+          docker build --file Containerfile --tag "${IMAGE}:${version}" .
+
+      - name: Push and resolve the stored digest
+        run: |
+          set -euo pipefail
+          docker push "${IMAGE}:${runner_version}"
+
+          # Quay re-serializes the manifest on the fly per Accept media type,
+          # and the converted form is not addressable by digest. Hash the served
+          # bytes and accept only a digest the registry itself resolves.
+          repository="${IMAGE#quay.io/}"
+          url="https://quay.io/v2/${repository}/manifests/${runner_version}"
+          digest=""
+          accept=""
+          for candidate_accept in \
+            application/vnd.docker.distribution.manifest.v2+json \
+            application/vnd.oci.image.manifest.v1+json; do
+            curl -fsS -H "Accept: ${candidate_accept}" "${url}" -o "${RUNNER_TEMP}/manifest.json"
+            candidate="sha256:$(sha256sum "${RUNNER_TEMP}/manifest.json" | awk '{print $1}')"
+            if curl -fsS -o /dev/null -H "Accept: ${candidate_accept}" \
+                "https://quay.io/v2/${repository}/manifests/${candidate}"; then
+              digest="${candidate}"
+              accept="${candidate_accept}"
+              break
+            fi
+          done
+          test -n "${digest}"
+          echo "digest=${digest}" >> "$GITHUB_ENV"
+          echo "manifest media type: ${accept}"
+
+      - name: Sign
+        run: cosign sign --yes "${IMAGE}@${digest}"
+
+      - name: Verify the signature
+        run: |
+          cosign verify \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE}@${digest}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Runner image published"
+            echo ""
+            echo "- tag: \`${IMAGE}:${runner_version}\`"
+            echo "- digest: \`${digest}\`"
+            echo "- signature identity: \`${IDENTITY}\`"
+            echo ""
+            echo "Pin the digest in modules/nixos/services/github-runner/default.nix."
+          } >> "$GITHUB_STEP_SUMMARY"
