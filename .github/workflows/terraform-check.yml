@@ -7,6 +7,8 @@ on:
       - ".github/workflows/**"
       - ".terraform-version"
       - "Makefile"
+      - "README.md"
+      - "docs/**"
       - "modules/**"
       - "scripts/**"
       - "stacks/**"
