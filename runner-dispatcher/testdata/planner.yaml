@@ -1,0 +1,101 @@
+# Cases for planner.Plan: scale-set statistics plus tracked VM state map to
+# boot/kill actions. Ordering within a case is significant.
+- name: empty pool boots for assigned jobs
+  assigned: 2
+  running: 0
+  maxCapacity: 4
+  instances: []
+  want:
+    - { kind: boot }
+    - { kind: boot }
+
+- name: busy runner covers demand
+  assigned: 1
+  running: 1
+  maxCapacity: 4
+  instances:
+    - { id: vm-1, state: busy }
+  want: []
+
+- name: booting runner covers demand
+  assigned: 1
+  running: 0
+  maxCapacity: 4
+  instances:
+    - { id: vm-1, state: booting }
+  want: []
+
+- name: exited runner is reclaimed and demand boots a replacement
+  assigned: 1
+  running: 0
+  maxCapacity: 4
+  instances:
+    - { id: vm-1, state: exited }
+  want:
+    - { kind: kill, instanceId: vm-1 }
+    - { kind: boot }
+
+- name: surplus idle runners are reclaimed
+  assigned: 0
+  running: 0
+  maxCapacity: 4
+  instances:
+    - { id: vm-1, state: idle }
+    - { id: vm-2, state: idle }
+  want:
+    - { kind: kill, instanceId: vm-1 }
+    - { kind: kill, instanceId: vm-2 }
+
+- name: surplus is reclaimed down to demand
+  assigned: 1
+  running: 0
+  maxCapacity: 4
+  instances:
+    - { id: vm-1, state: idle }
+    - { id: vm-2, state: idle }
+  want:
+    - { kind: kill, instanceId: vm-1 }
+
+- name: capacity caps boots
+  assigned: 8
+  running: 0
+  maxCapacity: 4
+  instances:
+    - { id: vm-1, state: idle }
+  want:
+    - { kind: boot }
+    - { kind: boot }
+    - { kind: boot }
+
+- name: mixed pool reclaims exited and covers demand
+  assigned: 2
+  running: 1
+  maxCapacity: 4
+  instances:
+    - { id: vm-1, state: busy }
+    - { id: vm-2, state: idle }
+    - { id: vm-3, state: exited }
+  want:
+    - { kind: kill, instanceId: vm-3 }
+
+- name: invalid statistics fail closed
+  assigned: 1
+  running: 2
+  maxCapacity: 4
+  instances: []
+  wantErr: true
+
+- name: zero capacity fails closed
+  assigned: 1
+  running: 0
+  maxCapacity: 0
+  instances: []
+  wantErr: true
+
+- name: unknown instance state fails closed
+  assigned: 1
+  running: 0
+  maxCapacity: 4
+  instances:
+    - { id: vm-1, state: enchanted }
+  wantErr: true
