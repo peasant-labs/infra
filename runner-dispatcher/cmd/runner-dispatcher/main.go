@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/scalesetadapter"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm/dryrun"
+	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm/subprocess"
 )
 
 func main() {
@@ -42,7 +44,16 @@ func run() error {
 		appInstallation = flag.Int64("app-installation-id", 0, "GitHub App installation id")
 		appKeyFile      = flag.String("app-private-key-file", "", "path to the GitHub App private key (PEM)")
 		drainTimeout    = flag.Duration("drain-timeout", 10*time.Minute, "maximum wait for running jobs on shutdown")
+		vmBootCommand   = flag.String("vm-boot-command", "", "host-provided VM boot command; empty uses the in-memory driver")
+		vmJITDir        = flag.String("vm-jit-dir", filepath.Join(os.TempDir(), "runner-dispatcher-jit"), "directory holding per-VM JIT config files")
+		vmCacheDir      = flag.String("vm-cache-dir", "", "shared cache directory handed to every VM")
+		vmKillTimeout   = flag.Duration("vm-kill-timeout", 10*time.Second, "SIGTERM-to-SIGKILL grace period per VM")
 	)
+	var vmBootArgs []string
+	flag.Func("vm-boot-arg", "VM boot argument template (repeatable); placeholders {name} {jit-file} {cache-dir} {job-id}", func(value string) error {
+		vmBootArgs = append(vmBootArgs, value)
+		return nil
+	})
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -80,10 +91,28 @@ func run() error {
 		}
 	}()
 
-	// The hypervisor driver lands with the guest-image slice; until then the
-	// in-memory driver exercises queue handling without booting VMs.
-	var driver vm.Driver = dryrun.New()
-	logger.Warn("using the in-memory VM driver; no runner VMs are booted")
+	// The hypervisor invocation is host-provided: the dispatcher passes the
+	// VM name, JIT config file and cache directory to the boot command. Until
+	// a boot command is configured, the in-memory driver exercises queue
+	// handling without booting VMs.
+	var driver vm.Driver
+	if *vmBootCommand != "" {
+		sub, err := subprocess.New(subprocess.Config{
+			Command:     *vmBootCommand,
+			Args:        vmBootArgs,
+			JITDir:      *vmJITDir,
+			CacheDir:    *vmCacheDir,
+			KillTimeout: *vmKillTimeout,
+			Logger:      logger,
+		})
+		if err != nil {
+			return err
+		}
+		driver = sub
+	} else {
+		driver = dryrun.New()
+		logger.Warn("using the in-memory VM driver; no runner VMs are booted")
+	}
 
 	d := dispatcher.New(dispatcher.Config{
 		MaxCapacity: *maxCapacity,

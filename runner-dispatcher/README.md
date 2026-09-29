@@ -62,6 +62,7 @@ in-flight jobs, then exits.
 - [x] Planner with fixture-driven tests
 - [x] Message loop, JIT mint handoff, drain
 - [x] Scale-set client adapter (create/ensure, session, JIT)
-- [ ] Cloud Hypervisor VM driver and guest image
+- [x] VM driver: host boot command per VM, process-group lifecycle, JIT file handling
+- [ ] Cloud Hypervisor guest image and boot wrapper
 - [ ] Heartbeat publisher and router integration
 - [ ] End-to-end spike run and measurements
