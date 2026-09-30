@@ -1,0 +1,55 @@
+name: Runner VM real test
+
+# Answers "can the pool run a real test suite" with the strongest available
+# evidence: the dispatcher's own Go test suite, executed inside a VM. This also
+# exercises everything the smoke does not — egress to the module proxy and
+# toolchain downloads, a real `git clone`, compiling several packages, and a
+# multi-minute job.
+#
+# Dispatch-only on purpose, like the smoke: untrusted refs must never schedule
+# on self-hosted runners, and the run goes red whenever the desktop is offline.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-tests:
+    # The scale set's labels; the dispatcher boots exactly one VM for this job.
+    runs-on: [self-hosted, linux, x64, microvm]
+    # Go download plus a full -race suite takes minutes; this bounds execution,
+    # not queue time — a pool that is down leaves the run waiting.
+    timeout-minutes: 15
+    steps:
+      - name: Prove this is a VM slot, not the container pool
+        run: |
+          set -euo pipefail
+          case "${RUNNER_NAME}" in
+            runner-vm*) ;;
+            *) echo "unexpected runner name: ${RUNNER_NAME}" >&2; exit 1 ;;
+          esac
+          echo "runner: ${RUNNER_NAME}"
+
+      - name: Check out the dispatcher source
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/peasant-labs/infra.git pool-test
+          cd pool-test
+          git rev-parse --short HEAD
+
+      - name: Install the Go toolchain
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/go.tgz https://go.dev/dl/go1.26.3.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf /tmp/go.tgz
+          rm /tmp/go.tgz
+          /usr/local/go/bin/go version
+
+      - name: Run the dispatcher test suite
+        run: |
+          set -euo pipefail
+          export PATH="$PATH:/usr/local/go/bin"
+          cd pool-test/runner-dispatcher
+          go test -count=1 ./...
