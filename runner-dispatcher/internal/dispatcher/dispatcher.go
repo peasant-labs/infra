@@ -37,7 +37,7 @@ type Session interface {
 
 // JITSource mints one-shot runner registrations.
 type JITSource interface {
-	Mint(ctx context.Context) (string, error)
+	Mint(ctx context.Context, name string) (string, error)
 }
 
 // Config carries the dispatcher's fixed settings.
@@ -141,7 +141,7 @@ func (d *Dispatcher) Step(ctx context.Context, stats Statistics) error {
 			}
 			name := free[0]
 			free = free[1:]
-			jit, err := d.jit.Mint(ctx)
+			jit, err := d.jit.Mint(ctx, name)
 			if err != nil {
 				return fmt.Errorf("mint jit config: %w", err)
 			}

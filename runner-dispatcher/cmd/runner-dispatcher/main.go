@@ -172,7 +172,7 @@ func run() error {
 		NamePrefix:  *vmNamePrefix,
 		Logger:      logger,
 		Heartbeat:   heartbeatPublisher,
-	}, session, client.JITMinter(scaleSetID, *vmNamePrefix, *workFolder), driver)
+	}, session, client.JITMinter(scaleSetID, *workFolder), driver)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
