@@ -36,27 +36,28 @@ func main() {
 
 func run() error {
 	var (
-		githubConfigURL = flag.String("github-config-url", "https://github.com/peasant-labs", "GitHub organization or enterprise URL")
-		scaleSetName    = flag.String("scale-set-name", "desktop-microvm", "runner scale set name, also the workflow label")
-		runnerGroup     = flag.String("runner-group", "default", "runner group name")
-		labels          = flag.String("labels", "", "comma-separated extra scale-set labels")
-		maxCapacity     = flag.Int("max-capacity", 4, "maximum concurrent runner VMs")
-		vmClass         = flag.String("vm-class", "default", "VM sizing class handed to the driver")
-		vmNamePrefix    = flag.String("vm-name-prefix", "runner-vm", "runner VM name prefix; names are <prefix>-1..max-capacity")
-		workFolder      = flag.String("runner-work-folder", "_work", "work folder inside the runner VM")
-		appClientID     = flag.String("app-client-id", "", "GitHub App client id")
-		appInstallation = flag.Int64("app-installation-id", 0, "GitHub App installation id")
-		appKeyFile      = flag.String("app-private-key-file", "", "path to the GitHub App private key (PEM)")
-		drainTimeout    = flag.Duration("drain-timeout", 10*time.Minute, "maximum wait for running jobs on shutdown")
-		vmBootCommand   = flag.String("vm-boot-command", "", "host-provided VM boot command for -vm-driver=subprocess")
-		vmJITDir        = flag.String("vm-jit-dir", filepath.Join(os.TempDir(), "runner-dispatcher-jit"), "directory holding per-VM JIT config files")
-		vmCacheDir      = flag.String("vm-cache-dir", "", "shared cache directory handed to every VM")
-		vmKillTimeout   = flag.Duration("vm-kill-timeout", 10*time.Second, "SIGTERM-to-SIGKILL grace period per VM")
-		vmDriver        = flag.String("vm-driver", "dryrun", "VM driver: dryrun, subprocess or systemd")
-		vmUnitTemplate  = flag.String("vm-unit-template", "microvm@%s.service", "systemd unit template for -vm-driver=systemd")
-		vmSlots         = flag.String("vm-slots", "", "comma-separated systemd slots for -vm-driver=systemd; defaults to <name-prefix>-1..max-capacity")
-		heartbeatRepo   = flag.String("heartbeat-repo", "peasant-labs/infra", "owner/name of the repository holding the pool-health variable")
-		heartbeatVar    = flag.String("heartbeat-variable", "RUNNER_POOL_HEALTH", "repository variable for the pool-health record; empty disables publishing")
+		githubConfigURL     = flag.String("github-config-url", "https://github.com/peasant-labs", "GitHub organization or enterprise URL")
+		scaleSetName        = flag.String("scale-set-name", "desktop-microvm", "runner scale set name, also the workflow label")
+		runnerGroup         = flag.String("runner-group", "default", "runner group name")
+		labels              = flag.String("labels", "", "comma-separated extra scale-set labels")
+		maxCapacity         = flag.Int("max-capacity", 4, "maximum concurrent runner VMs")
+		vmClass             = flag.String("vm-class", "default", "VM sizing class handed to the driver")
+		vmNamePrefix        = flag.String("vm-name-prefix", "runner-vm", "runner VM name prefix; names are <prefix>-1..max-capacity")
+		workFolder          = flag.String("runner-work-folder", "_work", "work folder inside the runner VM")
+		appClientID         = flag.String("app-client-id", "", "GitHub App client id")
+		appInstallation     = flag.Int64("app-installation-id", 0, "GitHub App installation id")
+		appKeyFile          = flag.String("app-private-key-file", "", "path to the GitHub App private key (PEM)")
+		drainTimeout        = flag.Duration("drain-timeout", 10*time.Minute, "maximum wait for running jobs on shutdown")
+		vmBootCommand       = flag.String("vm-boot-command", "", "host-provided VM boot command for -vm-driver=subprocess")
+		vmJITDir            = flag.String("vm-jit-dir", filepath.Join(os.TempDir(), "runner-dispatcher-jit"), "directory holding per-VM JIT config files")
+		vmCacheDir          = flag.String("vm-cache-dir", "", "shared cache directory handed to every VM")
+		vmKillTimeout       = flag.Duration("vm-kill-timeout", 10*time.Second, "SIGTERM-to-SIGKILL grace period per VM")
+		vmDriver            = flag.String("vm-driver", "dryrun", "VM driver: dryrun, subprocess or systemd")
+		vmUnitTemplate      = flag.String("vm-unit-template", "microvm@%s.service", "systemd unit template for -vm-driver=systemd")
+		vmVirtiofsdTemplate = flag.String("vm-virtiofsd-template", "microvm-virtiofsd@%s.service", "virtiofsd unit template reset before each boot; empty disables the reset")
+		vmSlots             = flag.String("vm-slots", "", "comma-separated systemd slots for -vm-driver=systemd; defaults to <name-prefix>-1..max-capacity")
+		heartbeatRepo       = flag.String("heartbeat-repo", "peasant-labs/infra", "owner/name of the repository holding the pool-health variable")
+		heartbeatVar        = flag.String("heartbeat-variable", "RUNNER_POOL_HEALTH", "repository variable for the pool-health record; empty disables publishing")
 	)
 	var vmBootArgs []string
 	flag.Func("vm-boot-arg", "VM boot argument template (repeatable); placeholders {name} {jit-file} {cache-dir} {job-id}", func(value string) error {
@@ -153,10 +154,11 @@ func run() error {
 			}
 		}
 		sd, err := systemdvm.New(systemdvm.Config{
-			Slots:        slots,
-			UnitTemplate: *vmUnitTemplate,
-			JITDir:       *vmJITDir,
-			Logger:       logger,
+			Slots:             slots,
+			UnitTemplate:      *vmUnitTemplate,
+			VirtiofsdTemplate: *vmVirtiofsdTemplate,
+			JITDir:            *vmJITDir,
+			Logger:            logger,
 		})
 		if err != nil {
 			return err

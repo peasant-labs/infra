@@ -24,8 +24,12 @@ state_dir="$(dirname "$0")/state"
 mkdir -p "$state_dir"
 cmd="$1"
 unit="$2"
+echo "$cmd $unit" >> "$state_dir/calls.log"
 case "$cmd" in
   start)
+    touch "$state_dir/$unit"
+    ;;
+  try-restart)
     touch "$state_dir/$unit"
     ;;
   stop)
@@ -81,6 +85,62 @@ func TestNewDefaultCommandTimeoutFitsNotifyBoots(t *testing.T) {
 	}
 	if d.cfg.CommandTimeout < time.Minute {
 		t.Fatalf("default command timeout = %s, want at least a minute", d.cfg.CommandTimeout)
+	}
+}
+
+// The slot daemons exit with the VM and are never respawned, so Boot must
+// reset them first — in its own invocation before start, where no Before=
+// edge can deadlock the start transaction.
+func TestBootResetsVirtiofsdBeforeStart(t *testing.T) {
+	systemctl := fakeSystemctl(t)
+	d, err := New(Config{
+		Slots:             []string{"runner-vm-1"},
+		JITDir:            t.TempDir(),
+		Systemctl:         systemctl,
+		VirtiofsdTemplate: "vfs@%s.service",
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := d.Boot(context.Background(), vm.BootSpec{Name: "runner-vm-1", JITConfig: "jit"}); err != nil {
+		t.Fatalf("Boot: %v", err)
+	}
+	calls, err := os.ReadFile(filepath.Join(filepath.Dir(systemctl), "state", "calls.log"))
+	if err != nil {
+		t.Fatalf("read calls: %v", err)
+	}
+	want := "try-restart vfs@runner-vm-1.service\nstart microvm@runner-vm-1.service\n"
+	if string(calls) != want {
+		t.Fatalf("calls = %q, want %q", calls, want)
+	}
+}
+
+func TestBootSkipsVirtiofsdResetWhenUnset(t *testing.T) {
+	systemctl := fakeSystemctl(t)
+	d, err := New(Config{
+		Slots:             []string{"runner-vm-1"},
+		JITDir:            t.TempDir(),
+		Systemctl:         systemctl,
+		UnitTemplate:      "microvm@%s.service",
+		VirtiofsdTemplate: "",
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Bypass the default template so the test exercises the opt-out.
+	d.cfg.VirtiofsdTemplate = ""
+	if _, err := d.Boot(context.Background(), vm.BootSpec{Name: "runner-vm-1", JITConfig: "jit"}); err != nil {
+		t.Fatalf("Boot: %v", err)
+	}
+	calls, err := os.ReadFile(filepath.Join(filepath.Dir(systemctl), "state", "calls.log"))
+	if err != nil {
+		t.Fatalf("read calls: %v", err)
+	}
+	want := "start microvm@runner-vm-1.service\n"
+	if string(calls) != want {
+		t.Fatalf("calls = %q, want %q", calls, want)
 	}
 }
 
