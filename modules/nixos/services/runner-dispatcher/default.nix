@@ -69,10 +69,26 @@ in
       privateKeyFile = lib.mkOption {
         type = lib.types.path;
         description = ''
-          PEM private key read by the dispatcher service, which runs as root
-          (for example a sops secret owned by root with mode 0400). The guest
-          VMs never receive this key; they only get a single-use JIT config.
+          PEM private key read by the dispatcher service. With
+          {option}`app.encryptAtRest` it is only the bootstrap source: a
+          one-shot unit encrypts it with systemd-creds, and the plaintext file
+          is made inaccessible to the running dispatcher.
         '';
+      };
+      encryptAtRest = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Encrypt the private key with systemd-creds (host key and TPM2 when
+          available) and hand it to the dispatcher with
+          `LoadCredentialEncrypted=`. The encrypted blob is provisioned once
+          on first boot; reinstalling the host requires the original PEM again.
+        '';
+      };
+      encryptedKeyPath = lib.mkOption {
+        type = lib.types.str;
+        default = "/var/lib/runner-dispatcher/app-private-key.cred";
+        description = "Where the systemd-creds encrypted private key is provisioned.";
       };
     };
   };
@@ -85,31 +101,69 @@ in
       }
     ];
 
-    systemd.services.runner-dispatcher = {
-      description = "GitHub runner pool dispatcher (scale set to per-job VMs)";
+    # Bootstrap the encrypted credential once. The plaintext source stays the
+    # unit's business only until this has run; the dispatcher itself cannot
+    # read it (see InaccessiblePaths below).
+    systemd.services.runner-dispatcher-credential = lib.mkIf cfg.app.encryptAtRest {
+      description = "Provision the encrypted dispatcher credential";
       wantedBy = [ "multi-user.target" ];
-      wants = [ "network-online.target" ];
-      after = [ "network-online.target" ];
+      before = [ "runner-dispatcher.service" ];
+      unitConfig.ConditionPathExists = "!${cfg.app.encryptedKeyPath}";
       serviceConfig = {
-        ExecStart = lib.escapeShellArgs (
-          [ "${dispatcherPackage}/bin/runner-dispatcher" ]
-          ++ [
-            "-scale-set-name" cfg.scaleSetName
-            "-runner-group" cfg.runnerGroup
-            "-labels" (lib.concatStringsSep "," cfg.labels)
-            "-max-capacity" (toString cfg.maxCapacity)
-            "-vm-driver" "systemd"
-            "-vm-jit-dir" cfg.jitDir
-            "-heartbeat-repo" cfg.heartbeatRepo
-            "-heartbeat-variable" cfg.heartbeatVariable
-            "-app-client-id" cfg.app.clientId
-            "-app-installation-id" (toString cfg.app.installationId)
-            "-app-private-key-file" (toString cfg.app.privateKeyFile)
-          ]
-        );
-        Restart = "always";
-        RestartSec = "5s";
+        Type = "oneshot";
+        RemainAfterExit = true;
       };
+      script = ''
+        set -euo pipefail
+        install -d -m 0700 "$(dirname ${lib.escapeShellArg cfg.app.encryptedKeyPath})"
+        ${pkgs.systemd}/bin/systemd-creds encrypt --name=app-private-key \
+          ${lib.escapeShellArg (toString cfg.app.privateKeyFile)} \
+          ${lib.escapeShellArg cfg.app.encryptedKeyPath}
+      '';
     };
+
+    systemd.services.runner-dispatcher = lib.mkMerge [
+      {
+        description = "GitHub runner pool dispatcher (scale set to per-job VMs)";
+        wantedBy = [ "multi-user.target" ];
+        wants = [ "network-online.target" ];
+        after = [ "network-online.target" ]
+          ++ lib.optional cfg.app.encryptAtRest "runner-dispatcher-credential.service";
+        requires = lib.optional cfg.app.encryptAtRest "runner-dispatcher-credential.service";
+        serviceConfig = {
+          ExecStart = lib.escapeShellArgs (
+            [ "${dispatcherPackage}/bin/runner-dispatcher" ]
+            ++ [
+              "-scale-set-name" cfg.scaleSetName
+              "-runner-group" cfg.runnerGroup
+              "-labels" (lib.concatStringsSep "," cfg.labels)
+              "-max-capacity" (toString cfg.maxCapacity)
+              "-vm-driver" "systemd"
+              "-vm-jit-dir" cfg.jitDir
+              "-heartbeat-repo" cfg.heartbeatRepo
+              "-heartbeat-variable" cfg.heartbeatVariable
+              "-app-client-id" cfg.app.clientId
+              "-app-installation-id" (toString cfg.app.installationId)
+              "-app-private-key-file" "%d/app-private-key"
+            ]
+          );
+          # The running dispatcher gets the key only through its credential
+          # directory; the bootstrap plaintext (and the encrypted blob) are
+          # out of its reach.
+          InaccessiblePaths = [
+            (toString cfg.app.privateKeyFile)
+            cfg.app.encryptedKeyPath
+          ];
+          Restart = "always";
+          RestartSec = "5s";
+        };
+      }
+      (lib.mkIf cfg.app.encryptAtRest {
+        serviceConfig.LoadCredentialEncrypted = "app-private-key:${cfg.app.encryptedKeyPath}";
+      })
+      (lib.mkIf (!cfg.app.encryptAtRest) {
+        serviceConfig.LoadCredential = "app-private-key:${toString cfg.app.privateKeyFile}";
+      })
+    ];
   };
 }
