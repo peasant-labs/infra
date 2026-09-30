@@ -1,0 +1,64 @@
+name: Runner VM routing probe
+
+# Diagnostic for the heartbeat router's VM-pool branch: it calls the same
+# reusable router VM callers will use, then runs a job on whichever runner the
+# router selected and asserts that machine matches the router's decision.
+#
+# Dispatch it twice for full coverage:
+#   - dispatcher healthy → expect pool-online and a runner-vm* runner
+#   - dispatcher stopped → expect pool-stale and the hosted fallback
+#
+# Dispatch-only on purpose: a push or pull_request trigger would schedule on a
+# self-hosted runner from untrusted refs.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  route:
+    uses: ./.github/workflows/runner-router.yml
+    with:
+      labels: '["self-hosted","linux","x64","microvm"]'
+      fallback: '["ubuntu-24.04"]'
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+
+  probe:
+    name: Probe
+    needs: route
+    runs-on: ${{ fromJson(needs.route.outputs.runner) }}
+    timeout-minutes: 5
+    steps:
+      - name: Assert the machine matches the router's decision
+        env:
+          REASON: ${{ needs.route.outputs.reason }}
+          POOL: ${{ needs.route.outputs.pool }}
+        run: |
+          set -euo pipefail
+          echo "reason: ${REASON}"
+          echo "pool:   ${POOL}"
+          echo "runner: ${RUNNER_NAME}"
+          case "${REASON}" in
+            pool-online)
+              [ "${POOL}" = "true" ]
+              case "${RUNNER_NAME}" in
+                runner-vm*) echo "landed on a VM slot" ;;
+                *) echo "pool-online but ${RUNNER_NAME} is not a VM" >&2; exit 1 ;;
+              esac
+              ;;
+            pool-stale|query-failed)
+              [ "${POOL}" = "false" ]
+              case "${RUNNER_NAME}" in
+                runner-vm*) echo "pool stale but the job landed on a VM" >&2; exit 1 ;;
+                *) echo "landed on the hosted fallback" ;;
+              esac
+              ;;
+            *)
+              echo "unexpected reason: ${REASON}" >&2; exit 1
+              ;;
+          esac
+          echo "kernel: $(uname -r)"
+          if [ -e /run/current-system ]; then echo "machine: nixos guest"; else echo "machine: hosted ubuntu"; fi
