@@ -156,6 +156,12 @@ in
           ];
           Restart = "always";
           RestartSec = "5s";
+          # Shutdown runs the dispatcher's drain (default 10 minutes: stop a
+          # boot in flight, reclaim idle slots, wait for running jobs), and
+          # each stop call itself allows up to 5 minutes for a wedged guest.
+          # systemd's 90-second default would SIGKILL a graceful drain, so the
+          # stop timeout must cover the drain timeout plus one stop cycle.
+          TimeoutStopSec = "660s";
         };
       }
       (lib.mkIf cfg.app.encryptAtRest {
