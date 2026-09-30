@@ -9,11 +9,11 @@ import (
 
 // Record is one pool-health observation. Timestamp is set by the publisher.
 type Record struct {
-	Timestamp       time.Time
-	ListenerHealthy bool
-	AssignedJobs    int
-	RunningJobs     int
-	LiveRunners     int
+	Timestamp       time.Time `json:"timestamp"`
+	ListenerHealthy bool      `json:"listener_healthy"`
+	AssignedJobs    int       `json:"assigned_jobs"`
+	RunningJobs     int       `json:"running_jobs"`
+	LiveRunners     int       `json:"live_runners"`
 }
 
 // Publisher writes a record where the router can read it.

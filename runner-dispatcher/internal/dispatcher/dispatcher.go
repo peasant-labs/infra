@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/peasant-labs/infra/runner-dispatcher/internal/heartbeat"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/planner"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm"
 )
@@ -46,6 +47,9 @@ type Config struct {
 	NamePrefix  string
 	DrainPoll   time.Duration
 	Logger      *slog.Logger
+	// Heartbeat publishes the pool-health record the router reads. Optional;
+	// publish failures are logged and retried on the next cycle.
+	Heartbeat heartbeat.Publisher
 }
 
 // Dispatcher owns the boot/reclaim loop for one runner scale set.
@@ -151,6 +155,22 @@ func (d *Dispatcher) Step(ctx context.Context, stats Statistics) error {
 			d.cfg.Logger.Info("reclaimed runner vm", "name", action.InstanceID)
 		default:
 			return fmt.Errorf("unknown action kind %q", action.Kind)
+		}
+	}
+	if d.cfg.Heartbeat != nil {
+		live, err := d.driver.List(ctx)
+		if err != nil {
+			return fmt.Errorf("list instances for heartbeat: %w", err)
+		}
+		record := heartbeat.Record{
+			Timestamp:       time.Now().UTC(),
+			ListenerHealthy: true,
+			AssignedJobs:    stats.AssignedJobs,
+			RunningJobs:     stats.RunningJobs,
+			LiveRunners:     len(live),
+		}
+		if err := d.cfg.Heartbeat.Publish(ctx, record); err != nil {
+			d.cfg.Logger.Warn("publish heartbeat", "err", err)
 		}
 	}
 	return nil

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/peasant-labs/infra/runner-dispatcher/internal/heartbeat"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm/dryrun"
 )
@@ -120,6 +121,42 @@ func TestBootNamesAreReusedBelowCapacity(t *testing.T) {
 	if len(instances) != 1 || instances[0].ID != "vm-1" {
 		t.Fatalf("instances = %+v, want the recycled name vm-1", instances)
 	}
+}
+
+func TestStepPublishesHeartbeat(t *testing.T) {
+	driver := dryrun.New()
+	hb := &fakeHeartbeat{}
+	d := New(Config{
+		MaxCapacity: 4,
+		Class:       "default",
+		NamePrefix:  "vm",
+		DrainPoll:   5 * time.Millisecond,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Heartbeat:   hb,
+	}, &scriptedSession{}, &countingJIT{}, driver)
+
+	if err := d.Step(context.Background(), Statistics{AssignedJobs: 2, RunningJobs: 1}); err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if len(hb.records) != 1 {
+		t.Fatalf("heartbeat records = %d, want 1", len(hb.records))
+	}
+	record := hb.records[0]
+	if !record.ListenerHealthy || record.AssignedJobs != 2 || record.RunningJobs != 1 || record.LiveRunners != 2 {
+		t.Fatalf("record = %+v", record)
+	}
+	if record.Timestamp.IsZero() {
+		t.Fatal("record timestamp is zero")
+	}
+}
+
+type fakeHeartbeat struct {
+	records []heartbeat.Record
+}
+
+func (f *fakeHeartbeat) Publish(_ context.Context, record heartbeat.Record) error {
+	f.records = append(f.records, record)
+	return nil
 }
 
 func TestDrainWaitsForBusyThenReclaimsIdle(t *testing.T) {

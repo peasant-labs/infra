@@ -17,6 +17,9 @@ import (
 	"time"
 
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/dispatcher"
+	"github.com/peasant-labs/infra/runner-dispatcher/internal/githubapp"
+	"github.com/peasant-labs/infra/runner-dispatcher/internal/heartbeat"
+	"github.com/peasant-labs/infra/runner-dispatcher/internal/heartbeat/githubvar"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/scalesetadapter"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm/dryrun"
@@ -52,6 +55,8 @@ func run() error {
 		vmDriver        = flag.String("vm-driver", "dryrun", "VM driver: dryrun, subprocess or systemd")
 		vmUnitTemplate  = flag.String("vm-unit-template", "microvm@%s.service", "systemd unit template for -vm-driver=systemd")
 		vmSlots         = flag.String("vm-slots", "", "comma-separated systemd slots for -vm-driver=systemd; defaults to <name-prefix>-1..max-capacity")
+		heartbeatRepo   = flag.String("heartbeat-repo", "peasant-labs/infra", "owner/name of the repository holding the pool-health variable")
+		heartbeatVar    = flag.String("heartbeat-variable", "RUNNER_POOL_HEALTH", "repository variable for the pool-health record; empty disables publishing")
 	)
 	var vmBootArgs []string
 	flag.Func("vm-boot-arg", "VM boot argument template (repeatable); placeholders {name} {jit-file} {cache-dir} {job-id}", func(value string) error {
@@ -84,6 +89,27 @@ func run() error {
 	scaleSetID, err := client.EnsureScaleSet(context.Background(), *scaleSetName, *runnerGroup, splitLabels(*labels))
 	if err != nil {
 		return err
+	}
+
+	var heartbeatPublisher heartbeat.Publisher
+	if *heartbeatVar != "" {
+		tokens, err := githubapp.New(githubapp.Config{
+			ClientID:       *appClientID,
+			InstallationID: *appInstallation,
+			PrivateKeyPEM:  string(key),
+		})
+		if err != nil {
+			return err
+		}
+		pub, err := githubvar.New(githubvar.Config{
+			Repo:     *heartbeatRepo,
+			Variable: *heartbeatVar,
+			Tokens:   tokens,
+		})
+		if err != nil {
+			return err
+		}
+		heartbeatPublisher = pub
 	}
 	session, err := client.Session(context.Background(), scaleSetID, owner)
 	if err != nil {
@@ -145,6 +171,7 @@ func run() error {
 		Class:       *vmClass,
 		NamePrefix:  *vmNamePrefix,
 		Logger:      logger,
+		Heartbeat:   heartbeatPublisher,
 	}, session, client.JITMinter(scaleSetID, *vmNamePrefix, *workFolder), driver)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
