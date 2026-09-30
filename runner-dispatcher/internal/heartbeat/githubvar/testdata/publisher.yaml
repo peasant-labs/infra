@@ -1,0 +1,27 @@
+# Cases for githubvar.Publish: an existing variable is updated, a missing
+# variable is created, and server errors surface as errors.
+- name: updates an existing variable
+  updateStatus: 204
+  wantUpdateCalls: 1
+  wantCreateCalls: 0
+  wantRecordJSON: true
+
+- name: creates a variable that does not exist yet
+  updateStatus: 404
+  createStatus: 201
+  wantUpdateCalls: 1
+  wantCreateCalls: 1
+  wantRecordJSON: true
+
+- name: fails on an update error
+  updateStatus: 500
+  wantUpdateCalls: 1
+  wantCreateCalls: 0
+  wantErr: true
+
+- name: fails when create also fails
+  updateStatus: 404
+  createStatus: 422
+  wantUpdateCalls: 1
+  wantCreateCalls: 1
+  wantErr: true

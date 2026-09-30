@@ -39,10 +39,17 @@ jobs:
           echo "pool=${POOL}"
           echo "reason=${REASON}"
           printf '%s' "${RUNNER}" | jq -e 'type == "array" and length > 0' >/dev/null
-          if [ "${REASON}" = "pool-online" ]; then
-            [ "${POOL}" = "true" ]
-            [ "${RUNNER}" = "${LABELS}" ]
-          else
-            [ "${POOL}" = "false" ]
-            [ "${RUNNER}" = "${FALLBACK}" ]
-          fi
+          case "${REASON}" in
+            pool-online)
+              [ "${POOL}" = "true" ]
+              [ "${RUNNER}" = "${LABELS}" ]
+              ;;
+            pool-stale|query-failed)
+              [ "${POOL}" = "false" ]
+              [ "${RUNNER}" = "${FALLBACK}" ]
+              ;;
+            *)
+              echo "unexpected reason: ${REASON}" >&2
+              exit 1
+              ;;
+          esac
