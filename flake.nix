@@ -15,7 +15,22 @@
       # The runner-pool module. A host adds `infra` as a flake input and imports
       # `inputs.infra.nixosModules.default`; everything else is an option on
       # `CUSTOM.services.github-runner`.
-      nixosModules.default = import ./modules/nixos/services/github-runner;
+      nixosModules = {
+        default = import ./modules/nixos/services/github-runner;
+
+        # The per-job dispatcher: maps the scale-set queue onto one VM per job
+        # and publishes the pool-health record the router reads. The wrapper
+        # injects this flake's dispatcher package so consumers need only the
+        # module, not the package output.
+        runner-dispatcher =
+          { pkgs, ... }@args:
+          import ./modules/nixos/services/runner-dispatcher (
+            args
+            // {
+              dispatcherPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.runner-dispatcher;
+            }
+          );
+      };
 
       # The per-job dispatcher: maps the scale-set queue onto one VM per job
       # and publishes the pool-health record the router reads.
