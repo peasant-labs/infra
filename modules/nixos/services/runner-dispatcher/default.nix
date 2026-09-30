@@ -142,7 +142,10 @@ in
               "-vm-jit-dir" cfg.jitDir
               # Reset each slot's virtiofsd before boot in a transaction of its
               # own; the daemons exit with the VM and are never respawned.
-              "-vm-virtiofsd-template" "microvm-virtiofsd@%s.service"
+              # Doubled percent: systemd expands %s (user shell) in ExecStart
+              # lines, so the binary would receive its own shell path instead
+              # of a format verb. %% survives to the process as %s.
+              "-vm-virtiofsd-template" "microvm-virtiofsd@%%s.service"
               "-heartbeat-repo" cfg.heartbeatRepo
               "-heartbeat-variable" cfg.heartbeatVariable
               "-app-client-id" cfg.app.clientId
