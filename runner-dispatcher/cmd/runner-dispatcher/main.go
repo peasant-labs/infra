@@ -176,6 +176,11 @@ func run() error {
 		Heartbeat:   heartbeatPublisher,
 	}, session, client.JITMinter(scaleSetID, *workFolder), driver)
 
+	logger.Info("dispatcher started",
+		"scale_set", *scaleSetName, "runner_group", *runnerGroup,
+		"labels", *labels, "max_capacity", *maxCapacity, "driver", *vmDriver,
+		"scale_set_id", scaleSetID)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
