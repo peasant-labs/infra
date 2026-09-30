@@ -123,11 +123,13 @@ job: the listener exits on SIGTERM rather than finishing, and `podman stop`
 delivers that SIGTERM at the end of the module's `ExecStop`. Whether a runner
 is busy is visible only in GitHub, so the module ships
 `github-runner-drain` (on the system PATH, enabled with the pool) to wait for
-idle before anything stops the units. It resolves the pool's runner ids from
-`url` + the instance names once, polls the per-runner status endpoint using
-the pool's PAT, and exits 0 when every runner is idle, 1 when a
-`--timeout` (default 15 minutes) expires with runners still busy, and 2 when
-the API cannot be reached — it never stops anything itself.
+idle before anything stops the units. It re-reads the organization runner list
+every cycle and matches the pool's instance names, so runner-id rotation
+(PAT rotation, `--replace`, ephemeral runners) cannot make it poll a stale id;
+a runner that is not registered between jobs counts as drained. It exits 0
+when no instance is busy, 1 when a `--timeout` (default 15 minutes) expires
+with runners still busy, and 2 when the API cannot be reached — it never stops
+anything itself.
 
 A rebuild or a manual stop should drain first: the desktop's `switch.sh`
 calls it before `nixos-rebuild`, aborts on exit 1 with a named error, and
