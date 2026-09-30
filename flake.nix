@@ -17,6 +17,19 @@
       # `CUSTOM.services.github-runner`.
       nixosModules.default = import ./modules/nixos/services/github-runner;
 
+      # The per-job dispatcher: maps the scale-set queue onto one VM per job
+      # and publishes the pool-health record the router reads.
+      packages = forAllSystems (pkgs: rec {
+        runner-dispatcher = pkgs.buildGoModule {
+          pname = "runner-dispatcher";
+          version = "0.1.0";
+          src = ./runner-dispatcher;
+          subPackages = [ "cmd/runner-dispatcher" ];
+          vendorHash = "sha256-i9/m2v+5Fb2kzY3cUU9MwQKPZtoNz/9MYYQb7cNJ8qg=";
+        };
+        default = runner-dispatcher;
+      });
+
       # No home-manager module is required. The pool is a system service: image
       # pull, the systemd user units, and the podman socket are all host-level.
       # A consumer that also wants a per-user convenience does not need this
