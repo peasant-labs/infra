@@ -1,0 +1,52 @@
+name: Runner VM smoke
+
+# Production-path evidence for the per-job VM pool. Dispatch this after a
+# dispatcher, VM-module or guest-image change: the job runs inside one of the
+# VMs, so a pass covers the whole path — queue assignment, JIT mint, VM boot
+# and job execution — while the container pool keeps serving everything else.
+#
+# Dispatch-only on purpose: a push or pull_request trigger would run untrusted
+# refs on a self-hosted runner, and it would go red whenever the desktop pool is
+# deliberately offline. This probe is for deliberate verification runs.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # The scale set's labels; the dispatcher boots exactly one VM for this job.
+    runs-on: [self-hosted, linux, x64, microvm]
+    # Boot plus probes takes seconds; a hung VM must fail fast. This bounds
+    # execution, not queue time — a pool that is down leaves the run waiting.
+    timeout-minutes: 5
+    steps:
+      - name: Prove this is a VM slot, not the container pool
+        run: |
+          set -euo pipefail
+          echo "runner:  ${RUNNER_NAME}"
+          case "${RUNNER_NAME}" in
+            runner-vm*) ;;
+            *) echo "unexpected runner name: ${RUNNER_NAME}" >&2; exit 1 ;;
+          esac
+          echo "kernel:  $(uname -r)"
+          echo "cmdline: $(cat /proc/cmdline)"
+          echo "uptime:  $(uptime -p)"
+
+      - name: Guest resources
+        run: |
+          set -euo pipefail
+          echo "cpus: $(nproc)"
+          free -m
+          df -h /var/cache/runner
+
+      - name: Shared cache share is writable
+        run: |
+          set -euo pipefail
+          ls -la /var/cache/runner
+          marker="/var/cache/runner/smoke-$(date -u +%s)"
+          touch "${marker}"
+          test -f "${marker}"
+          rm -f "${marker}"

@@ -1,0 +1,7 @@
+# Custom labels for self-hosted runners the organisation operates. actionlint
+# validates runs-on labels against GitHub's hosted set; org-owned labels must be
+# declared here or every workflow targeting the pool fails the mandated lint.
+
+self-hosted-runner:
+  labels:
+    - microvm
