@@ -73,7 +73,8 @@ func New(cfg Config, session Session, jit JITSource, driver vm.Driver) *Dispatch
 
 // Run consumes the message queue until the context ends. Long-poll expiries
 // reconcile against the last known statistics; a fresh dispatcher does not
-// plan before it has seen its first message.
+// plan before it has seen its first message, but it publishes pool health
+// from the first cycle so an idle pool never looks stale to the router.
 func (d *Dispatcher) Run(ctx context.Context) error {
 	var (
 		lastID    int
@@ -83,6 +84,14 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		// Without statistics there is nothing to plan, but the pool-health
+		// record still needs a fresh timestamp; otherwise the router treats a
+		// live, idle pool as stale until the first job arrives. Counters read
+		// zero until the first message, which the message session delivers
+		// with the current statistics.
+		if !haveStats {
+			d.publishHealth(ctx, Statistics{})
 		}
 		msg, err := d.session.Next(ctx, lastID, d.cfg.MaxCapacity)
 		if err != nil {
@@ -157,23 +166,33 @@ func (d *Dispatcher) Step(ctx context.Context, stats Statistics) error {
 			return fmt.Errorf("unknown action kind %q", action.Kind)
 		}
 	}
-	if d.cfg.Heartbeat != nil {
-		live, err := d.driver.List(ctx)
-		if err != nil {
-			return fmt.Errorf("list instances for heartbeat: %w", err)
-		}
-		record := heartbeat.Record{
-			Timestamp:       time.Now().UTC(),
-			ListenerHealthy: true,
-			AssignedJobs:    stats.AssignedJobs,
-			RunningJobs:     stats.RunningJobs,
-			LiveRunners:     len(live),
-		}
-		if err := d.cfg.Heartbeat.Publish(ctx, record); err != nil {
-			d.cfg.Logger.Warn("publish heartbeat", "err", err)
-		}
-	}
+	d.publishHealth(ctx, stats)
 	return nil
+}
+
+// publishHealth writes one pool-health record. Planning stays gated on
+// observed statistics; the health record does not, so the router can see a
+// live pool before the first job. Advisory failures are logged and retried on
+// the next cycle.
+func (d *Dispatcher) publishHealth(ctx context.Context, stats Statistics) {
+	if d.cfg.Heartbeat == nil {
+		return
+	}
+	live, err := d.driver.List(ctx)
+	if err != nil {
+		d.cfg.Logger.Warn("list instances for heartbeat", "err", err)
+		return
+	}
+	record := heartbeat.Record{
+		Timestamp:       time.Now().UTC(),
+		ListenerHealthy: true,
+		AssignedJobs:    stats.AssignedJobs,
+		RunningJobs:     stats.RunningJobs,
+		LiveRunners:     len(live),
+	}
+	if err := d.cfg.Heartbeat.Publish(ctx, record); err != nil {
+		d.cfg.Logger.Warn("publish heartbeat", "err", err)
+	}
 }
 
 // freeNames returns the unused slot names in ascending order so a bounded
