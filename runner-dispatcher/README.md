@@ -40,7 +40,7 @@ are reclaimed; surplus idle VMs are reclaimed down to demand. Messages are
 acknowledged after their statistics are applied; long-poll expiries reconcile
 against the last seen statistics instead of assuming zero demand.
 
-## Running (dry run)
+## Running
 
 ```sh
 go run ./cmd/runner-dispatcher \
@@ -49,8 +49,15 @@ go run ./cmd/runner-dispatcher \
   -app-client-id <client-id> \
   -app-installation-id <installation-id> \
   -app-private-key-file /path/to/app.pem \
-  -max-capacity 4
+  -max-capacity 4 \
+  -vm-driver systemd \
+  -vm-jit-dir /var/lib/runner-vm/jit
 ```
+
+`-vm-driver` selects the VM backend: `dryrun` (in-memory, no VMs), `systemd`
+(starts the host's declared `microvm@<slot>.service` units after writing each
+slot's JIT config), or `subprocess` (supervises a host-provided boot command
+with `-vm-boot-command`/`-vm-boot-arg`).
 
 The GitHub App needs Actions administration on the organization (runner
 registration and scale-set management). On shutdown the dispatcher stops
@@ -62,7 +69,8 @@ in-flight jobs, then exits.
 - [x] Planner with fixture-driven tests
 - [x] Message loop, JIT mint handoff, drain
 - [x] Scale-set client adapter (create/ensure, session, JIT)
-- [x] VM driver: host boot command per VM, process-group lifecycle, JIT file handling
-- [ ] Cloud Hypervisor guest image and boot wrapper
+- [x] VM drivers: systemd slot units (microvm.nix), host boot command, in-memory
+- [x] Runner VM guest: Cloud Hypervisor slots, baked image, JIT and cache shares (maintainer dotfiles)
+- [ ] Boot smoke on the host (requires enabling the VM module)
 - [ ] Heartbeat publisher and router integration
 - [ ] End-to-end spike run and measurements

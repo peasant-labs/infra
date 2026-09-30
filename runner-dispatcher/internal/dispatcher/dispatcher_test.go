@@ -101,6 +101,27 @@ func TestStepReclaimsExited(t *testing.T) {
 	}
 }
 
+func TestBootNamesAreReusedBelowCapacity(t *testing.T) {
+	driver := dryrun.New()
+	ctx := context.Background()
+	if _, err := driver.Boot(ctx, vm.BootSpec{Name: "vm-1"}); err != nil {
+		t.Fatalf("boot: %v", err)
+	}
+	driver.SetState("vm-1", vm.StateExited)
+
+	d, _ := newTestDispatcher(t, &scriptedSession{}, driver)
+	if err := d.Step(ctx, Statistics{}); err != nil {
+		t.Fatalf("reclaim step: %v", err)
+	}
+	if err := d.Step(ctx, Statistics{AssignedJobs: 1}); err != nil {
+		t.Fatalf("boot step: %v", err)
+	}
+	instances, _ := driver.List(ctx)
+	if len(instances) != 1 || instances[0].ID != "vm-1" {
+		t.Fatalf("instances = %+v, want the recycled name vm-1", instances)
+	}
+}
+
 func TestDrainWaitsForBusyThenReclaimsIdle(t *testing.T) {
 	driver := dryrun.New()
 	ctx := context.Background()

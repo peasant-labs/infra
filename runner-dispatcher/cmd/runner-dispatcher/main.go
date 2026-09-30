@@ -21,6 +21,7 @@ import (
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm/dryrun"
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm/subprocess"
+	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm/systemdvm"
 )
 
 func main() {
@@ -38,16 +39,19 @@ func run() error {
 		labels          = flag.String("labels", "", "comma-separated extra scale-set labels")
 		maxCapacity     = flag.Int("max-capacity", 4, "maximum concurrent runner VMs")
 		vmClass         = flag.String("vm-class", "default", "VM sizing class handed to the driver")
-		vmNamePrefix    = flag.String("vm-name-prefix", "runner", "runner VM name prefix")
+		vmNamePrefix    = flag.String("vm-name-prefix", "runner-vm", "runner VM name prefix; names are <prefix>-1..max-capacity")
 		workFolder      = flag.String("runner-work-folder", "_work", "work folder inside the runner VM")
 		appClientID     = flag.String("app-client-id", "", "GitHub App client id")
 		appInstallation = flag.Int64("app-installation-id", 0, "GitHub App installation id")
 		appKeyFile      = flag.String("app-private-key-file", "", "path to the GitHub App private key (PEM)")
 		drainTimeout    = flag.Duration("drain-timeout", 10*time.Minute, "maximum wait for running jobs on shutdown")
-		vmBootCommand   = flag.String("vm-boot-command", "", "host-provided VM boot command; empty uses the in-memory driver")
+		vmBootCommand   = flag.String("vm-boot-command", "", "host-provided VM boot command for -vm-driver=subprocess")
 		vmJITDir        = flag.String("vm-jit-dir", filepath.Join(os.TempDir(), "runner-dispatcher-jit"), "directory holding per-VM JIT config files")
 		vmCacheDir      = flag.String("vm-cache-dir", "", "shared cache directory handed to every VM")
 		vmKillTimeout   = flag.Duration("vm-kill-timeout", 10*time.Second, "SIGTERM-to-SIGKILL grace period per VM")
+		vmDriver        = flag.String("vm-driver", "dryrun", "VM driver: dryrun, subprocess or systemd")
+		vmUnitTemplate  = flag.String("vm-unit-template", "microvm@%s.service", "systemd unit template for -vm-driver=systemd")
+		vmSlots         = flag.String("vm-slots", "", "comma-separated systemd slots for -vm-driver=systemd; defaults to <name-prefix>-1..max-capacity")
 	)
 	var vmBootArgs []string
 	flag.Func("vm-boot-arg", "VM boot argument template (repeatable); placeholders {name} {jit-file} {cache-dir} {job-id}", func(value string) error {
@@ -91,12 +95,18 @@ func run() error {
 		}
 	}()
 
-	// The hypervisor invocation is host-provided: the dispatcher passes the
-	// VM name, JIT config file and cache directory to the boot command. Until
-	// a boot command is configured, the in-memory driver exercises queue
-	// handling without booting VMs.
+	// Driver selection: the in-memory driver exercises queue handling, the
+	// subprocess driver supervises a host boot command, and the systemd driver
+	// starts the microvm.nix units declared by the host configuration.
 	var driver vm.Driver
-	if *vmBootCommand != "" {
+	switch *vmDriver {
+	case "dryrun":
+		driver = dryrun.New()
+		logger.Warn("using the in-memory VM driver; no runner VMs are booted")
+	case "subprocess":
+		if *vmBootCommand == "" {
+			return errors.New("-vm-boot-command is required for -vm-driver=subprocess")
+		}
 		sub, err := subprocess.New(subprocess.Config{
 			Command:     *vmBootCommand,
 			Args:        vmBootArgs,
@@ -109,9 +119,25 @@ func run() error {
 			return err
 		}
 		driver = sub
-	} else {
-		driver = dryrun.New()
-		logger.Warn("using the in-memory VM driver; no runner VMs are booted")
+	case "systemd":
+		slots := splitLabels(*vmSlots)
+		if len(slots) == 0 {
+			for i := 1; i <= *maxCapacity; i++ {
+				slots = append(slots, fmt.Sprintf("%s-%d", *vmNamePrefix, i))
+			}
+		}
+		sd, err := systemdvm.New(systemdvm.Config{
+			Slots:        slots,
+			UnitTemplate: *vmUnitTemplate,
+			JITDir:       *vmJITDir,
+			Logger:       logger,
+		})
+		if err != nil {
+			return err
+		}
+		driver = sd
+	default:
+		return fmt.Errorf("unknown -vm-driver %q", *vmDriver)
 	}
 
 	d := dispatcher.New(dispatcher.Config{

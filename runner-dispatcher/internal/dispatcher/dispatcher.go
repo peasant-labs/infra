@@ -54,7 +54,6 @@ type Dispatcher struct {
 	session Session
 	jit     JITSource
 	driver  vm.Driver
-	bootSeq int
 }
 
 // New wires a dispatcher from its dependencies.
@@ -120,16 +119,21 @@ func (d *Dispatcher) Step(ctx context.Context, stats Statistics) error {
 	if err != nil {
 		return fmt.Errorf("plan: %w", err)
 	}
+	free := freeNames(d.cfg.NamePrefix, d.cfg.MaxCapacity, instances)
 	for _, action := range actions {
 		switch action.Kind {
 		case planner.ActionBoot:
+			if len(free) == 0 {
+				return fmt.Errorf("no free VM name below capacity %d", d.cfg.MaxCapacity)
+			}
+			name := free[0]
+			free = free[1:]
 			jit, err := d.jit.Mint(ctx)
 			if err != nil {
 				return fmt.Errorf("mint jit config: %w", err)
 			}
-			d.bootSeq++
 			spec := vm.BootSpec{
-				Name:      fmt.Sprintf("%s-%d", d.cfg.NamePrefix, d.bootSeq),
+				Name:      name,
 				JobID:     action.JobID,
 				JITConfig: jit,
 				Class:     d.cfg.Class,
@@ -150,6 +154,23 @@ func (d *Dispatcher) Step(ctx context.Context, stats Statistics) error {
 		}
 	}
 	return nil
+}
+
+// freeNames returns the unused slot names in ascending order so a bounded
+// pool recycles names instead of growing them without limit.
+func freeNames(prefix string, capacity int, instances []vm.Instance) []string {
+	used := make(map[string]struct{}, len(instances))
+	for _, inst := range instances {
+		used[inst.ID] = struct{}{}
+	}
+	free := make([]string, 0, capacity)
+	for i := 1; i <= capacity; i++ {
+		name := fmt.Sprintf("%s-%d", prefix, i)
+		if _, ok := used[name]; !ok {
+			free = append(free, name)
+		}
+	}
+	return free
 }
 
 // Drain stops accepting new work, reclaims VMs without a job, and waits for
