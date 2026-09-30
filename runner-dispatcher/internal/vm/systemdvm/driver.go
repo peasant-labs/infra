@@ -55,7 +55,11 @@ func New(cfg Config) (*Driver, error) {
 		cfg.Systemctl = "systemctl"
 	}
 	if cfg.CommandTimeout <= 0 {
-		cfg.CommandTimeout = 30 * time.Second
+		// `systemctl start` now waits for guest boot-readiness (the units are
+		// Type=notify and the guest loads its runner image before signalling),
+		// which takes tens of seconds and longer under load. A tighter bound
+		// aborts healthy boots and takes the dispatcher down with them.
+		cfg.CommandTimeout = 300 * time.Second
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
