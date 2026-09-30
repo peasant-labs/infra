@@ -159,6 +159,33 @@ func (f *fakeHeartbeat) Publish(_ context.Context, record heartbeat.Record) erro
 	return nil
 }
 
+func TestRunPublishesHealthBeforeFirstMessage(t *testing.T) {
+	driver := dryrun.New()
+	hb := &fakeHeartbeat{}
+	d := New(Config{
+		MaxCapacity: 4,
+		Class:       "default",
+		NamePrefix:  "vm",
+		DrainPoll:   5 * time.Millisecond,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Heartbeat:   hb,
+	}, &scriptedSession{nextErr: context.Canceled}, &countingJIT{}, driver)
+
+	if err := d.Run(context.Background()); err != context.Canceled {
+		t.Fatalf("Run = %v, want context.Canceled", err)
+	}
+	if len(hb.records) != 1 {
+		t.Fatalf("heartbeat records = %d, want 1 before the first queue message", len(hb.records))
+	}
+	record := hb.records[0]
+	if !record.ListenerHealthy || record.AssignedJobs != 0 || record.RunningJobs != 0 || record.LiveRunners != 0 {
+		t.Fatalf("record = %+v", record)
+	}
+	if record.Timestamp.IsZero() {
+		t.Fatal("record timestamp is zero")
+	}
+}
+
 func TestDrainWaitsForBusyThenReclaimsIdle(t *testing.T) {
 	driver := dryrun.New()
 	ctx := context.Background()
