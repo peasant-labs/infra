@@ -36,11 +36,14 @@ determine-runner:
     RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 ```
 
-The router probes the organization runner list for an online runner carrying the
-requested labels and returns `runner` (the label array for `runs-on`), `pool`
-(`true` when the pool was chosen), and `reason` (`pool-online`,
-`no-online-runners`, or `query-failed`). The fallback is written before the
-probe, so an abort still yields a runnable label set.
+The router reads the dispatcher's pool-health record — the repository
+variable `RUNNER_POOL_HEALTH` in this repository — and returns `runner` (the
+label array for `runs-on`), `pool` (`true` when the pool was chosen), and
+`reason` (`pool-online`, `pool-stale`, or `query-failed`). The record counts as
+online when it is younger than five minutes and reports a healthy listener; the
+runner list is deliberately not consulted, because a scale set has no
+registered runners while it is idle. The fallback is written before the check,
+so an abort still yields a runnable label set.
 
 Two consequences worth knowing:
 
