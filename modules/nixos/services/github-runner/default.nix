@@ -89,9 +89,9 @@ let
     "-e" "GITHUB_RUNNER_GROUP=${lib.optionalString (cfg.runnerGroup != null) cfg.runnerGroup}"
     "-e" "GITHUB_RUNNER_LABELS=${lib.concatStringsSep "," cfg.labels}"
     "-e" "GITHUB_RUNNER_EPHEMERAL=${if cfg.ephemeral then "1" else "0"}"
-    # Fallback path for the PAT when the host user cannot read it under this
-    # user's ownership; the primary path passes it through the environment.
-    "-v" "${cfg.tokenFile}:/run/github-runner/token:ro"
+    # No token file is mounted: the PAT is handed to the container through its
+    # environment and unset by the entrypoint before the listener starts, so a
+    # job step cannot read it from the filesystem or inherit it.
     "-e" "RUNNER_ROOT=${cfg.stateDir}/runners/${instance}"
     "-e" "RUNNER_WORK=${cfg.stateDir}/work/${instance}"
     "-e" "TMPDIR=${cfg.stateDir}/work/${instance}/tmp"
@@ -101,19 +101,21 @@ let
   ];
 
   # The PAT is read by the host user (the module's sops secret is readable
-  # there) and handed to the container through its environment, so the
-  # container user never needs read access to the secret file. The entrypoint
-  # unsets it before the listener starts, so job steps cannot inherit it.
-  # The podman socket is resolved when the script runs: systemd specifiers
-  # (%t) only expand in the unit's ExecStart line, not inside a script body.
+  # there) and handed to the container through podman's own environment with
+  # `--env GITHUB_RUNNER_TOKEN` (a name without a value), so the secret never
+  # appears in the podman command line. The entrypoint unsets it before the
+  # listener starts, so job steps cannot inherit it. The podman socket is
+  # resolved when the script runs: systemd specifiers (%t) only expand in the
+  # unit's ExecStart line, not inside a script body.
   mkRunScript = instance: slice: pkgs.writeShellScript "github-runner-run-${instance}" ''
     set -euo pipefail
     runtime="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
     socket="$runtime/podman/podman.sock"
-    token="$(cat ${cfg.tokenFile})"
+    GITHUB_RUNNER_TOKEN="$(cat ${cfg.tokenFile})"
+    export GITHUB_RUNNER_TOKEN
     exec ${podman} ${lib.escapeShellArgs (mkPodmanRunArgs instance slice)} \
       --volume "$socket:/var/run/docker.sock" \
-      --env "GITHUB_RUNNER_TOKEN=$token" ${escapeShellArg cfg.imageRef}
+      --env GITHUB_RUNNER_TOKEN ${escapeShellArg cfg.imageRef}
   '';
 
   # Pull once and verify the signature; the stamp records the verified
@@ -136,18 +138,20 @@ let
   # Drain: wait until every instance this pool manages reports idle in
   # GitHub, so a host rebuild or manual stop never cancels an in-flight job.
   # The busy flag lives in GitHub, not in the container, so the PAT is the
-  # only way to observe it. The script never stops anything itself: it exits
-  # 0 when drained, 1 on timeout (runners still busy), 2 when the API cannot
-  # be read — the caller decides what a timeout means. Failing open here
-  # would silently cancel jobs, so a caller that proceeds past exit 1 must
-  # say so deliberately.
+  # only way to observe it. The runner list is re-read every cycle and matched
+  # by name: re-registration rotates runner ids (PAT rotation, --replace,
+  # ephemeral runners), and an instance that is not registered between jobs is
+  # drained. The script never stops anything itself: it exits 0 when drained,
+  # 1 on timeout (runners still busy), 2 when the API cannot be read — the
+  # caller decides what a timeout means. Failing open here would silently
+  # cancel jobs, so a caller that proceeds past exit 1 must say so
+  # deliberately.
   drainPackage = pkgs.writeShellScriptBin "github-runner-drain" ''
     set -euo pipefail
     org=${escapeShellArg (lib.last (lib.splitString "/" cfg.url))}
     api="https://api.github.com"
     token="$(cat ${cfg.tokenFile})"
     names_json=${escapeShellArg (builtins.toJSON instanceNames)}
-    names_list=${escapeShellArg (lib.concatStringsSep " " instanceNames)}
     timeout_s=900 interval_s=15
     while [ "$#" -gt 0 ]; do
       case "$1" in
@@ -157,58 +161,43 @@ let
       esac
     done
     auth="Authorization: Bearer $token"
-    # Resolve each instance name to its runner id once; polls then hit the
-    # per-runner endpoint instead of paging the org-wide list every cycle.
-    resolved=""
-    page=1
-    while :; do
-      resp="$(curl -fsS -H "$auth" "$api/orgs/$org/actions/runners?per_page=100&page=$page")" || {
-        printf 'github-runner-drain: runner list request failed\n' >&2
-        exit 2
-      }
-      found="$(printf '%s' "$resp" | ${pkgs.jq}/bin/jq -r --argjson names "$names_json" '
-        .runners[] | select(.name | IN($names[])) | "\(.id):\(.name)"
-      ' | sort -u)"
-      for pair in $found; do
-        case " $resolved " in *" $pair "*) ;; *) resolved="$resolved $pair" ;; esac
+
+    # One name per line for every pool instance currently reporting busy.
+    # Names are matched across the whole runner list every cycle, so id
+    # rotation does not matter; a runner that is absent is not busy.
+    pool_busy() {
+      page=1
+      while :; do
+        resp="$(curl -fsS -H "$auth" "$api/orgs/$org/actions/runners?per_page=100&page=$page")" || return 1
+        printf '%s' "$resp" | ${pkgs.jq}/bin/jq -r --argjson names "$names_json" '
+          .runners[]
+          | select(.name | IN($names[]))
+          | select((.busy // false) == true)
+          | .name
+        '
+        count="$(printf '%s' "$resp" | ${pkgs.jq}/bin/jq '(.runners | length) // 0')"
+        [ "$count" -lt 100 ] && break
+        page=$((page + 1))
       done
-      # All instance names resolved, or the list ran out of pages.
-      missing=""
-      for name in $names_list; do
-        case "$resolved" in *":$name") ;; *) missing="$missing $name" ;; esac
-      done
-      [ -z "$missing" ] && break
-      count="$(printf '%s' "$resp" | ${pkgs.jq}/bin/jq '(.runners | length) // 0')"
-      [ "$count" -eq 0 ] && break
-      page=$((page + 1))
-    done
-    [ -n "$resolved" ] || {
-      printf 'github-runner-drain: no registered runners matched the pool instances\n' >&2
-      exit 2
     }
+
     deadline=$(( $(date +%s) + timeout_s ))
     while :; do
-      busy=""
-      for pair in $resolved; do
-        id="''${pair%%:*}"
-        name="''${pair#*:}"
-        is_busy="$(curl -fsS -H "$auth" "$api/orgs/$org/actions/runners/$id" \
-          | ${pkgs.jq}/bin/jq '.busy // false')" || {
-          printf 'github-runner-drain: runner status request failed (%s)\n' "$name" >&2
-          exit 2
-        }
-        [ "$is_busy" = true ] && busy="$busy $name"
-      done
-      if [ -z "$busy" ]; then
-        printf 'drained: all pool runners idle\n'
+      if ! busy="$(pool_busy)"; then
+        printf 'github-runner-drain: runner list request failed\n' >&2
+        exit 2
+      fi
+      busy="$(printf '%s' "$busy" | tr '\n' ' ')"
+      if [ -z "''${busy//[[:space:]]/}" ]; then
+        printf 'drained: no pool runner is busy\n'
         exit 0
       fi
       now="$(date +%s)"
       if [ "$now" -ge "$deadline" ]; then
-        printf 'github-runner-drain: TIMEOUT after %ss, still busy:%s\n' "$timeout_s" "$busy" >&2
+        printf 'github-runner-drain: TIMEOUT after %ss, still busy: %s\n' "$timeout_s" "$busy" >&2
         exit 1
       fi
-      printf 'waiting for in-flight jobs:%s (%ss left)\n' "$busy" "$((deadline - now))"
+      printf 'waiting for in-flight jobs: %s(%ss left)\n' "$busy" "$((deadline - now))"
       sleep "$interval_s"
     done
   '';
@@ -468,6 +457,11 @@ in
         description = "Pull and verify the GitHub Actions runner container image";
         after = [ "podman.socket" ];
         requires = [ "podman.socket" ];
+        # User units are visible to every user manager on the host. Without
+        # this, a second lingering user would start a second pool against the
+        # same state tree (and fail on ownership), so the pool belongs to
+        # exactly one account.
+        unitConfig.ConditionUser = cfg.user;
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
@@ -481,6 +475,7 @@ in
         description = "Prepare GitHub Actions runner container state";
         after = [ "podman.socket" ];
         requires = [ "podman.socket" ];
+        unitConfig.ConditionUser = cfg.user;
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
@@ -501,6 +496,7 @@ in
         description = "GitHub Actions runner container ${instance.name}";
         after = [ "github-runner-image.service" "github-runner-prepare.service" ];
         requires = [ "github-runner-image.service" "github-runner-prepare.service" ];
+        unitConfig.ConditionUser = cfg.user;
         serviceConfig = {
           Slice = "${instance.slice}.slice";
           ExecStart = mkRunScript instance.name instance.slice;
