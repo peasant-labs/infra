@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -46,6 +47,41 @@ func (j *countingJIT) Mint(_ context.Context, name string) (string, error) {
 	j.mints++
 	j.names = append(j.names, name)
 	return "jit-config", nil
+}
+
+// flakyJIT fails its first `failures` mints, then succeeds; it models the
+// transient failures (stale names, queue hiccups) that must not end a session.
+type flakyJIT struct {
+	failures int
+	calls    int
+}
+
+func (j *flakyJIT) Mint(_ context.Context, _ string) (string, error) {
+	j.calls++
+	if j.calls <= j.failures {
+		return "", errors.New("transient mint failure")
+	}
+	return "jit-config", nil
+}
+
+// redeliveringSession serves one message until it is acknowledged, like the
+// real queue redelivering an unacknowledged message, and then reports nextErr.
+type redeliveringSession struct {
+	msg     *Message
+	acked   bool
+	nextErr error
+}
+
+func (s *redeliveringSession) Next(context.Context, int, int) (*Message, error) {
+	if s.acked {
+		return nil, s.nextErr
+	}
+	return s.msg, nil
+}
+
+func (s *redeliveringSession) Ack(context.Context, int) error {
+	s.acked = true
+	return nil
 }
 
 func newTestDispatcher(t *testing.T, session Session, driver vm.Driver) (*Dispatcher, *countingJIT) {
@@ -233,4 +269,96 @@ func TestDrainTimesOutWhileBusy(t *testing.T) {
 	if err := d.Drain(drainCtx); err != context.DeadlineExceeded {
 		t.Fatalf("Drain = %v, want context.DeadlineExceeded", err)
 	}
+}
+
+// A transient planning failure must not end the session: the message stays
+// unacknowledged, the queue redelivers it, and the retry succeeds in the same
+// process. Exiting here would drop the session and the queue would wait for a
+// new one before delivering the assignment again.
+func TestRunRetriesFailedPlanningCycleInSession(t *testing.T) {
+	driver := dryrun.New()
+	jit := &flakyJIT{failures: 2}
+	session := &redeliveringSession{
+		msg:     &Message{ID: 9, Statistics: Statistics{AssignedJobs: 1}},
+		nextErr: context.Canceled,
+	}
+	d := New(Config{
+		MaxCapacity: 4,
+		Class:       "default",
+		NamePrefix:  "vm",
+		DrainPoll:   5 * time.Millisecond,
+		RetryDelay:  time.Millisecond,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, session, jit, driver)
+
+	if err := d.Run(context.Background()); err != context.Canceled {
+		t.Fatalf("Run = %v, want context.Canceled", err)
+	}
+	if jit.calls != 3 {
+		t.Fatalf("jit calls = %d, want 3 (two failures, then success)", jit.calls)
+	}
+	if !session.acked {
+		t.Fatal("message was never acknowledged")
+	}
+	instances, err := driver.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("instances = %+v, want 1", instances)
+	}
+}
+
+// A transient ack failure must also keep the session. The redelivered message
+// is planned again, but the planner reconciles, so no second VM boots.
+func TestRunRetriesFailedAckInSession(t *testing.T) {
+	driver := dryrun.New()
+	session := &flakyAckSession{
+		msg:     &Message{ID: 3, Statistics: Statistics{AssignedJobs: 1}},
+		nextErr: context.Canceled,
+	}
+	d := New(Config{
+		MaxCapacity: 4,
+		Class:       "default",
+		NamePrefix:  "vm",
+		DrainPoll:   5 * time.Millisecond,
+		RetryDelay:  time.Millisecond,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, session, &countingJIT{}, driver)
+
+	if err := d.Run(context.Background()); err != context.Canceled {
+		t.Fatalf("Run = %v, want context.Canceled", err)
+	}
+	if session.acks != 2 {
+		t.Fatalf("acks = %d, want 2 (one failure, then success)", session.acks)
+	}
+	instances, err := driver.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("instances = %+v, want 1 (the redelivered message must not boot twice)", instances)
+	}
+}
+
+// flakyAckSession fails the first Ack, like a transient queue error.
+type flakyAckSession struct {
+	msg     *Message
+	acks    int
+	nextErr error
+}
+
+func (s *flakyAckSession) Next(context.Context, int, int) (*Message, error) {
+	if s.acks >= 2 {
+		return nil, s.nextErr
+	}
+	return s.msg, nil
+}
+
+func (s *flakyAckSession) Ack(context.Context, int) error {
+	s.acks++
+	if s.acks == 1 {
+		return errors.New("transient ack failure")
+	}
+	return nil
 }

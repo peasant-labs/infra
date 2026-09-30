@@ -46,7 +46,11 @@ type Config struct {
 	Class       string
 	NamePrefix  string
 	DrainPoll   time.Duration
-	Logger      *slog.Logger
+	// RetryDelay paces retries after a failed planning cycle. The failed
+	// message stays unacknowledged and the queue redelivers it immediately,
+	// so without a pause a deterministic failure would spin the loop.
+	RetryDelay time.Duration
+	Logger     *slog.Logger
 	// Heartbeat publishes the pool-health record the router reads. Optional;
 	// publish failures are logged and retried on the next cycle.
 	Heartbeat heartbeat.Publisher
@@ -68,6 +72,9 @@ func New(cfg Config, session Session, jit JITSource, driver vm.Driver) *Dispatch
 	if cfg.DrainPoll <= 0 {
 		cfg.DrainPoll = 5 * time.Second
 	}
+	if cfg.RetryDelay <= 0 {
+		cfg.RetryDelay = 5 * time.Second
+	}
 	return &Dispatcher{cfg: cfg, session: session, jit: jit, driver: driver}
 }
 
@@ -75,6 +82,11 @@ func New(cfg Config, session Session, jit JITSource, driver vm.Driver) *Dispatch
 // reconcile against the last known statistics; a fresh dispatcher does not
 // plan before it has seen its first message, but it publishes pool health
 // from the first cycle so an idle pool never looks stale to the router.
+//
+// Transient failures never end the session: a failed planning cycle is logged
+// and retried on the next poll, and the unacknowledged message is delivered
+// again by the queue. Exiting here would drop the session, and a new session
+// can wait minutes before the queue redelivers an old assignment.
 func (d *Dispatcher) Run(ctx context.Context) error {
 	var (
 		lastID    int
@@ -93,27 +105,56 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		if !haveStats {
 			d.publishHealth(ctx, Statistics{})
 		}
+		d.cfg.Logger.Debug("poll", "last_message", lastID, "stats", fmt.Sprintf("%d/%d", stats.AssignedJobs, stats.RunningJobs), "fresh", !haveStats)
 		msg, err := d.session.Next(ctx, lastID, d.cfg.MaxCapacity)
 		if err != nil {
 			return err
 		}
 		if msg == nil {
+			d.cfg.Logger.Debug("poll empty", "last_message", lastID)
 			if haveStats {
 				if err := d.Step(ctx, stats); err != nil {
-					return err
+					d.cfg.Logger.Warn("planning cycle failed; keeping the session and retrying", "err", err)
+					if err := d.pause(ctx); err != nil {
+						return err
+					}
 				}
 			}
 			continue
 		}
-		lastID = msg.ID
+		d.cfg.Logger.Info("queue message", "id", msg.ID, "assigned", msg.Statistics.AssignedJobs, "running", msg.Statistics.RunningJobs)
 		stats = msg.Statistics
 		haveStats = true
 		if err := d.Step(ctx, stats); err != nil {
-			return err
+			// The message stays unacknowledged, so the queue delivers it
+			// again; retry it rather than exiting the process.
+			d.cfg.Logger.Warn("planning cycle failed; keeping the session and retrying", "err", err, "message", msg.ID)
+			if err := d.pause(ctx); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := d.session.Ack(ctx, msg.ID); err != nil {
-			return err
+			d.cfg.Logger.Warn("message ack failed; keeping the session and retrying", "err", err, "message", msg.ID)
+			if err := d.pause(ctx); err != nil {
+				return err
+			}
+			continue
 		}
+		lastID = msg.ID
+	}
+}
+
+// pause waits one retry delay, or returns ctx.Err() when the context ends
+// first.
+func (d *Dispatcher) pause(ctx context.Context) error {
+	timer := time.NewTimer(d.cfg.RetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -141,6 +182,7 @@ func (d *Dispatcher) Step(ctx context.Context, stats Statistics) error {
 			}
 			name := free[0]
 			free = free[1:]
+			start := time.Now()
 			jit, err := d.jit.Mint(ctx, name)
 			if err != nil {
 				return fmt.Errorf("mint jit config: %w", err)
@@ -156,7 +198,8 @@ func (d *Dispatcher) Step(ctx context.Context, stats Statistics) error {
 			}
 			d.cfg.Logger.Info("booted runner vm",
 				"name", spec.Name, "job", spec.JobID,
-				"assigned", stats.AssignedJobs, "running", stats.RunningJobs)
+				"assigned", stats.AssignedJobs, "running", stats.RunningJobs,
+				"boot_seconds", time.Since(start).Round(time.Second).Seconds())
 		case planner.ActionKill:
 			if err := d.driver.Kill(ctx, action.InstanceID); err != nil {
 				return fmt.Errorf("reclaim %s: %w", action.InstanceID, err)
