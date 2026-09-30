@@ -39,10 +39,12 @@ func (s *scriptedSession) Ack(_ context.Context, messageID int) error {
 
 type countingJIT struct {
 	mints int
+	names []string
 }
 
-func (j *countingJIT) Mint(context.Context) (string, error) {
+func (j *countingJIT) Mint(_ context.Context, name string) (string, error) {
 	j.mints++
+	j.names = append(j.names, name)
 	return "jit-config", nil
 }
 
@@ -79,6 +81,9 @@ func TestRunBootsAndAcknowledges(t *testing.T) {
 	}
 	if jit.mints != 2 {
 		t.Fatalf("jit mints = %d, want 2", jit.mints)
+	}
+	if len(jit.names) != 2 || jit.names[0] != "vm-1" || jit.names[1] != "vm-2" {
+		t.Fatalf("jit names = %v, want the booted slot names [vm-1 vm-2]", jit.names)
 	}
 	if len(session.acks) != 1 || session.acks[0] != 7 {
 		t.Fatalf("acks = %v, want [7]", session.acks)

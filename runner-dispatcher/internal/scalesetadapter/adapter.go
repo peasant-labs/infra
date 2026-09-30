@@ -4,6 +4,8 @@ package scalesetadapter
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/actions/scaleset"
@@ -124,23 +126,38 @@ func (m *MessageSession) Close(ctx context.Context) error {
 type JITMinter struct {
 	client     *scaleset.Client
 	scaleSetID int
-	namePrefix string
 	workFolder string
 }
 
-// JITMinter returns a minter that names runners with the given prefix.
-func (c *Client) JITMinter(scaleSetID int, namePrefix, workFolder string) *JITMinter {
-	return &JITMinter{client: c.client, scaleSetID: scaleSetID, namePrefix: namePrefix, workFolder: workFolder}
+// JITMinter returns a minter for the given scale set.
+func (c *Client) JITMinter(scaleSetID int, workFolder string) *JITMinter {
+	return &JITMinter{client: c.client, scaleSetID: scaleSetID, workFolder: workFolder}
 }
 
-// Mint implements dispatcher.JITSource.
-func (m *JITMinter) Mint(ctx context.Context) (string, error) {
+// Mint implements dispatcher.JITSource. Names must be unique per mint: GitHub
+// rejects a JIT request when a runner with the same name already exists, and a
+// boot whose runner never registered leaves its name behind, so a fixed name
+// would make every later mint fail. The slot name stays the readable prefix.
+func (m *JITMinter) Mint(ctx context.Context, name string) (string, error) {
+	unique, err := uniqueRunnerName(name)
+	if err != nil {
+		return "", err
+	}
 	cfg, err := m.client.GenerateJitRunnerConfig(ctx, &scaleset.RunnerScaleSetJitRunnerSetting{
-		Name:       m.namePrefix,
+		Name:       unique,
 		WorkFolder: m.workFolder,
 	}, m.scaleSetID)
 	if err != nil {
 		return "", fmt.Errorf("generate jit config: %w", err)
 	}
 	return cfg.EncodedJITConfig, nil
+}
+
+// uniqueRunnerName appends a random suffix to a slot name.
+func uniqueRunnerName(name string) (string, error) {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("runner name suffix: %w", err)
+	}
+	return name + "-" + hex.EncodeToString(b[:]), nil
 }
