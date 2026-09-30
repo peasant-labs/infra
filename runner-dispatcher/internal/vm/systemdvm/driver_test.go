@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/peasant-labs/infra/runner-dispatcher/internal/vm"
 )
@@ -64,6 +65,23 @@ func newTestDriver(t *testing.T) (*Driver, string) {
 		t.Fatalf("New: %v", err)
 	}
 	return d, jitDir
+}
+
+// Starting a slot waits for guest boot-readiness (boot plus the runner image
+// load), so the default command timeout must comfortably exceed a fast boot —
+// a tight bound kills `systemctl start` mid-boot and fails the dispatcher.
+func TestNewDefaultCommandTimeoutFitsNotifyBoots(t *testing.T) {
+	d, err := New(Config{
+		Slots:     []string{"runner-vm-1"},
+		JITDir:    t.TempDir(),
+		Systemctl: fakeSystemctl(t),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if d.cfg.CommandTimeout < time.Minute {
+		t.Fatalf("default command timeout = %s, want at least a minute", d.cfg.CommandTimeout)
+	}
 }
 
 func TestBootWritesJITAndStartsUnit(t *testing.T) {
