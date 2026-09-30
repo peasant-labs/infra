@@ -1,18 +1,12 @@
 name: Terraform checks
 
 on:
+  # No paths filter on pull requests: branch protection requires these checks,
+  # and a filtered required check never reports on PRs outside the listed paths,
+  # leaving them blocked forever (for example a runner-dispatcher-only change,
+  # or the image repo). Post-merge runs stay filtered to the paths that can
+  # affect the stacks.
   pull_request:
-    paths:
-      - ".github/dependabot.yml"
-      - ".github/workflows/**"
-      - ".terraform-version"
-      - "Makefile"
-      - "README.md"
-      - "docs/**"
-      - "modules/**"
-      - "renovate.json5"
-      - "scripts/**"
-      - "stacks/**"
   push:
     branches:
       - main
