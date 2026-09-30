@@ -26,6 +26,13 @@ type Config struct {
 	Slots []string
 	// UnitTemplate renders one slot name into a systemd unit; %s is the slot.
 	UnitTemplate string
+	// VirtiofsdTemplate renders one slot name into the virtiofsd unit reset
+	// before boot; empty skips the reset. The daemons exit once the VM stops
+	// and their supervisor never respawns them, so a boot without a reset
+	// connects to stale sockets. The reset is its own systemctl invocation
+	// before start — never a unit hook inside the start transaction, where
+	// the virtiofsd Before= edge deadlocks against the VM start.
+	VirtiofsdTemplate string
 	// JITDir holds one subdirectory per slot; Boot writes <JITDir>/<slot>/jit-config.
 	JITDir string
 	// Systemctl is the systemctl binary; tests point this at a fake.
@@ -50,6 +57,9 @@ func New(cfg Config) (*Driver, error) {
 	}
 	if cfg.UnitTemplate == "" {
 		cfg.UnitTemplate = "microvm@%s.service"
+	}
+	if cfg.VirtiofsdTemplate == "" {
+		cfg.VirtiofsdTemplate = "microvm-virtiofsd@%s.service"
 	}
 	if cfg.Systemctl == "" {
 		cfg.Systemctl = "systemctl"
@@ -88,6 +98,13 @@ func (d *Driver) Boot(ctx context.Context, spec vm.BootSpec) (vm.Instance, error
 	}
 	if err := os.WriteFile(jitPath, []byte(spec.JITConfig), 0o400); err != nil {
 		return vm.Instance{}, fmt.Errorf("systemdvm: write jit config: %w", err)
+	}
+	if d.cfg.VirtiofsdTemplate != "" {
+		vfs := fmt.Sprintf(d.cfg.VirtiofsdTemplate, spec.Name)
+		if _, err := d.run(ctx, "try-restart", vfs); err != nil {
+			_ = os.Remove(jitPath)
+			return vm.Instance{}, fmt.Errorf("systemdvm: reset virtiofsd %s: %w", spec.Name, err)
+		}
 	}
 	if _, err := d.run(ctx, "start", d.unit(spec.Name)); err != nil {
 		_ = os.Remove(jitPath)

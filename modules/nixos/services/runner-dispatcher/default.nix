@@ -140,6 +140,9 @@ in
               "-max-capacity" (toString cfg.maxCapacity)
               "-vm-driver" "systemd"
               "-vm-jit-dir" cfg.jitDir
+              # Reset each slot's virtiofsd before boot in a transaction of its
+              # own; the daemons exit with the VM and are never respawned.
+              "-vm-virtiofsd-template" "microvm-virtiofsd@%s.service"
               "-heartbeat-repo" cfg.heartbeatRepo
               "-heartbeat-variable" cfg.heartbeatVariable
               "-app-client-id" cfg.app.clientId
