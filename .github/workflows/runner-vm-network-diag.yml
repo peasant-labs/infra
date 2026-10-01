@@ -11,60 +11,58 @@ jobs:
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 15
     steps:
-      - name: Does a manual master persist?
+      - name: Watch link events while attaching
         continue-on-error: true
         run: |
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
             apk add -q iproute2
             printf "%s\n" \
               "#!/bin/sh" \
+              "ip monitor link > /mon.log 2>&1 &" \
+              "monpid=\$!" \
               "ip link add br-p type bridge" \
               "ip link set br-p up" \
               "ip link add master br-p type veth peer name pv0" \
-              "echo after-create" \
-              "ip -d link show | grep \"master br-p\" || echo no-master" \
-              "sleep 12" \
-              "echo after-12s" \
-              "ip -d link show | grep \"master br-p\" || echo no-master" \
-              "sleep 20" \
-              "echo after-32s" \
-              "ip -d link show | grep \"master br-p\" || echo no-master" \
-              "ip link del br-p" > /t.sh
+              "echo created; ip -br link | grep -E \"veth|br-p|pv0\"; ip -d link show | grep \"master br-p\" || true" \
+              "sleep 15" \
+              "echo after15; ip -br link | grep -E \"veth|br-p|pv0\"; ip -d link show | grep \"master br-p\" || true" \
+              "kill \$monpid" \
+              "echo == monitor" \
+              "cat /mon.log" > /t.sh
             nsenter -t 1 -n sh /t.sh
+            echo "== dmesg"
+            dmesg 2>/dev/null | tail -8
           '
 
-      - name: Does attaching the netavark veth stick?
+      - name: Watch link events around a netavark attach
         continue-on-error: true
         run: |
-          podman network create fix2-net
-          gw=$(podman network inspect fix2-net | jq -r '.[0].subnets[0].gateway')
-          echo "gateway=$gw"
-          podman run -d --name fx3 --network fix2-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
-          sleep 8
+          podman network create mon-net
+          gw=$(podman network inspect mon-net | jq -r '.[0].subnets[0].gateway')
+          podman run -d --name mx1 --network mon-net docker.io/library/alpine:3.20 sleep 120
+          sleep 6
           podman run --rm --privileged --network=host --pid=host -e GW="$gw" docker.io/library/alpine:3.20 sh -ec '
             apk add -q iproute2
             printf "%s\n" \
               "#!/bin/sh" \
+              "ip monitor link > /mon2.log 2>&1 &" \
+              "monpid=\$!" \
               "bridge=\$(ip -4 -o addr show | awk -v gw=\"\$GW\" \"\\\$4 ~ gw {print \\\$2}\" | head -1)" \
               "veth=\$(ip -br link | awk \"\\\$1 ~ /^veth/ {split(\\\$1,a,\\\"@\\\"); print a[1]}\" | head -1)" \
               "echo bridge=\$bridge veth=\$veth" \
-              "ip -d link show \"\$veth\" | head -2" \
-              "ip link set \"\$veth\" master \"\$bridge\" && echo attached" \
-              "ip -d link show \"\$veth\" | grep master || echo no-master" \
-              "sleep 12" \
-              "ip -d link show \"\$veth\" | grep master || echo no-master-after-12s" > /t2.sh
-            cat /t2.sh
+              "ip link set \"\$veth\" master \"\$bridge\"" \
+              "echo attached; ip -d link show \"\$veth\" | grep master || echo none" \
+              "sleep 15" \
+              "echo after15; ip -d link show \"\$veth\" | grep master || echo none" \
+              "kill \$monpid" \
+              "echo == monitor" \
+              "cat /mon2.log" > /t2.sh
             nsenter -t 1 -n sh /t2.sh
           '
-          echo "== connectivity"
-          podman run -d --name fx4 --network fix2-net docker.io/library/alpine:3.20 sleep 60
-          sleep 3
-          podman exec fx4 sh -c 'if nc -z -w 3 db 5432; then echo db-reachable; else echo db-UNREACHABLE; fi'
-          podman exec fx4 sh -c 'if nc -z -w 3 1.1.1.1 443; then echo ip-egress-ok; else echo ip-egress-FAIL; fi'
 
       - name: Clean up
         if: always()
         run: |
-          podman rm -f fx3 fx4 2>/dev/null
-          podman network rm fix2-net 2>/dev/null
+          podman rm -f mx1 2>/dev/null
+          podman network rm mon-net 2>/dev/null
           true
