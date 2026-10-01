@@ -11,58 +11,34 @@ jobs:
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 15
     steps:
-      - name: Watch link events while attaching
+      - name: Persistence with timestamps and journal
         continue-on-error: true
         run: |
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
             apk add -q iproute2
             printf "%s\n" \
               "#!/bin/sh" \
-              "ip monitor link > /mon.log 2>&1 &" \
+              "ip -ts monitor link > /mon.log 2>&1 &" \
               "monpid=\$!" \
               "ip link add br-p type bridge" \
               "ip link set br-p up" \
               "ip link add master br-p type veth peer name pv0" \
-              "echo created; ip -br link | grep -E \"veth|br-p|pv0\"; ip -d link show | grep \"master br-p\" || true" \
-              "sleep 15" \
-              "echo after15; ip -br link | grep -E \"veth|br-p|pv0\"; ip -d link show | grep \"master br-p\" || true" \
+              "echo created; date +%s" \
+              "sleep 18" \
+              "echo after18; date +%s" \
+              "ip -d link show | grep -E \"master br-p|veth0|pv0\" || echo none" \
               "kill \$monpid" \
               "echo == monitor" \
               "cat /mon.log" > /t.sh
             nsenter -t 1 -n sh /t.sh
-            echo "== dmesg"
-            dmesg 2>/dev/null | tail -8
           '
-
-      - name: Watch link events around a netavark attach
-        continue-on-error: true
-        run: |
-          podman network create mon-net
-          gw=$(podman network inspect mon-net | jq -r '.[0].subnets[0].gateway')
-          podman run -d --name mx1 --network mon-net docker.io/library/alpine:3.20 sleep 120
-          sleep 6
-          podman run --rm --privileged --network=host --pid=host -e GW="$gw" docker.io/library/alpine:3.20 sh -ec '
-            apk add -q iproute2
-            printf "%s\n" \
-              "#!/bin/sh" \
-              "ip monitor link > /mon2.log 2>&1 &" \
-              "monpid=\$!" \
-              "bridge=\$(ip -4 -o addr show | awk -v gw=\"\$GW\" \"\\\$4 ~ gw {print \\\$2}\" | head -1)" \
-              "veth=\$(ip -br link | awk \"\\\$1 ~ /^veth/ {split(\\\$1,a,\\\"@\\\"); print a[1]}\" | head -1)" \
-              "echo bridge=\$bridge veth=\$veth" \
-              "ip link set \"\$veth\" master \"\$bridge\"" \
-              "echo attached; ip -d link show \"\$veth\" | grep master || echo none" \
-              "sleep 15" \
-              "echo after15; ip -d link show \"\$veth\" | grep master || echo none" \
-              "kill \$monpid" \
-              "echo == monitor" \
-              "cat /mon2.log" > /t2.sh
-            nsenter -t 1 -n sh /t2.sh
+          echo "== guest journal, last 2 minutes"
+          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
+            apk add -q util-linux
+            nsenter -t 1 -m -u -i -p -- /run/current-system/sw/bin/journalctl -b --no-pager -o short-precise -S "-2 min" 2>&1 | grep -viE "chronyd|dhcp|python" | tail -100
           '
 
       - name: Clean up
         if: always()
         run: |
-          podman rm -f mx1 2>/dev/null
-          podman network rm mon-net 2>/dev/null
           true
