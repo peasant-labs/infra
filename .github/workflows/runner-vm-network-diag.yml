@@ -9,49 +9,58 @@ permissions:
 jobs:
   diagnose:
     runs-on: [self-hosted, linux, x64, microvm]
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
-      - name: Start a debug daemon in the guest
+      - name: Default network on the main daemon
+        continue-on-error: true
+        run: |
+          podman run -d --name def1 docker.io/library/alpine:3.20 sleep 120
+          sleep 4
+          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
+            apk add -q iproute2
+            echo "== links"
+            nsenter -t 1 -n ip -br link | grep -E "podman|veth" || echo "none"
+            echo "== ports"
+            nsenter -t 1 -n bridge -c link show 2>&1 || true
+          '
+
+      - name: Debug daemon with its own root
         continue-on-error: true
         run: |
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            nsenter -t 1 -m -u -i -p -- sh -c "setsid /run/current-system/sw/bin/podman --log-level=debug system service --timeout 300 unix:///var/lib/containers/runner/podman-dbg.sock > /var/lib/containers/runner/podman-dbg.log 2>&1 < /dev/null &"
-            sleep 5
-            if [ -S /var/lib/containers/runner/podman-dbg.sock ]; then echo "socket up"; else echo "socket missing; log:"; cat /var/lib/containers/runner/podman-dbg.log; fi
+            mkdir -p /var/lib/containers/runner/dbgroot /var/lib/containers/runner/dbgrun
+            nohup nsenter -t 1 -m -u -i -p -- /run/current-system/sw/bin/podman --log-level=debug \
+              --root /var/lib/containers/runner/dbgroot --runroot /var/lib/containers/runner/dbgrun \
+              system service --timeout 240 unix:///var/lib/containers/runner/dbg.sock \
+              > /var/lib/containers/runner/dbg.log 2>&1 &
+            sleep 6
+            if [ -S /var/lib/containers/runner/dbg.sock ]; then echo "socket up"; else echo "socket MISSING"; head -30 /var/lib/containers/runner/dbg.log 2>&1; fi
           '
 
       - name: Container through the debug daemon
         continue-on-error: true
         run: |
-          export CONTAINER_HOST=unix:///var/lib/containers/runner/podman-dbg.sock
-          podman network create dbg-net
-          podman run -d --name dbg-db --network dbg-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
+          export CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock
+          podman network create dbg2-net 2>&1
+          podman run -d --name dbg2-db --network dbg2-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine 2>&1
           sleep 6
-          echo "== netavark and setup lines"
-          grep -iE 'netavark|veth|bridge|master|slave|error|warn' /var/lib/containers/runner/podman-dbg.log | tail -80
-          echo "== guest link state"
+          echo "== netavark debug"
+          grep -iE 'netavark|veth|bridge|master|attach|error|warn|fail' /var/lib/containers/runner/dbg.log | tail -100
+          echo "== links after dbg2 container"
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
             apk add -q iproute2
-            nsenter -t 1 -n ip -br link | grep -E "podman|veth" || echo "no podman/veth links"
-            nsenter -t 1 -n ip -d link show 2>&1 | grep -E "master|state" | head -12
+            nsenter -t 1 -n ip -br link | grep -E "podman|veth" || echo "none"
+            nsenter -t 1 -n bridge -c link show 2>&1 || true
           '
-
-      - name: Reachability through the debug daemon
-        continue-on-error: true
-        run: |
-          export CONTAINER_HOST=unix:///var/lib/containers/runner/podman-dbg.sock
-          podman run -d --name dbg-cli --network dbg-net docker.io/library/alpine:3.20 sleep 300
-          podman exec dbg-cli sh -c 'if nc -z -w 3 db 5432; then echo db-reachable; else echo db-UNREACHABLE; fi'
-          podman exec dbg-cli sh -c 'if nc -z -w 3 10.89.0.1 53; then echo gateway-ok; else echo gateway-FAIL; fi'
 
       - name: Clean up
         if: always()
         run: |
-          export CONTAINER_HOST=unix:///var/lib/containers/runner/podman-dbg.sock
-          podman rm -f dbg-db dbg-cli 2>/dev/null
-          podman network rm dbg-net 2>/dev/null
+          podman rm -f def1 2>/dev/null
+          CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock podman rm -f dbg2-db 2>/dev/null
+          CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock podman network rm dbg2-net 2>/dev/null
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            pkill -f "podman .*podman-dbg[.]sock" || true
-            rm -f /var/lib/containers/runner/podman-dbg.sock /var/lib/containers/runner/podman-dbg.log
+            pkill -f "podman .*--root .*dbgroot" || true
+            rm -rf /var/lib/containers/runner/dbg.sock /var/lib/containers/runner/dbg.log /var/lib/containers/runner/dbgroot /var/lib/containers/runner/dbgrun
           ' 2>/dev/null
           true
