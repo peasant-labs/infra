@@ -148,6 +148,11 @@ in
               "-vm-virtiofsd-template" "microvm-virtiofsd@%%s.service"
               "-heartbeat-repo" cfg.heartbeatRepo
               "-heartbeat-variable" cfg.heartbeatVariable
+              # Bound the shutdown wait for in-flight jobs so a rebuild is not
+              # held up. A job still running past it is left alone: its VM
+              # powers itself off when the job ends, and the next start
+              # reconciles the slot.
+              "-drain-timeout" "90s"
               "-app-client-id" cfg.app.clientId
               "-app-installation-id" (toString cfg.app.installationId)
               "-app-private-key-file" "%d/app-private-key"
@@ -162,6 +167,11 @@ in
           ];
           Restart = "always";
           RestartSec = "5s";
+          # The drain above waits at most 90 s. systemd SIGKILLs at
+          # TimeoutStopSec and its default is exactly 90 s, so a drain of the
+          # same size would be killed as it finished. Give the stop path a
+          # little room.
+          TimeoutStopSec = 120;
         };
       }
       (lib.mkIf cfg.app.encryptAtRest {
