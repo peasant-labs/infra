@@ -1,0 +1,58 @@
+name: Runner VM gate
+
+# Dispatch-only harness for the migration gates in
+# docs/runner-vm-spike-report.md: one job on a VM slot that stays busy for a
+# chosen number of seconds, so a gate can act (SIGTERM the dispatcher, restart
+# it, kill a VM) while work is provably in flight. Every line carries a UTC
+# timestamp so the run, the dispatcher journal and the guest journal line up.
+#
+# Dispatch-only like the smoke: untrusted refs must never schedule on
+# self-hosted runners, and the run goes red whenever the desktop is offline.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds the job stays busy after it starts
+        required: false
+        default: "240"
+      marker:
+        description: Marker printed at begin and end
+        required: false
+        default: gate
+
+permissions:
+  contents: read
+
+jobs:
+  busy:
+    runs-on: [self-hosted, linux, x64, microvm]
+    # Bounds execution, not queue time: a pool that is down leaves the run
+    # waiting until it is cancelled.
+    timeout-minutes: 30
+    steps:
+      - name: Prove this is a VM slot, not the container pool
+        run: |
+          set -euo pipefail
+          case "${RUNNER_NAME}" in
+            runner-vm*) ;;
+            *) echo "unexpected runner name: ${RUNNER_NAME}" >&2; exit 1 ;;
+          esac
+          echo "runner: ${RUNNER_NAME}"
+
+      - name: Stay busy
+        env:
+          SECONDS_INPUT: ${{ inputs.seconds }}
+          MARKER: ${{ inputs.marker }}
+        run: |
+          set -euo pipefail
+          sleep_seconds="$SECONDS_INPUT"
+          case "$sleep_seconds" in
+            '' | *[!0-9]*)
+              echo "seconds must be a number, got: $sleep_seconds" >&2
+              exit 1
+              ;;
+          esac
+          echo "${MARKER} begin on ${RUNNER_NAME} at $(date -u +%FT%TZ), busy for ${sleep_seconds}s"
+          sleep "$sleep_seconds"
+          echo "${MARKER} end at $(date -u +%FT%TZ)"
