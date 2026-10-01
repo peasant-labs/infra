@@ -15,52 +15,47 @@ jobs:
         continue-on-error: true
         run: |
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            mkdir -p /var/lib/containers/runner/dbgroot /var/lib/containers/runner/dbgrun
+            mkdir -p /out/dbgroot /out/dbgrun
             nsenter -t 1 -m -u -i -p -- /run/current-system/sw/bin/systemd-run --collect --unit=podman-dbg \
               --property=StandardOutput=file:/var/lib/containers/runner/dbg.log \
               --property=StandardError=file:/var/lib/containers/runner/dbg.log \
               /run/current-system/sw/bin/podman --log-level=debug \
               --root /var/lib/containers/runner/dbgroot --runroot /var/lib/containers/runner/dbgrun \
               system service --timeout 240 unix:///var/lib/containers/runner/dbg.sock
-            sleep 6
-            if [ -S /var/lib/containers/runner/dbg.sock ]; then echo "socket up"; else echo "socket MISSING"; fi
-            echo "ptrace_scope=$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo n/a)"
-          '
+          ' 2>/dev/null || true
+          podman run --rm -v /var/lib/containers/runner:/out docker.io/library/alpine:3.20 sh -c 'ls -l /out/dbg.sock 2>/dev/null || echo "socket not visible"'
+          ls -l /var/lib/containers/runner/dbg.sock 2>/dev/null || echo "runner-side socket missing"
 
-      - name: Strace attach, create a container, read the trace
+      - name: Strace attach and create
         continue-on-error: true
         run: |
-          podman run -d --rm --name tracer --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -c '
+          podman run -d --rm --name tracer --privileged --network=host --pid=host -v /var/lib/containers/runner:/out docker.io/library/alpine:3.20 sh -c '
             apk add -q strace
             pid=$(pgrep -f "system servic[e]" | head -1)
-            echo "tracing pid $pid" > /var/lib/containers/runner/tracer.log
-            exec strace -f -e trace=sendmsg -o /var/lib/containers/runner/nav.strace -xx -s 400 -p "$pid"
+            echo "tracing pid $pid" > /out/tracer.log
+            exec strace -f -e trace=sendmsg -o /out/nav.strace -xx -s 400 -p "$pid"
           '
-          sleep 6
+          sleep 8
+          podman logs tracer 2>&1 | tail -3
           export CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock
-          podman network create dbg4-net 2>&1
-          podman run -d --name dbg4-a --network dbg4-net docker.io/library/alpine:3.20 sleep 180 2>&1
+          podman network create dbg5-net 2>&1
+          podman run -d --name dbg5-a --network dbg5-net docker.io/library/alpine:3.20 sleep 180 2>&1
           sleep 6
           podman rm -f tracer >/dev/null 2>&1
-          cat /var/lib/containers/runner/tracer.log 2>/dev/null
-          echo "== sendmsg lines mentioning RTM_NEWLINK"
-          grep -n 'RTM_NEWLINK' /var/lib/containers/runner/nav.strace 2>/dev/null | grep -oE 'pid=[0-9]+|nlmsg_len=[0-9]+|nlmsg_type=[A-Z_]+|nla_type=[A-Z_0-9]+|IFLA_MASTER[^]]*' | head -60
-          echo "== raw lines with IFLA_MASTER"
-          grep -c 'IFLA_MASTER' /var/lib/containers/runner/nav.strace 2>/dev/null
-          echo "== links"
-          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            apk add -q iproute2
-            nsenter -t 1 -n ip -d link show 2>&1 | grep -E "master|veth" | head -6
-          '
+          echo "== trace file"
+          ls -l /var/lib/containers/runner/nav.strace 2>&1
+          echo "== RTM_NEWLINK messages from netavark"
+          grep 'RTM_NEWLINK' /var/lib/containers/runner/nav.strace 2>/dev/null | sed -E 's/^[0-9]+ +//' | cut -c1-500 | head -20
+          echo "== IFLA_MASTER count"
+          grep -c 'IFLA_MASTER' /var/lib/containers/runner/nav.strace 2>/dev/null || echo 0
 
       - name: Clean up
         if: always()
         run: |
-          CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock podman rm -f dbg4-a 2>/dev/null
-          CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock podman network rm dbg4-net 2>/dev/null
+          CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock podman rm -f dbg5-a 2>/dev/null
+          CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock podman network rm dbg5-net 2>/dev/null
           podman rm -f tracer >/dev/null 2>&1
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
             nsenter -t 1 -m -u -i -p -- /run/current-system/sw/bin/systemctl stop podman-dbg 2>/dev/null || true
-            rm -rf /var/lib/containers/runner/dbg.sock /var/lib/containers/runner/dbg.log /var/lib/containers/runner/nav.strace /var/lib/containers/runner/tracer.log /var/lib/containers/runner/dbgroot /var/lib/containers/runner/dbgrun
           ' 2>/dev/null
           true
