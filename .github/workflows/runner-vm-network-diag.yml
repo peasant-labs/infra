@@ -1,10 +1,5 @@
 name: Runner VM network diagnosis
 
-# Dispatch-only diagnostics for container networking inside a VM slot:
-# kernel netfilter modules, podman's network backend, nftables state, egress,
-# inter-container DNS, and published-port reachability. Scratch branch; delete
-# after the findings become a fix.
-
 on:
   workflow_dispatch:
 
@@ -14,67 +9,61 @@ permissions:
 jobs:
   diagnose:
     runs-on: [self-hosted, linux, x64, microvm]
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: Identity
-        run: echo "runner=${RUNNER_NAME} host=$(uname -n) kernel=$(uname -r) uid=$(id -u)"
-
-      - name: Kernel netfilter state
+      - name: Identity and namespaces
+        continue-on-error: true
         run: |
-          echo "== modules present in the guest closure"
-          for f in /run/current-system/kernel-modules/lib/modules/*/kernel/net/netfilter/nft_* /run/current-system/kernel-modules/lib/modules/*/kernel/net/netfilter/nf_tables*; do
-            [ -e "$f" ] && basename "$f"
-          done | sort | head -30
-          echo "== modprobe nft_nat"
-          if modprobe nft_nat; then echo "modprobe ok"; else echo "modprobe FAILED: $?"; fi
-          if grep -q '^nf_tables ' /proc/modules; then echo "nf_tables loaded"; else echo "nf_tables NOT loaded"; fi
-          echo "== loaded netfilter modules"
-          awk '{print $1}' /proc/modules | grep -E '^(nf_tables|nft_|nf_nat|nf_conntrack)' | sort | head -20
-          echo "== forward sysctls"
-          cat /proc/sys/net/ipv4/ip_forward /proc/sys/net/ipv4/conf/all/forwarding 2>/dev/null
+          echo "runner=${RUNNER_NAME} host=$(uname -n)"
+          echo "self ns: $(readlink /proc/self/ns/net)  host ns: $(readlink /proc/1/ns/net)"
+          echo "ip_forward=$(cat /proc/sys/net/ipv4/ip_forward)"
+          awk '{print $1}' /proc/modules | grep -E '^(nf_tables|nft_|nf_nat)' | sort | tr '\n' ' '; echo
 
-      - name: Podman network backend
+      - name: Guest links and bridges
+        continue-on-error: true
         run: |
-          podman version --format 'server={{.Server.Version}}'
-          grep -rE 'firewall_backend|network_backend|dns_enabled' /etc/containers/containers.conf /etc/containers/containers.conf.d/ 2>/dev/null | head
-          podman info --format 'backend={{.Host.NetworkBackend}} firewall={{.Host.FirewallBackend}}' 2>&1
+          ip -br link 2>&1 | head -20
+          ip -br addr 2>&1 | grep -E 'podman|br-|veth' | head -10
+          ip route 2>&1 | head
+
+      - name: Guest nftables ruleset
+        continue-on-error: true
+        run: |
+          nft list ruleset 2>&1 | head -120
+
+      - name: Podman networks
+        continue-on-error: true
+        run: |
           podman network ls
+          podman network inspect podman 2>&1 | head -30
 
-      - name: Inter-container connectivity
+      - name: Inter-container connectivity with real tools
+        continue-on-error: true
         run: |
-          podman network create diag-net
+          podman network create diag-net 2>&1
           podman run -d --name diag-db --network diag-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
-          sleep 8
-          echo "== DNS: service name and public name, from a bridge-network container"
-          podman run --rm --network diag-net docker.io/library/alpine:3.20 sh -c '
-            getent hosts db || echo "dns db FAILED"
-            getent hosts api.github.com || echo "dns api.github.com FAILED"'
-          echo "== container to container over the bridge"
-          podman run --rm --network diag-net docker.io/library/alpine:3.20 sh -c '
-            (echo > /dev/tcp/db/5432) 2>/dev/null && echo db-reachable || echo db-UNREACHABLE'
-          echo "== egress by IP and by name"
-          podman run --rm --network diag-net docker.io/library/alpine:3.20 sh -c '
-            if (echo > /dev/tcp/1.1.1.1/443) 2>/dev/null; then echo ip-egress-ok; else echo ip-egress-FAIL; fi
-            if (echo > /dev/tcp/api.github.com/443) 2>/dev/null; then echo dns-egress-ok; else echo dns-egress-FAIL; fi'
+          sleep 10
+          podman inspect diag-db --format '{{json .NetworkSettings.Networks}}' | head -c 600; echo
+          podman run -d --name diag-cli --network diag-net docker.io/library/alpine:3.20 sleep 600
+          podman exec diag-cli sh -c 'if nc -z -w 3 db 5432; then echo db-reachable; else echo db-UNREACHABLE; fi'
+          podman exec diag-cli sh -c 'if nc -z -w 3 10.89.0.1 53; then echo gateway-dns-ok; else echo gateway-dns-FAIL; fi'
+          podman exec diag-cli sh -c 'if nc -z -w 5 1.1.1.1 443; then echo ip-egress-ok; else echo ip-egress-FAIL; fi'
 
-      - name: Published-port reachability
+      - name: Published port
+        continue-on-error: true
         run: |
-          podman run -d --name diag-pub --network diag-net -p 5433:5432 -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
-          sleep 8
-          ss -ltn | grep 5433 || echo "nothing listening on 5433"
-          guest_ip=$(ip -4 route get 1.1.1.1 | grep -oP 'src \K[0-9.]+')
-          echo "guest ip $guest_ip"
-          podman run --rm --network=host docker.io/library/alpine:3.20 sh -c 'nc -z -w 3 127.0.0.1 5433 && echo loopback-ok || echo loopback-FAIL'
-          podman run --rm --network=host docker.io/library/alpine:3.20 sh -c "nc -z -w 3 ${guest_ip} 5433 && echo guestip-ok || echo guestip-FAIL"
-
-      - name: nftables state
-        run: |
-          if command -v sudo >/dev/null; then sudo nft list ruleset; else nft list ruleset; fi 2>&1 | head -100
-          echo "== routes"
-          ip route
+          podman run -d --name diag-pub -p 5433:5432 -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
+          sleep 10
+          echo "== port bindings"
+          podman port diag-pub
+          echo "== connect from the runner namespace"
+          podman run --rm --network=container:diag-cli docker.io/library/alpine:3.20 sh -c 'if nc -z -w 3 127.0.0.1 5433; then echo loopback-ok; else echo loopback-FAIL; fi'
+          echo "== connect from a separate bridge container"
+          podman exec diag-cli sh -c 'if nc -z -w 3 10.89.0.1 5433; then echo bridge-gateway-ok; else echo bridge-gateway-FAIL; fi'
 
       - name: Clean up
         if: always()
         run: |
-          podman rm -f diag-db diag-pub
-          podman network rm diag-net
+          podman rm -f diag-db diag-cli diag-pub 2>&1
+          podman network rm diag-net 2>&1
+          true
