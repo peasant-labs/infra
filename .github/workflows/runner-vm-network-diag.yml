@@ -11,35 +11,47 @@ jobs:
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 12
     steps:
-      - name: Container start with netavark debug
+      - name: Debug daemon and manual enslave test
         continue-on-error: true
         run: |
-          podman network create diag-net
-          podman run -d --name diag-db --network diag-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
-          sleep 5
-          echo "== bridge and ports"
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            apk add -q iproute2 bridge nftables
-            nsenter -t 1 -n ip -d link show podman1 2>&1 | head -12
-            echo "--- ports on bridges"
-            nsenter -t 1 -n bridge -c link show 2>&1 | head -10
-            echo "--- veth detail"
-            nsenter -t 1 -n ip -d link show 2>&1 | grep -A3 -E "veth" | head -20
-            echo "--- container eth0 via its netns"
-            cpid=$(nsenter -t 1 -p -- pgrep -f "postgres" | head -1)
-            echo "container pid guess: $cpid"
-            nsenter -t 1 -n nft list ruleset 2>&1 | grep -B1 -A20 "table ip nat" | head -45
+            apk add -q iproute2
+            echo "== manual bridge + veth + enslave"
+            nsenter -t 1 -n ip link add br-manual type bridge
+            nsenter -t 1 -n ip link set br-manual up
+            nsenter -t 1 -n ip link add veth-manual type veth peer name vpeer-manual
+            if nsenter -t 1 -n ip link set veth-manual master br-manual; then echo "manual enslave OK"; else echo "manual enslave FAILED"; fi
+            nsenter -t 1 -n ip link del veth-manual
+            nsenter -t 1 -n ip link del br-manual
+            echo "== starting debug daemon"
+            nsenter -t 1 -m -u -i -p -- sh -c "setsid /run/current-system/sw/bin/podman system service --log-level=debug --timeout 300 unix:///var/lib/containers/runner/podman-dbg.sock > /var/lib/containers/runner/podman-dbg.log 2>&1 < /dev/null &"
+            sleep 4
+            ls -l /var/lib/containers/runner/podman-dbg.sock || echo "socket missing"
           '
-          echo "== debug run of a second container"
-          podman --log-level=debug run --rm --name diag-dbg --network diag-net docker.io/library/alpine:3.20 true 2>&1 | grep -iE 'netavark|veth|bridge|failed|error|warning' | head -30
-          echo "== podman journal"
+
+      - name: Container through the debug daemon
+        continue-on-error: true
+        run: |
+          export CONTAINER_HOST=unix:///var/lib/containers/runner/podman-dbg.sock
+          podman network create dbg-net
+          podman run -d --name dbg-db --network dbg-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
+          sleep 6
+          echo "== netavark debug lines"
+          grep -iE 'netavark|veth|bridge|master|error|warn' /var/lib/containers/runner/podman-dbg.log | tail -60
+          echo "== bridge state again"
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            nsenter -t 1 -m -u -i -p -- /run/current-system/sw/bin/journalctl -u podman --no-pager -n 40 2>&1 | tail -40
+            apk add -q iproute2
+            nsenter -t 1 -n ip -br link | grep -E "podman|veth" || echo "no podman/veth links"
+            nsenter -t 1 -n ip -d link show | grep -B1 -A1 "master" | head -10
           '
 
       - name: Clean up
         if: always()
         run: |
-          podman rm -f diag-db diag-dbg 2>&1
-          podman network rm diag-net 2>&1
+          podman rm -f dbg-db 2>&1
+          podman network rm dbg-net 2>&1
+          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
+            pkill -f podman-dbg.sock || true
+            rm -f /var/lib/containers/runner/podman-dbg.sock /var/lib/containers/runner/podman-dbg.log
+          ' 2>/dev/null
           true
