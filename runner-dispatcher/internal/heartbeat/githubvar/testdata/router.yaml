@@ -1,0 +1,57 @@
+# Cases for the router's pool decision (.github/workflows/runner-router.yml,
+# step "Pick a runner"), fed a record written by this package's publisher.
+#
+# ageSeconds   how old the published timestamp is when the router reads it;
+#              negative means the dispatcher's clock runs ahead.
+# healthy      the record's listener_healthy flag.
+# rawValue     replaces the published record with literal text.
+# queryFails   the variable read fails (missing variable, auth, network).
+# token        RUNNER_STATUS_TOKEN; omitted means a token is present.
+# labels       the router's labels input; omitted means the default pair below.
+- name: fresh healthy record routes to the pool
+  ageSeconds: 10
+  healthy: true
+  wantPool: "true"
+  wantReason: pool-online
+
+- name: record older than the freshness window falls back
+  ageSeconds: 301
+  healthy: true
+  wantPool: "false"
+  wantReason: pool-stale
+
+- name: fresh record with an unhealthy listener falls back
+  ageSeconds: 10
+  healthy: false
+  wantPool: "false"
+  wantReason: pool-stale
+
+- name: record from a clock far ahead falls back
+  ageSeconds: -400
+  healthy: true
+  wantPool: "false"
+  wantReason: pool-stale
+
+- name: unparseable record falls back
+  rawValue: "not json"
+  wantPool: "false"
+  wantReason: pool-stale
+
+- name: failed variable read falls back
+  queryFails: true
+  wantPool: "false"
+  wantReason: query-failed
+
+- name: missing token falls back
+  ageSeconds: 10
+  healthy: true
+  token: ""
+  wantPool: "false"
+  wantReason: query-failed
+
+- name: invalid labels input falls back
+  ageSeconds: 10
+  healthy: true
+  labels: "[]"
+  wantPool: "false"
+  wantReason: query-failed

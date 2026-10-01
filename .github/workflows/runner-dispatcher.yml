@@ -1,0 +1,49 @@
+name: Runner dispatcher
+
+# The dispatcher's Go tests, including the router contract test that runs
+# runner-router.yml's own script against records from the dispatcher's
+# heartbeat publisher. Hosted runner on purpose: this repository's CI stays
+# inline, and the pool must not be needed to test the code that runs it.
+
+on:
+  pull_request:
+    paths:
+      - "runner-dispatcher/**"
+      - ".github/workflows/runner-router.yml"
+      - ".github/workflows/runner-dispatcher.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "runner-dispatcher/**"
+      - ".github/workflows/runner-router.yml"
+      - ".github/workflows/runner-dispatcher.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: runner-dispatcher
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: runner-dispatcher/go.mod
+          cache-dependency-path: runner-dispatcher/go.sum
+
+      - name: Formatting
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
