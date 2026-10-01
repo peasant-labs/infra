@@ -181,6 +181,12 @@ func run() error {
 		"labels", *labels, "max_capacity", *maxCapacity, "driver", *vmDriver,
 		"scale_set_id", scaleSetID)
 
+	return serve(d, *drainTimeout, logger)
+}
+
+// serve runs the dispatcher until SIGINT or SIGTERM, then drains: running
+// jobs finish before the process exits, so a service stop never cancels one.
+func serve(d *dispatcher.Dispatcher, drainTimeout time.Duration, logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -189,7 +195,7 @@ func run() error {
 	}
 
 	logger.Info("draining", "timeout", drainTimeout.String())
-	drainCtx, cancel := context.WithTimeout(context.Background(), *drainTimeout)
+	drainCtx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	if err := d.Drain(drainCtx); err != nil {
 		return fmt.Errorf("drain: %w", err)

@@ -362,3 +362,58 @@ func (s *flakyAckSession) Ack(context.Context, int) error {
 	}
 	return nil
 }
+
+// A dispatcher that restarts while a job runs finds the job's VM through the
+// driver and adopts it: the same statistics plan no boot and no reclaim, and
+// the next boot takes a different slot name.
+func TestRestartAdoptsTheRunningVM(t *testing.T) {
+	ctx := context.Background()
+	driver := dryrun.New()
+	if _, err := driver.Boot(ctx, vm.BootSpec{Name: "vm-1"}); err != nil {
+		t.Fatalf("boot: %v", err)
+	}
+	driver.SetState("vm-1", vm.StateBusy)
+
+	d, jit := newTestDispatcher(t, &scriptedSession{}, driver)
+	if err := d.Step(ctx, Statistics{AssignedJobs: 1, RunningJobs: 1}); err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	instances, _ := driver.List(ctx)
+	if jit.mints != 0 || len(instances) != 1 || instances[0].ID != "vm-1" || instances[0].State != vm.StateBusy {
+		t.Fatalf("after restart: mints=%d instances=%+v, want the busy vm-1 adopted untouched", jit.mints, instances)
+	}
+
+	if err := d.Step(ctx, Statistics{AssignedJobs: 2, RunningJobs: 1}); err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if jit.mints != 1 || len(jit.names) != 1 || jit.names[0] != "vm-2" {
+		t.Fatalf("second job: mints=%d names=%v, want one boot on vm-2", jit.mints, jit.names)
+	}
+}
+
+// A VM killed mid-job disappears from the driver while GitHub still counts
+// its job as running, so the planner boots a replacement into the freed slot.
+// The replacement's runner gets no job once GitHub fails the lost one; the
+// guest's idle guard powers it off. Pinned so a planner change that stops
+// replacing (or starts double-booting) is a deliberate one.
+func TestKilledVMIsReplacedInTheFreedSlot(t *testing.T) {
+	ctx := context.Background()
+	driver := dryrun.New()
+	d, jit := newTestDispatcher(t, &scriptedSession{}, driver)
+
+	if err := d.Step(ctx, Statistics{AssignedJobs: 1}); err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	driver.SetState("vm-1", vm.StateBusy)
+	if err := driver.Kill(ctx, "vm-1"); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+
+	if err := d.Step(ctx, Statistics{AssignedJobs: 1, RunningJobs: 1}); err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	instances, _ := driver.List(ctx)
+	if jit.mints != 2 || len(instances) != 1 || instances[0].ID != "vm-1" {
+		t.Fatalf("after kill: mints=%d names=%v instances=%+v, want one replacement in vm-1", jit.mints, jit.names, instances)
+	}
+}

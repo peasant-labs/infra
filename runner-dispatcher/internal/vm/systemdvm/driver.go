@@ -96,6 +96,11 @@ func (d *Driver) Boot(ctx context.Context, spec vm.BootSpec) (vm.Instance, error
 	if err := os.MkdirAll(filepath.Dir(jitPath), 0o700); err != nil {
 		return vm.Instance{}, fmt.Errorf("systemdvm: create slot dir: %w", err)
 	}
+	// A VM that powered off on its own leaves its read-only config behind,
+	// and only a privileged process may overwrite a 0400 file.
+	if err := os.Remove(jitPath); err != nil && !os.IsNotExist(err) {
+		return vm.Instance{}, fmt.Errorf("systemdvm: remove stale jit config: %w", err)
+	}
 	if err := os.WriteFile(jitPath, []byte(spec.JITConfig), 0o400); err != nil {
 		return vm.Instance{}, fmt.Errorf("systemdvm: write jit config: %w", err)
 	}

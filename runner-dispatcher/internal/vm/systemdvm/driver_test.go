@@ -27,7 +27,8 @@ unit="$2"
 echo "$cmd $unit" >> "$state_dir/calls.log"
 case "$cmd" in
   start)
-    touch "$state_dir/$unit"
+    # Starting resets a failed unit, as systemd does.
+    : > "$state_dir/$unit"
     ;;
   try-restart)
     touch "$state_dir/$unit"
@@ -36,8 +37,16 @@ case "$cmd" in
     rm -f "$state_dir/$unit"
     ;;
   is-active)
+    # An empty state file is an active unit; a test writes another state
+    # (for example "failed") into it to model a VM killed outright.
     if [ -f "$state_dir/$unit" ]; then
-      echo active
+      state="$(cat "$state_dir/$unit")"
+      state="${state:-active}"
+      echo "$state"
+      case "$state" in
+        active|activating|reloading) ;;
+        *) exit 3 ;;
+      esac
     else
       echo inactive
       exit 3
@@ -220,5 +229,34 @@ func TestEmptyStateIsInactive(t *testing.T) {
 	}
 	if len(instances) != 0 {
 		t.Fatalf("instances = %+v, want none", instances)
+	}
+}
+
+// A VM killed outright (hypervisor crash, OOM) leaves its unit "failed", not
+// "inactive". The slot must read as free and boot again: a failed unit that
+// counted as busy would shrink the pool by one slot per crash.
+func TestFailedUnitFreesItsSlot(t *testing.T) {
+	d, _ := newTestDriver(t)
+	ctx := context.Background()
+	if _, err := d.Boot(ctx, vm.BootSpec{Name: "runner-vm-1", JITConfig: "jit"}); err != nil {
+		t.Fatalf("Boot: %v", err)
+	}
+	stateFile := filepath.Join(filepath.Dir(d.cfg.Systemctl), "state", d.unit("runner-vm-1"))
+	if err := os.WriteFile(stateFile, []byte("failed"), 0o644); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+
+	instances, err := d.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(instances) != 0 {
+		t.Fatalf("instances = %+v, want the failed slot free", instances)
+	}
+	if _, err := d.Boot(ctx, vm.BootSpec{Name: "runner-vm-1", JITConfig: "jit"}); err != nil {
+		t.Fatalf("re-Boot of the failed slot: %v", err)
+	}
+	if instances, _ := d.List(ctx); len(instances) != 1 || instances[0].State != vm.StateBusy {
+		t.Fatalf("instances after re-boot = %+v, want one busy slot", instances)
 	}
 }

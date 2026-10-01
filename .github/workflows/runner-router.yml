@@ -25,10 +25,11 @@ name: Runner router
 #              condition pool-only adaptations on it.
 #   reason     'pool-online' | 'pool-stale' | 'query-failed', so a silent
 #              regression to the fallback stays visible.
-#              'pool-stale' means the pool-health record is missing, older
-#              than the freshness window, or unhealthy. 'query-failed' covers
-#              a missing token (expected on fork PRs, notice-level, not an
-#              outage), an API failure, and an invalid 'labels' input.
+#              'pool-stale' means the pool-health record is older than the
+#              freshness window, unhealthy, or unparseable. 'query-failed'
+#              covers a missing token (expected on fork PRs, notice-level,
+#              not an outage), a failed variable read (including a record
+#              that was never published), and an invalid 'labels' input.
 #
 # Behaviour: the fallback is written to the outputs before the pool check, so
 # any abort still yields a runnable label set. The pool is online when the

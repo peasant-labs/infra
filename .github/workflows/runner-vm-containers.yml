@@ -1,0 +1,97 @@
+name: Runner VM containers
+
+# Answers "can a VM slot run the jobs that need a container runtime": a
+# services: container, sibling containers bind-mounting the workspace by path,
+# and a container: job. Also proves the boundary: the runtime the job drives is
+# the guest's own, and the only host directory visible to the job is the
+# shared cache.
+#
+# Dispatch-only, like the smoke: untrusted refs must never schedule on
+# self-hosted runners, and the run goes red whenever the desktop is offline.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  services:
+    runs-on: [self-hosted, linux, x64, microvm]
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: docker.io/library/postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: probe
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - name: Prove this is a VM slot, not the container pool
+        run: |
+          set -euo pipefail
+          case "${RUNNER_NAME}" in
+            runner-vm*) ;;
+            *) echo "unexpected runner name: ${RUNNER_NAME}" >&2; exit 1 ;;
+          esac
+
+      - name: The container runtime is the guest's own
+        run: |
+          set -euo pipefail
+          runtime_host="$(docker info --format '{{.Name}}')"
+          echo "container runtime host: ${runtime_host}"
+          case "${runtime_host}" in
+            runner-vm-*) ;;
+            *) echo "the job's container runtime is not a runner VM guest" >&2; exit 1 ;;
+          esac
+          # Images built on the desktop are tagged localhost/...; none may be
+          # visible from a job.
+          if docker images --format '{{.Repository}}' | grep '^localhost/'; then
+            echo "host-local images are visible to the job" >&2
+            exit 1
+          fi
+
+      - name: The shared cache is the only host directory mounted
+        run: |
+          set -euo pipefail
+          awk '$3 == "virtiofs" {print $2}' /proc/mounts | sort -u > /tmp/host-mounts
+          cat /tmp/host-mounts
+          if grep -vx '/var/cache/runner' /tmp/host-mounts; then
+            echo "unexpected host directory mounted into the job" >&2
+            exit 1
+          fi
+
+      - name: Reach the service container
+        env:
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network=host -e PGPASSWORD=probe \
+            docker.io/library/postgres:16-alpine \
+            psql -h 127.0.0.1 -p "${PGPORT}" -U postgres -tAc 'select 1' | grep -qx 1
+
+      - name: Sibling containers see the workspace at its path
+        run: |
+          set -euo pipefail
+          echo probe > "${GITHUB_WORKSPACE}/probe.txt"
+          docker run --rm -v "${GITHUB_WORKSPACE}:/w" docker.io/library/alpine:3.20 \
+            cat /w/probe.txt | grep -qx probe
+
+  container-job:
+    runs-on: [self-hosted, linux, x64, microvm]
+    timeout-minutes: 15
+    # A JavaScript action inside a job container runs on the runner's own
+    # node, mounted from the runner install by path.
+    container:
+      image: docker.io/library/debian:bookworm-slim
+    steps:
+      - name: Check out inside the job container
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The checkout is in the workspace
+        run: test -d "${GITHUB_WORKSPACE}/.github/workflows"
