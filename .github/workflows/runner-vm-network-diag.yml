@@ -11,53 +11,47 @@ jobs:
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 15
     steps:
-      - name: Unnamed veth with master at create
+      - name: Debug daemon under strace
         continue-on-error: true
         run: |
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            apk add -q iproute2
-            nsenter -t 1 -n ip link add br-t0 type bridge
-            nsenter -t 1 -n ip link set br-t0 up
-            nsenter -t 1 -n ip netns add manualns
-            echo "== unnamed host end, peer in netns, master at create"
-            if nsenter -t 1 -n ip link add master br-t0 type veth peer name tvc netns manualns 2>/tmp/err; then echo "create ok"; else echo "create FAILED: $(cat /tmp/err)"; fi
-            nsenter -t 1 -n ip -d link show 2>&1 | grep -E "master br-t0" || echo "no master"
-            nsenter -t 1 -n ip link del br-t0 2>/dev/null || true
-            nsenter -t 1 -n ip netns del manualns 2>/dev/null || true
+            apk add -q strace
+            mkdir -p /var/lib/containers/runner/dbgroot /var/lib/containers/runner/dbgrun
+            nsenter -t 1 -m -u -i -p -- /run/current-system/sw/bin/systemd-run --collect --unit=podman-dbg \
+              --property=StandardOutput=file:/var/lib/containers/runner/dbg.log \
+              --property=StandardError=file:/var/lib/containers/runner/dbg.log \
+              /run/current-system/sw/bin/strace -f -e trace=sendmsg -o /var/lib/containers/runner/nav.strace -xx -s 400 \
+              /run/current-system/sw/bin/podman --log-level=debug \
+              --root /var/lib/containers/runner/dbgroot --runroot /var/lib/containers/runner/dbgrun \
+              system service --timeout 240 unix:///var/lib/containers/runner/dbg.sock
+            sleep 6
+            if [ -S /var/lib/containers/runner/dbg.sock ]; then echo "socket up"; else echo "socket MISSING"; tail -20 /var/lib/containers/runner/dbg.log; fi
           '
 
-      - name: Manual attach and persistence
+      - name: Create a container and read the trace
         continue-on-error: true
         run: |
-          podman network create fix-net 2>&1
-          gw=$(podman network inspect fix-net | jq -r '.[0].subnets[0].gateway')
-          echo "gateway=$gw"
-          podman run -d --name fx1 --network fix-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine 2>&1
-          sleep 8
-          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec "
+          export CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock
+          podman network create dbg3-net 2>&1
+          podman run -d --name dbg3-a --network dbg3-net docker.io/library/alpine:3.20 sleep 180 2>&1
+          sleep 6
+          echo "== RTM_NEWLINK messages"
+          grep -n 'RTM_NEWLINK' /var/lib/containers/runner/nav.strace | sed -E 's/^([0-9]+:[0-9]+ )/\1/' | cut -c1-600
+          echo "== IFLA_MASTER occurrences"
+          grep -c 'IFLA_MASTER' /var/lib/containers/runner/nav.strace
+          echo "== links"
+          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
             apk add -q iproute2
-            bridge=\$(nsenter -t 1 -n ip -4 -o addr show label 'podman*' | awk '{print \$2}' | while read d; do nsenter -t 1 -n ip -4 -o addr show dev \$d | grep -q '$gw' && echo \$d; done | head -1)
-            echo \"bridge=\$bridge\"
-            veth=\$(nsenter -t 1 -n ip -br link | awk '\$1 ~ /^veth/ {print \$1}' | head -1)
-            echo \"veth=\$veth\"
-            echo '== before'
-            nsenter -t 1 -n ip -d link show \$veth | head -2
-            nsenter -t 1 -n ip link set \$veth master \$bridge && echo attached
-            echo '== immediately after'
-            nsenter -t 1 -n ip -d link show \$veth | head -2
-            sleep 10
-            echo '== 10s later'
-            nsenter -t 1 -n ip -d link show \$veth | head -2
-          "
-          echo "== connectivity after manual attach"
-          podman run -d --name fx2 --network fix-net docker.io/library/alpine:3.20 sleep 120
-          sleep 3
-          podman exec fx2 sh -c 'if nc -z -w 3 db 5432; then echo db-reachable; else echo db-UNREACHABLE; fi'
-          podman exec fx2 sh -c 'if nc -z -w 3 1.1.1.1 443; then echo ip-egress-ok; else echo ip-egress-FAIL; fi'
+            nsenter -t 1 -n ip -d link show 2>&1 | grep -E "master|veth" | head -6
+          '
 
       - name: Clean up
         if: always()
         run: |
-          podman rm -f fx1 fx2 2>/dev/null
-          podman network rm fix-net 2>/dev/null
+          CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock podman rm -f dbg3-a 2>/dev/null
+          CONTAINER_HOST=unix:///var/lib/containers/runner/dbg.sock podman network rm dbg3-net 2>/dev/null
+          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
+            nsenter -t 1 -m -u -i -p -- /run/current-system/sw/bin/systemctl stop podman-dbg 2>/dev/null || true
+            rm -rf /var/lib/containers/runner/dbg.sock /var/lib/containers/runner/dbg.log /var/lib/containers/runner/nav.strace /var/lib/containers/runner/dbgroot /var/lib/containers/runner/dbgrun
+          ' 2>/dev/null
           true
