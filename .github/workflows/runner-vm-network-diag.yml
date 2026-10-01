@@ -11,59 +11,49 @@ jobs:
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 12
     steps:
-      - name: Identity and namespaces
+      - name: Host namespace inspection from a privileged container
         continue-on-error: true
         run: |
-          echo "runner=${RUNNER_NAME} host=$(uname -n)"
-          echo "self ns: $(readlink /proc/self/ns/net)  host ns: $(readlink /proc/1/ns/net)"
-          echo "ip_forward=$(cat /proc/sys/net/ipv4/ip_forward)"
-          awk '{print $1}' /proc/modules | grep -E '^(nf_tables|nft_|nf_nat)' | sort | tr '\n' ' '; echo
+          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
+            apk add -q iproute2 nftables kmod
+            echo "== kernel.modprobe: $(cat /proc/sys/kernel/modprobe)"
+            echo "== loaded bridge/veth/kmod"
+            awk "{print \$1}" /proc/modules | grep -E "^(bridge|veth)$" || echo "bridge/veth NOT loaded"
+            echo "== guest links"
+            nsenter -t 1 -n ip -br link
+            echo "== guest addrs"
+            nsenter -t 1 -n ip -br addr | head -20
+            echo "== can we create a bridge?"
+            if nsenter -t 1 -n ip link add name diagtest0 type bridge 2>&1; then
+              echo "bridge creation OK"
+              nsenter -t 1 -n ip link del diagtest0
+            else
+              echo "bridge creation FAILED"
+            fi
+            echo "== nat rules"
+            nsenter -t 1 -n nft list ruleset 2>&1 | head -80
+            echo "== dmesg tail"
+            dmesg 2>/dev/null | tail -15 || echo "dmesg unavailable"
+          '
 
-      - name: Guest links and bridges
-        continue-on-error: true
-        run: |
-          ip -br link 2>&1 | head -20
-          ip -br addr 2>&1 | grep -E 'podman|br-|veth' | head -10
-          ip route 2>&1 | head
-
-      - name: Guest nftables ruleset
-        continue-on-error: true
-        run: |
-          nft list ruleset 2>&1 | head -120
-
-      - name: Podman networks
-        continue-on-error: true
-        run: |
-          podman network ls
-          podman network inspect podman 2>&1 | head -30
-
-      - name: Inter-container connectivity with real tools
+      - name: Container setup with observable failure
         continue-on-error: true
         run: |
           podman network create diag-net 2>&1
-          podman run -d --name diag-db --network diag-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
-          sleep 10
-          podman inspect diag-db --format '{{json .NetworkSettings.Networks}}' | head -c 600; echo
-          podman run -d --name diag-cli --network diag-net docker.io/library/alpine:3.20 sleep 600
-          podman exec diag-cli sh -c 'if nc -z -w 3 db 5432; then echo db-reachable; else echo db-UNREACHABLE; fi'
-          podman exec diag-cli sh -c 'if nc -z -w 3 10.89.0.1 53; then echo gateway-dns-ok; else echo gateway-dns-FAIL; fi'
-          podman exec diag-cli sh -c 'if nc -z -w 5 1.1.1.1 443; then echo ip-egress-ok; else echo ip-egress-FAIL; fi'
-
-      - name: Published port
-        continue-on-error: true
-        run: |
-          podman run -d --name diag-pub -p 5433:5432 -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
-          sleep 10
-          echo "== port bindings"
-          podman port diag-pub
-          echo "== connect from the runner namespace"
-          podman run --rm --network=container:diag-cli docker.io/library/alpine:3.20 sh -c 'if nc -z -w 3 127.0.0.1 5433; then echo loopback-ok; else echo loopback-FAIL; fi'
-          echo "== connect from a separate bridge container"
-          podman exec diag-cli sh -c 'if nc -z -w 3 10.89.0.1 5433; then echo bridge-gateway-ok; else echo bridge-gateway-FAIL; fi'
+          podman run -d --name diag-db --network diag-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine; echo "run exit=$?"
+          sleep 8
+          podman inspect diag-db --format '{{json .NetworkSettings.Networks}}' | head -c 400; echo
+          podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
+            apk add -q iproute2
+            echo "== guest links after container start"
+            nsenter -t 1 -n ip -br link
+            echo "== guest addrs after container start"
+            nsenter -t 1 -n ip -br addr | grep -E "10.89|podman|veth|br-" || true
+          '
 
       - name: Clean up
         if: always()
         run: |
-          podman rm -f diag-db diag-cli diag-pub 2>&1
+          podman rm -f diag-db 2>&1
           podman network rm diag-net 2>&1
           true
