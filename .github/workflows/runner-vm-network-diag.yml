@@ -11,49 +11,35 @@ jobs:
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 12
     steps:
-      - name: Host namespace inspection from a privileged container
+      - name: Container start with netavark debug
         continue-on-error: true
         run: |
+          podman network create diag-net
+          podman run -d --name diag-db --network diag-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
+          sleep 5
+          echo "== bridge and ports"
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            apk add -q iproute2 nftables kmod
-            echo "== kernel.modprobe: $(cat /proc/sys/kernel/modprobe)"
-            echo "== loaded bridge/veth/kmod"
-            awk "{print \$1}" /proc/modules | grep -E "^(bridge|veth)$" || echo "bridge/veth NOT loaded"
-            echo "== guest links"
-            nsenter -t 1 -n ip -br link
-            echo "== guest addrs"
-            nsenter -t 1 -n ip -br addr | head -20
-            echo "== can we create a bridge?"
-            if nsenter -t 1 -n ip link add name diagtest0 type bridge 2>&1; then
-              echo "bridge creation OK"
-              nsenter -t 1 -n ip link del diagtest0
-            else
-              echo "bridge creation FAILED"
-            fi
-            echo "== nat rules"
-            nsenter -t 1 -n nft list ruleset 2>&1 | head -80
-            echo "== dmesg tail"
-            dmesg 2>/dev/null | tail -15 || echo "dmesg unavailable"
+            apk add -q iproute2 bridge nftables
+            nsenter -t 1 -n ip -d link show podman1 2>&1 | head -12
+            echo "--- ports on bridges"
+            nsenter -t 1 -n bridge -c link show 2>&1 | head -10
+            echo "--- veth detail"
+            nsenter -t 1 -n ip -d link show 2>&1 | grep -A3 -E "veth" | head -20
+            echo "--- container eth0 via its netns"
+            cpid=$(nsenter -t 1 -p -- pgrep -f "postgres" | head -1)
+            echo "container pid guess: $cpid"
+            nsenter -t 1 -n nft list ruleset 2>&1 | grep -B1 -A20 "table ip nat" | head -45
           '
-
-      - name: Container setup with observable failure
-        continue-on-error: true
-        run: |
-          podman network create diag-net 2>&1
-          podman run -d --name diag-db --network diag-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine; echo "run exit=$?"
-          sleep 8
-          podman inspect diag-db --format '{{json .NetworkSettings.Networks}}' | head -c 400; echo
+          echo "== debug run of a second container"
+          podman --log-level=debug run --rm --name diag-dbg --network diag-net docker.io/library/alpine:3.20 true 2>&1 | grep -iE 'netavark|veth|bridge|failed|error|warning' | head -30
+          echo "== podman journal"
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec '
-            apk add -q iproute2
-            echo "== guest links after container start"
-            nsenter -t 1 -n ip -br link
-            echo "== guest addrs after container start"
-            nsenter -t 1 -n ip -br addr | grep -E "10.89|podman|veth|br-" || true
+            nsenter -t 1 -m -u -i -p -- /run/current-system/sw/bin/journalctl -u podman --no-pager -n 40 2>&1 | tail -40
           '
 
       - name: Clean up
         if: always()
         run: |
-          podman rm -f diag-db 2>&1
+          podman rm -f diag-db diag-dbg 2>&1
           podman network rm diag-net 2>&1
           true
