@@ -1,0 +1,148 @@
+name: Runner VM security probe
+
+# Dispatch-only negative security probe for the gate in
+# docs/runner-vm-spike-report.md: from inside a job's vantage point, prove that
+# host-reachable things are not reachable.
+#
+# Every check is a read: path existence, the mount table, one version read on
+# the guest's own podman socket, and TCP connect attempts with short timeouts.
+# Nothing is written or deleted outside the job's own scratch, and no file
+# content or environment value is ever printed: the log must never carry a
+# credential. Paths, labels and a version string only.
+#
+# Dispatch-only on purpose: untrusted refs must never schedule on self-hosted
+# runners.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, linux, x64, microvm]
+    timeout-minutes: 10
+    steps:
+      - name: Prove this is a VM slot, not the container pool
+        run: |
+          set -eu
+          case "${RUNNER_NAME}" in
+            runner-vm*) echo "runner: ${RUNNER_NAME}" ;;
+            *) echo "unexpected runner name: ${RUNNER_NAME}" >&2; exit 1 ;;
+          esac
+
+      - name: Negative security probe
+        run: |
+          #!/usr/bin/env bash
+          # Negative security probe for a runner VM slot. Runs inside the runner
+          # container, the same vantage point a job has.
+          #
+          # Every check is a read: path existence, the mount table, one version read on
+          # the guest's own podman socket, and TCP connect attempts with short timeouts.
+          # Nothing is written or deleted outside the job's own scratch, and no file
+          # content or environment value is ever printed: the log must never carry a
+          # credential. Paths, labels and a version string only.
+          set -eu
+          
+          fail=0
+          note() { printf '%s\n' "$*"; }
+          ok() { note "ok   $*"; }
+          bad() { note "FAIL $*"; fail=1; }
+          
+          forbid_path() {
+            if [ -e "$1" ] || [ -L "$1" ]; then bad "forbidden path exists: $1"; else ok "absent: $1"; fi
+          }
+          
+          # 1. No host podman socket. The guest's own socket is mounted at
+          # /var/run/docker.sock on purpose; what must be absent is the desktop's runtime
+          # directory, and the daemon behind the mount must be the guest's own. A path
+          # alone cannot tell them apart - both are /run/podman/podman.sock - so the
+          # engine identifies itself by name.
+          forbid_path /run/user/1000
+          sock_real=$(readlink -f /var/run/docker.sock 2>/dev/null || echo /var/run/docker.sock)
+          rec=$(awk -v want="$sock_real" '$5 == want { print $4, $9, $10; exit }' /proc/self/mountinfo)
+          if [ -z "$rec" ]; then
+            bad "no mount found for $sock_real"
+          elif printf '%s' "$rec" | grep -Eq '/user/[0-9]+'; then
+            bad "docker.sock comes from a user runtime path: $rec"
+          elif printf '%s' "$rec" | grep -q 'podman\.sock'; then
+            ok "docker.sock is the guest's own podman mount: $rec"
+          else
+            bad "docker.sock mount is unexpected: $rec"
+          fi
+          if command -v curl >/dev/null 2>&1 && [ -S /var/run/docker.sock ]; then
+            ver=$(curl -sS --max-time 5 --unix-socket /var/run/docker.sock http://localhost/version 2>/dev/null \
+                  | sed -n 's/.*"Version":"\([^"]*\)".*/\1/p')
+            if [ -n "$ver" ]; then ok "socket answers, engine version ${ver}"; else bad "socket does not answer a version read"; fi
+            name=$(curl -sS --max-time 5 --unix-socket /var/run/docker.sock http://localhost/info 2>/dev/null \
+                   | sed -n 's/.*"Name":"\([^"]*\)".*/\1/p')
+            case "$name" in
+              runner-vm*) ok "engine identifies as the guest: ${name}" ;;
+              "") bad "engine info did not report a name" ;;
+              *) bad "engine is not the guest: ${name}" ;;
+            esac
+          else
+            bad "no curl or no socket to read the engine version"
+          fi
+          
+          # 2. No dispatcher, no host systemd.
+          forbid_path /var/lib/runner-dispatcher
+          forbid_path /run/credentials/runner-dispatcher.service
+          forbid_path /run/systemd/private
+          hits=$(for c in /proc/[0-9]*/comm; do read -r n < "$c" 2>/dev/null || continue; [ "$n" = "runner-dispatcher" ] && echo "$c"; done || true)
+          if [ -n "$hits" ]; then bad "a runner-dispatcher process is visible: $hits"; else ok "no runner-dispatcher process visible"; fi
+          
+          # 3. No host key material. A bounded look for key-like NAMES only; contents are
+          # never opened or printed.
+          forbid_path /run/secrets
+          forbid_path /var/lib/sops-nix
+          forbid_path /run/credentials
+          found=$(find /run /var/lib -maxdepth 4 \( -name '*app-private-key*' -o -name '*runner-dispatcher*' -o -name '*sops*' \) 2>/dev/null | head -5 || true)
+          if [ -n "$found" ]; then bad "key-like paths visible: $found"; else ok "no key-like paths under /run and /var/lib (bounded look)"; fi
+          
+          # 4. Only the cache is a shared tree. The JIT credential and the host's paths
+          # are not this container's business.
+          forbid_path /home/minttea
+          forbid_path /etc/nixos
+          forbid_path /var/lib/microvms
+          forbid_path /run/jit
+          forbid_path /run/credentials/runner-job.service
+          if [ -d /var/cache/runner ] && [ -w /var/cache/runner ]; then
+            ok "cache present and writable: /var/cache/runner"
+          else
+            bad "cache missing or not writable: /var/cache/runner"
+          fi
+          
+          # 5. No host service past NAT egress. The default gateway is the host's bridge
+          # address; a refused or timed-out connect is the expected result. The egress
+          # check is the control: if it fails, the negatives above prove nothing.
+          gw_hex=$(awk '$2 == "00000000" { print $3; exit }' /proc/net/route)
+          gw=""
+          if [ -n "$gw_hex" ]; then
+            gw=$(printf '%d.%d.%d.%d' "0x${gw_hex:6:2}" "0x${gw_hex:4:2}" "0x${gw_hex:2:2}" "0x${gw_hex:0:2}")
+          fi
+          if [ -z "$gw" ]; then
+            bad "no default gateway found in /proc/net/route"
+          else
+            note "gateway: $gw"
+          fi
+          tcp_connects() { timeout 3 bash -c "exec 3<>/dev/tcp/$1/$2" >/dev/null 2>&1; }
+          for port in 22 2375 2376 4243; do
+            if [ -n "$gw" ] && tcp_connects "$gw" "$port"; then
+              bad "host gateway $gw accepted TCP $port"
+            else
+              ok "no TCP to $gw:$port"
+            fi
+          done
+          if tcp_connects 1.1.1.1 443; then
+            ok "NAT egress works (1.1.1.1:443)"
+          else
+            bad "no NAT egress (1.1.1.1:443); the negative checks above are vacuous"
+          fi
+          
+          if [ "$fail" -ne 0 ]; then
+            note "security probe FAILED"
+            exit 1
+          fi
+          note "security probe passed: no host socket, no dispatcher, no key material, no host paths, no host service reachable"
