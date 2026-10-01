@@ -20,33 +20,39 @@ jobs:
             nsenter -t 1 -n ip link set br-t0 up
             nsenter -t 1 -n ip netns add manualns
             echo "== unnamed host end, peer in netns, master at create"
-            if nsenter -t 1 -n ip link add master br-t0 type veth peer name tvc netns manualns 2>/tmp/opencode/err; then echo "create ok"; else echo "create FAILED: $(cat /tmp/opencode/err)"; fi
-            nsenter -t 1 -n ip -d link show 2>&1 | grep -E "master|veth" | head -6
+            if nsenter -t 1 -n ip link add master br-t0 type veth peer name tvc netns manualns 2>/tmp/err; then echo "create ok"; else echo "create FAILED: $(cat /tmp/err)"; fi
+            nsenter -t 1 -n ip -d link show 2>&1 | grep -E "master br-t0" || echo "no master"
             nsenter -t 1 -n ip link del br-t0 2>/dev/null || true
             nsenter -t 1 -n ip netns del manualns 2>/dev/null || true
           '
 
-      - name: Manual attach of netavark veth
+      - name: Manual attach and persistence
         continue-on-error: true
         run: |
           podman network create fix-net 2>&1
+          gw=$(podman network inspect fix-net | jq -r '.[0].subnets[0].gateway')
+          echo "gateway=$gw"
           podman run -d --name fx1 --network fix-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine 2>&1
           sleep 8
-          bridge=$(podman network inspect fix-net --format '{{.network_interface}}')
-          echo "bridge=$bridge"
           podman run --rm --privileged --network=host --pid=host docker.io/library/alpine:3.20 sh -ec "
             apk add -q iproute2
-            echo '== before attach'
-            nsenter -t 1 -n ip -d link show 2>&1 | grep -E 'veth' | head -5
-            veth=\$(nsenter -t 1 -n ip -br link | awk '\$3==\"UP\" && \$1 ~ /^veth/ {print \$1}' | head -1)
-            echo \"attaching \$veth to $bridge\"
-            nsenter -t 1 -n ip link set \$veth master $bridge
-            nsenter -t 1 -n ip -br link | grep -E 'podman|veth'
+            bridge=\$(nsenter -t 1 -n ip -4 -o addr show label 'podman*' | awk '{print \$2}' | while read d; do nsenter -t 1 -n ip -4 -o addr show dev \$d | grep -q '$gw' && echo \$d; done | head -1)
+            echo \"bridge=\$bridge\"
+            veth=\$(nsenter -t 1 -n ip -br link | awk '\$1 ~ /^veth/ {print \$1}' | head -1)
+            echo \"veth=\$veth\"
+            echo '== before'
+            nsenter -t 1 -n ip -d link show \$veth | head -2
+            nsenter -t 1 -n ip link set \$veth master \$bridge && echo attached
+            echo '== immediately after'
+            nsenter -t 1 -n ip -d link show \$veth | head -2
+            sleep 10
+            echo '== 10s later'
+            nsenter -t 1 -n ip -d link show \$veth | head -2
           "
           echo "== connectivity after manual attach"
-          podman run --rm --network fix-net docker.io/library/alpine:3.20 sh -c 'if nc -z -w 3 db 5432; then echo db-reachable; else echo db-UNREACHABLE; fi'
           podman run -d --name fx2 --network fix-net docker.io/library/alpine:3.20 sleep 120
           sleep 3
+          podman exec fx2 sh -c 'if nc -z -w 3 db 5432; then echo db-reachable; else echo db-UNREACHABLE; fi'
           podman exec fx2 sh -c 'if nc -z -w 3 1.1.1.1 443; then echo ip-egress-ok; else echo ip-egress-FAIL; fi'
 
       - name: Clean up
