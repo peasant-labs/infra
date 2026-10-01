@@ -20,6 +20,7 @@ jobs:
         run: echo "runner=${RUNNER_NAME} host=$(uname -n) kernel=$(uname -r) uid=$(id -u)"
 
       - name: Kernel netfilter state
+        continue-on-error: true
         run: |
           echo "== modules present in the guest closure"
           for f in /run/current-system/kernel-modules/lib/modules/*/kernel/net/netfilter/nft_* /run/current-system/kernel-modules/lib/modules/*/kernel/net/netfilter/nf_tables*; do
@@ -34,13 +35,16 @@ jobs:
           cat /proc/sys/net/ipv4/ip_forward /proc/sys/net/ipv4/conf/all/forwarding 2>/dev/null
 
       - name: Podman network backend
+        continue-on-error: true
         run: |
           podman version --format 'server={{.Server.Version}}'
           grep -rE 'firewall_backend|network_backend|dns_enabled' /etc/containers/containers.conf /etc/containers/containers.conf.d/ 2>/dev/null | head
-          podman info --format 'backend={{.Host.NetworkBackend}} firewall={{.Host.FirewallBackend}}' 2>&1
+          podman info --format 'backend={{.Host.NetworkBackend}}' 2>&1
+          grep -i firewall /etc/containers/containers.conf 2>/dev/null || echo "no containers.conf firewall setting"
           podman network ls
 
       - name: Inter-container connectivity
+        continue-on-error: true
         run: |
           podman network create diag-net
           podman run -d --name diag-db --network diag-net --network-alias db -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
@@ -58,6 +62,7 @@ jobs:
             if (echo > /dev/tcp/api.github.com/443) 2>/dev/null; then echo dns-egress-ok; else echo dns-egress-FAIL; fi'
 
       - name: Published-port reachability
+        continue-on-error: true
         run: |
           podman run -d --name diag-pub --network diag-net -p 5433:5432 -e POSTGRES_PASSWORD=probe docker.io/library/postgres:16-alpine
           sleep 8
@@ -68,6 +73,7 @@ jobs:
           podman run --rm --network=host docker.io/library/alpine:3.20 sh -c "nc -z -w 3 ${guest_ip} 5433 && echo guestip-ok || echo guestip-FAIL"
 
       - name: nftables state
+        continue-on-error: true
         run: |
           if command -v sudo >/dev/null; then sudo nft list ruleset; else nft list ruleset; fi 2>&1 | head -100
           echo "== routes"
