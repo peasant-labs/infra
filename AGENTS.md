@@ -144,6 +144,13 @@ pins only update automatically while the Renovate app is enabled on this
 repository — if it is not, they go stale silently and the snapshot/version
 drift has to be found by hand.
 
+### Ad-hoc load and flake experiments
+
+Run them inside a transient systemd unit (`systemd-run --user --wait --collect
+-p RuntimeMaxSec=... -p KillMode=control-group bash -c '<load + test loop>'`).
+The unit's cgroup is the cleanup boundary: a parent death cannot leave load
+generators running on a pool host.
+
 ## Validation
 
 - `make check` for anything under `stacks/` or `modules/`.
