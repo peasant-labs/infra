@@ -39,11 +39,15 @@ determine-runner:
 The router reads the dispatcher's pool-health record — the repository
 variable `RUNNER_POOL_HEALTH` in this repository — and returns `runner` (the
 label array for `runs-on`), `pool` (`true` when the pool was chosen), and
-`reason` (`pool-online`, `pool-stale`, or `query-failed`). The record counts as
-online when it is younger than five minutes and reports a healthy listener; the
-runner list is deliberately not consulted, because a scale set has no
-registered runners while it is idle. The fallback is written before the check,
-so an abort still yields a runnable label set.
+`reason` (`pool-online`, `pool-busy`, `pool-stale`, or `query-failed`). The
+record counts as online when it is younger than five minutes, reports a healthy
+listener, and has a free slot: the router falls back when `assigned_jobs`
+(booting and running) fills `max_capacity`, because the job would otherwise
+wait in the pool's queue. A record without `max_capacity` skips the capacity
+gate, so an older dispatcher keeps routing by health alone. The runner list is
+deliberately not consulted, because a scale set has no registered runners while
+it is idle. The fallback is written before the check, so an abort still yields a
+runnable label set.
 
 Two consequences worth knowing:
 

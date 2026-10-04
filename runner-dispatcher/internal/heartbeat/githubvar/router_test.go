@@ -28,20 +28,24 @@ const (
 )
 
 type routerCase struct {
-	Name       string  `yaml:"name"`
-	AgeSeconds int     `yaml:"ageSeconds"`
-	Healthy    bool    `yaml:"healthy"`
-	RawValue   *string `yaml:"rawValue"`
-	QueryFails bool    `yaml:"queryFails"`
-	Token      *string `yaml:"token"`
-	Labels     *string `yaml:"labels"`
-	WantPool   string  `yaml:"wantPool"`
-	WantReason string  `yaml:"wantReason"`
+	Name         string  `yaml:"name"`
+	AgeSeconds   int     `yaml:"ageSeconds"`
+	Healthy      bool    `yaml:"healthy"`
+	AssignedJobs int     `yaml:"assignedJobs"`
+	MaxCapacity  int     `yaml:"maxCapacity"`
+	RawValue     *string `yaml:"rawValue"`
+	QueryFails   bool    `yaml:"queryFails"`
+	Token        *string `yaml:"token"`
+	Labels       *string `yaml:"labels"`
+	WantPool     string  `yaml:"wantPool"`
+	WantReason   string  `yaml:"wantReason"`
 }
 
 // The branches every router change must keep covered.
 var requiredRouterCases = []string{
 	"fresh healthy record routes to the pool",
+	"pool with free capacity routes to the pool",
+	"full pool falls back to the fallback runner",
 	"record older than the freshness window falls back",
 	"fresh record with an unhealthy listener falls back",
 	"failed variable read falls back",
@@ -199,6 +203,8 @@ func publishedValue(t *testing.T, tc routerCase) string {
 	record := heartbeat.Record{
 		Timestamp:       time.Now().Add(-time.Duration(tc.AgeSeconds) * time.Second),
 		ListenerHealthy: tc.Healthy,
+		AssignedJobs:    tc.AssignedJobs,
+		MaxCapacity:     tc.MaxCapacity,
 	}
 	if err := pub.Publish(context.Background(), record); err != nil {
 		t.Fatalf("Publish: %v", err)
