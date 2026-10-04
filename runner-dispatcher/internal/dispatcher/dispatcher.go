@@ -232,6 +232,7 @@ func (d *Dispatcher) publishHealth(ctx context.Context, stats Statistics) {
 		AssignedJobs:    stats.AssignedJobs,
 		RunningJobs:     stats.RunningJobs,
 		LiveRunners:     len(live),
+		MaxCapacity:     d.cfg.MaxCapacity,
 	}
 	if err := d.cfg.Heartbeat.Publish(ctx, record); err != nil {
 		d.cfg.Logger.Warn("publish heartbeat", "err", err)

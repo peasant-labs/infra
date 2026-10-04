@@ -4,6 +4,9 @@
 # ageSeconds   how old the published timestamp is when the router reads it;
 #              negative means the dispatcher's clock runs ahead.
 # healthy      the record's listener_healthy flag.
+# assignedJobs the record's assigned job count (booting and running).
+# maxCapacity  the record's slot count; 0 or omitted means the record carries
+#              no capacity and the router skips the capacity gate.
 # rawValue     replaces the published record with literal text.
 # queryFails   the variable read fails (missing variable, auth, network).
 # token        RUNNER_STATUS_TOKEN; omitted means a token is present.
@@ -13,6 +16,22 @@
   healthy: true
   wantPool: "true"
   wantReason: pool-online
+
+- name: pool with free capacity routes to the pool
+  ageSeconds: 10
+  healthy: true
+  assignedJobs: 3
+  maxCapacity: 4
+  wantPool: "true"
+  wantReason: pool-online
+
+- name: full pool falls back to the fallback runner
+  ageSeconds: 10
+  healthy: true
+  assignedJobs: 4
+  maxCapacity: 4
+  wantPool: "false"
+  wantReason: pool-busy
 
 - name: record older than the freshness window falls back
   ageSeconds: 301

@@ -23,8 +23,12 @@ name: Runner router
 #   runner     the label array for the caller's runs-on (pool set or fallback).
 #   pool       'true' when the pool was chosen, else 'false', so callers can
 #              condition pool-only adaptations on it.
-#   reason     'pool-online' | 'pool-stale' | 'query-failed', so a silent
-#              regression to the fallback stays visible.
+#   reason     'pool-online' | 'pool-busy' | 'pool-stale' | 'query-failed', so
+#              a silent regression to the fallback stays visible.
+#              'pool-busy' means the pool is healthy but every slot is taken
+#              (assigned_jobs >= max_capacity), so the caller would wait in the
+#              pool's queue; the router sends it to the fallback instead. A
+#              record without max_capacity keeps the pre-capacity behaviour.
 #              'pool-stale' means the pool-health record is older than the
 #              freshness window, unhealthy, or unparseable. 'query-failed'
 #              covers a missing token (expected on fork PRs, notice-level,
@@ -34,12 +38,12 @@ name: Runner router
 # Behaviour: the fallback is written to the outputs before the pool check, so
 # any abort still yields a runnable label set. The pool is online when the
 # dispatcher's health record (repository variable RUNNER_POOL_HEALTH in
-# peasant-labs/infra) is healthy and fresher than 5 minutes. This replaces
-# probing for an online runner: a scale set reports no registered runners
-# while idle, so a runner list is not a pool-availability signal. The check is
-# bounded (timeout 30s); a failure keeps the fallback and warns with the
-# captured error, while a missing token (expected on fork PRs) is
-# notice-level.
+# peasant-labs/infra) is healthy, fresher than 5 minutes, and has a free slot
+# (the capacity gate above). This replaces probing for an online runner: a
+# scale set reports no registered runners while idle, so a runner list is not
+# a pool-availability signal. The check is bounded (timeout 30s); a failure
+# keeps the fallback and warns with the captured error, while a missing token
+# (expected on fork PRs) is notice-level.
 
 on:
   workflow_call:
@@ -117,24 +121,40 @@ jobs:
           err_file="$(mktemp)"
           # The dispatcher publishes one pool-health record per queue cycle:
           # a repository variable whose value is a JSON object with an RFC3339
-          # timestamp (whole seconds), listener_healthy, and job counters.
-          # Freshness and health decide pool availability; the runner list is
-          # not consulted because an idle scale set has no registered runners.
+          # timestamp (whole seconds), listener_healthy, job counters, and the
+          # pool's max_capacity. Freshness, health and free capacity decide
+          # pool availability; the runner list is not consulted because an
+          # idle scale set has no registered runners.
           if health=$(timeout 30s gh api repos/peasant-labs/infra/actions/variables/RUNNER_POOL_HEALTH \
               --jq '.value' 2>"${err_file}"); then
             if printf '%s' "${health}" | jq -e --argjson now "$(date -u +%s)" '
                   .listener_healthy == true
                   and ((($now - (.timestamp | fromdateiso8601)) | fabs) < 300)
                 ' >/dev/null 2>&1; then
-              {
-                echo "runner<<RUNNER_ROUTER_EOF"
-                echo "${LABELS}"
-                echo "RUNNER_ROUTER_EOF"
-                echo "pool=true"
-                echo "reason=pool-online"
-              } >> "$GITHUB_OUTPUT"
-              echo "pool health: fresh and healthy"
-              echo "chosen: ${LABELS} (pool=true, reason=pool-online)"
+              # Healthy and fresh. Route only when a slot is free: the
+              # dispatcher's max_capacity and the scale-set statistics
+              # (assigned_jobs counts booting and running jobs) say whether
+              # this job would start or sit in the queue. A record without
+              # max_capacity keeps the pre-capacity behaviour.
+              capacity="$(printf '%s' "${health}" | jq -r '"assigned=\(.assigned_jobs // 0) max=\(.max_capacity // 0)"')"
+              if printf '%s' "${health}" | jq -e '
+                    ((.max_capacity // 0) | tonumber) <= 0
+                    or ((.assigned_jobs // 0) | tonumber) < ((.max_capacity // 0) | tonumber)
+                  ' >/dev/null 2>&1; then
+                {
+                  echo "runner<<RUNNER_ROUTER_EOF"
+                  echo "${LABELS}"
+                  echo "RUNNER_ROUTER_EOF"
+                  echo "pool=true"
+                  echo "reason=pool-online"
+                } >> "$GITHUB_OUTPUT"
+                echo "pool health: fresh and healthy (${capacity})"
+                echo "chosen: ${LABELS} (pool=true, reason=pool-online)"
+              else
+                echo "reason=pool-busy" >> "$GITHUB_OUTPUT"
+                echo "::notice::pool is full (${capacity}); using the fallback runner"
+                echo "chosen: ${FALLBACK} (pool=false, reason=pool-busy)"
+              fi
             else
               echo "reason=pool-stale" >> "$GITHUB_OUTPUT"
               echo "::notice::pool-health record missing, stale or unhealthy; using the fallback runner"

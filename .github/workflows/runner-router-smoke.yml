@@ -44,7 +44,7 @@ jobs:
               [ "${POOL}" = "true" ]
               [ "${RUNNER}" = "${LABELS}" ]
               ;;
-            pool-stale|query-failed)
+            pool-busy|pool-stale|query-failed)
               [ "${POOL}" = "false" ]
               [ "${RUNNER}" = "${FALLBACK}" ]
               ;;
