@@ -58,6 +58,9 @@ runner-availability probe.
   error: fork pull requests legitimately have no secrets.
 - Keep the report step. Without it a fallback to the paid runner looks
   identical to intended behaviour.
+- The default pool labels are `self-hosted, linux, x64, microvm`; the router
+  reads the dispatcher heartbeat, not the online runner list. Infra's own
+  callers use the local reusable workflow; external callers pin a reviewed SHA.
 - GitHub Actions use immutable commit SHAs with a version comment.
 
 ## Container images

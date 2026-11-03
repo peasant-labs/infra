@@ -49,15 +49,16 @@ together; the signer must be the workflow that signed the digest. See `AGENTS.md
 
 ## The runner pool
 
-The organisation runs a self-hosted pool of container runners on a desktop
-machine. Repositories call `runner-router.yml` and route with its output, so a
-run uses the pool when it is online and a hosted fallback when it is not — no
-run ever queues on a machine that is switched off.
+The shared router targets the desktop's per-job MicroVM scale set by default.
+It reads the dispatcher's health and capacity heartbeat and chooses the caller's
+fallback when the pool is unavailable or full. Deployment and caller cutover
+must be verified separately; the generic persistent-container module remains
+available for other hosts.
 
 ```yaml
 jobs:
   determine-runner:
-    uses: peasant-labs/infra/.github/workflows/runner-router.yml@runner-router-v1
+    uses: peasant-labs/infra/.github/workflows/runner-router.yml@<reviewed-40-character-commit-sha>
     with:
       fallback: '["ubuntu-24.04"]'
     secrets:

@@ -10,7 +10,24 @@
 # rawValue     replaces the published record with literal text.
 # queryFails   the variable read fails (missing variable, auth, network).
 # token        RUNNER_STATUS_TOKEN; omitted means a token is present.
-# labels       the router's labels input; omitted means the default pair below.
+# labels       the router's labels input; omitted means the workflow default.
+# wantRunner   explicit expected output when the case asserts an exact label set.
+- name: idle healthy pool uses the workflow microvm default
+  ageSeconds: 10
+  healthy: true
+  maxCapacity: 4
+  wantPool: "true"
+  wantReason: pool-online
+  wantRunner: '["self-hosted","linux","x64","microvm"]'
+
+- name: explicit labels override the workflow default
+  ageSeconds: 10
+  healthy: true
+  labels: '["self-hosted","custom"]'
+  wantPool: "true"
+  wantReason: pool-online
+  wantRunner: '["self-hosted","custom"]'
+
 - name: fresh healthy record routes to the pool
   ageSeconds: 10
   healthy: true

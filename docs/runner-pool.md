@@ -10,26 +10,24 @@ resource slices) lives in the maintainer's dotfiles repository,
 
 ## Shape
 
-- **Pool**: four rootless-podman containers on the maintainer's NixOS desktop,
-  labels `self-hosted, linux, x64, container`, runner group `minttea--desktop`,
-  registered to the `peasant-labs` organization. Each container runs one job at
-  a time; job containers and service containers run against the host podman
-  socket.
+- **Pool**: the per-job MicroVM scale set on the maintainer's NixOS desktop,
+  labels `self-hosted, linux, x64, microvm`. The dispatcher starts a slot for
+  each job; job and service containers use the guest's own podman socket.
+  Persistent container runners remain a separate legacy pool until retired.
 - **Fallback**: every caller passes its own fallback label set (Blacksmith for
-  the release jobs, hosted Ubuntu elsewhere). When no pool runner is online the
-  router returns the fallback, so CI never blocks on the desktop.
-- **Contract exceptions**: the full-stack e2e job stays on amd64 Blacksmith by
-  contract; `fairtrade-design-system` and this repository stay inline because
-  their action allow-lists exclude the shared workflow.
+  the release jobs, hosted Ubuntu elsewhere). An unavailable or full pool
+  returns the caller's fallback.
+- **Deployment**: caller adoption and host cutover are separate operations;
+  verify the deployed dispatcher and routing probes before retiring the old pool.
 
 ## Routing
 
 Every routed repository calls the shared reusable workflow in this repository,
-pinned by tag:
+pinned by a reviewed commit SHA (infra itself uses a local workflow path):
 
 ```yaml
 determine-runner:
-  uses: peasant-labs/infra/.github/workflows/runner-router.yml@runner-router-v1
+  uses: peasant-labs/infra/.github/workflows/runner-router.yml@<reviewed-40-character-commit-sha>
   with:
     fallback: '["blacksmith-4vcpu-ubuntu-2404"]'
   secrets:
@@ -62,14 +60,14 @@ Two consequences worth knowing:
 ## Runner image
 
 The image is built, published, and keylessly signed by a GitHub Actions
-workflow in the maintainer's dotfiles repository (`runner-image`, manual
+workflow in this repository (`runner-image`, manual
 dispatch):
 
-1. Build `modules/nixos/services/github-runner/container/Containerfile`.
+1. Build `runner-image/Containerfile`.
 2. Push `quay.io/peasant-labs/github-runner:<actions/runner version>`.
 3. Resolve the digest the registry actually stores (see the Quay quirk below).
 4. Sign that digest with cosign. The signature names
-   `https://github.com/dayvidpham/dotfiles/.github/workflows/runner-image.yml@refs/heads/main`
+   `https://github.com/peasant-labs/infra/.github/workflows/runner-image.yml@refs/heads/main`
    and is recorded in the Sigstore transparency log (Rekor).
 
 The desktop module pulls the image by digest and runs `cosign verify` with that
@@ -81,7 +79,7 @@ Verify a published image by hand:
 
 ```sh
 cosign verify \
-  --certificate-identity 'https://github.com/dayvidpham/dotfiles/.github/workflows/runner-image.yml@refs/heads/main' \
+  --certificate-identity 'https://github.com/peasant-labs/infra/.github/workflows/runner-image.yml@refs/heads/main' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   quay.io/peasant-labs/github-runner@sha256:<digest>
 ```
@@ -91,7 +89,7 @@ cosign verify \
 `quay.io/peasant-labs` is a free-tier user namespace, so every repository is
 public and pulls are anonymous. The robot account `peasant-labs+builder` holds
 write per repository; it is the credential behind the `QUAY_ROBOT_TOKEN`
-repository secret in the dotfiles repository.
+repository secret in the infra repository.
 
 | Repository | Purpose |
 |---|---|
@@ -121,6 +119,10 @@ To resolve a digest reliably, hash the served manifest bytes and require the
 registry to resolve that digest before signing or pinning it.
 
 ### Draining before a rebuild
+
+The following describes the persistent-container pool, not MicroVM slots.
+The MicroVM dispatcher has its own bounded drain; see the host's operational
+documentation before stopping it.
 
 Stopping a runner unit while GitHub considers it busy cancels the in-flight
 job: the listener exits on SIGTERM rather than finishing, and `podman stop`

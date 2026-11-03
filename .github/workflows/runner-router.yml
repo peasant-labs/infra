@@ -3,7 +3,7 @@ name: Runner router
 # One source of truth for pool routing. Callers use it as a job:
 #
 #   determine-runner:
-#     uses: peasant-labs/infra/.github/workflows/runner-router.yml@runner-router-v1
+#     uses: peasant-labs/infra/.github/workflows/runner-router.yml@<reviewed-40-character-commit-sha>
 #     with:
 #       fallback: '["ubuntu-24.04"]'
 #     secrets:
@@ -17,7 +17,7 @@ name: Runner router
 #   fallback   JSON label array for runs-on when the pool is unavailable
 #              (required).
 #   labels     JSON array of labels the pool carries (default
-#              '["self-hosted","container"]'). Returned unchanged when the
+#              '["self-hosted","linux","x64","microvm"]'). Returned unchanged when the
 #              pool is chosen.
 # Outputs:
 #   runner     the label array for the caller's runs-on (pool set or fallback).
@@ -56,16 +56,14 @@ on:
         type: string
       labels:
         description: >-
-          JSON array of labels an online pool runner must carry.
-          Matched case-insensitively.
+          JSON array of labels to select when the pool is available.
         required: false
-        default: '["self-hosted","container"]'
+        default: '["self-hosted","linux","x64","microvm"]'
         type: string
     secrets:
       RUNNER_STATUS_TOKEN:
         description: >-
-          Token for the org runner readiness probe; map it explicitly from
-          the caller.
+          Token with repository variables read access; map it explicitly from the caller.
         required: true
     outputs:
       runner:
@@ -75,7 +73,7 @@ on:
         description: "'true' when the pool was chosen, else 'false'."
         value: ${{ jobs.pick.outputs.pool }}
       reason:
-        description: "'pool-online' | 'pool-stale' | 'query-failed'."
+        description: "'pool-online' | 'pool-busy' | 'pool-stale' | 'query-failed'."
         value: ${{ jobs.pick.outputs.reason }}
 
 permissions:

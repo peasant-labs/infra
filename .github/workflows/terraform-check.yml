@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   determine-runner:
-    uses: peasant-labs/infra/.github/workflows/runner-router.yml@runner-router-v1
+    uses: ./.github/workflows/runner-router.yml
     with:
       fallback: '["ubuntu-24.04"]'
     secrets:

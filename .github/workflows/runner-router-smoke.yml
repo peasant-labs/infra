@@ -31,7 +31,7 @@ jobs:
           RUNNER: ${{ needs.route.outputs.runner }}
           POOL: ${{ needs.route.outputs.pool }}
           REASON: ${{ needs.route.outputs.reason }}
-          LABELS: '["self-hosted","container"]'
+          LABELS: '["self-hosted","linux","x64","microvm"]'
           FALLBACK: '["ubuntu-24.04"]'
         run: |
           set -euo pipefail
