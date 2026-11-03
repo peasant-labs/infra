@@ -2,6 +2,10 @@
 
 Date: 2026-09-30. Host: the maintainer's NixOS desktop.
 
+This is a historical snapshot of the spike, not a current deployment status or
+proof that later migration gates have passed. See `runner-pool.md` for the
+shared router's current contract and verify live evidence before retirement.
+
 The spike asked one question: is a host-side dispatcher built on
 `actions/scaleset`, booting one Cloud Hypervisor VM per job, smaller and better
 than running Actions Runner Controller (ARC) on k3s? Both options share the same
@@ -14,8 +18,8 @@ layer that turns GitHub job assignments into runners.
 stops being an active candidate and stays the documented fallback, re-opened
 only by the triggers under [When to revisit](#when-to-revisit).
 
-**Not yet** for retiring the persistent container pool. Both pools run side by
-side today; the migration gates below must close first.
+**Not yet**, at the time of the spike, for retiring the persistent container
+pool. The migration gates below recorded what still needed verification.
 
 ## What was built
 
@@ -135,7 +139,7 @@ What ARC would **not** have removed: the guest image and boot path, the cache
 and JIT shares, the idle-pool heartbeat (an idle scale set has zero registered
 runners under either design), and the runner image.
 
-## Migration gates
+## Historical migration gates
 
 Before routing production jobs to the VM pool and retiring the container pool:
 

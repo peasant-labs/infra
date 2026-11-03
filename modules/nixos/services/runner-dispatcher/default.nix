@@ -29,7 +29,7 @@ in
 
     labels = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "self-hosted" "container" ];
+      default = [ "self-hosted" "linux" "x64" "microvm" ];
       description = "Labels carried by the scale set.";
     };
 

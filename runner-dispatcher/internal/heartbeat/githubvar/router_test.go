@@ -22,10 +22,7 @@ import (
 // directories below it.
 var routerWorkflow = filepath.Join("..", "..", "..", "..", ".github", "workflows", "runner-router.yml")
 
-const (
-	routerFallback = `["ubuntu-24.04"]`
-	routerLabels   = `["self-hosted","linux","x64","microvm"]`
-)
+const routerFallback = `["ubuntu-24.04"]`
 
 type routerCase struct {
 	Name         string  `yaml:"name"`
@@ -39,23 +36,29 @@ type routerCase struct {
 	Labels       *string `yaml:"labels"`
 	WantPool     string  `yaml:"wantPool"`
 	WantReason   string  `yaml:"wantReason"`
+	WantRunner   string  `yaml:"wantRunner"`
 }
 
 // The branches every router change must keep covered.
 var requiredRouterCases = []string{
 	"fresh healthy record routes to the pool",
+	"idle healthy pool uses the workflow microvm default",
+	"explicit labels override the workflow default",
 	"pool with free capacity routes to the pool",
 	"full pool falls back to the fallback runner",
 	"record older than the freshness window falls back",
 	"fresh record with an unhealthy listener falls back",
 	"failed variable read falls back",
+	"missing token falls back",
+	"invalid labels input falls back",
+	"unparseable record falls back",
 }
 
 // TestRouterReadsPublishedRecord runs the router's real "Pick a runner" script
 // against records written by this package's publisher, so the writer's format
 // and the reader's freshness and health rules cannot drift apart.
 func TestRouterReadsPublishedRecord(t *testing.T) {
-	script := routerScript(t)
+	script, defaultLabels := routerScript(t)
 	for _, tool := range []string{"bash", "jq", "timeout"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			if os.Getenv("CI") != "" {
@@ -115,7 +118,7 @@ func TestRouterReadsPublishedRecord(t *testing.T) {
 			if tc.Token != nil {
 				token = *tc.Token
 			}
-			labels := routerLabels
+			labels := defaultLabels
 			if tc.Labels != nil {
 				labels = *tc.Labels
 			}
@@ -143,6 +146,9 @@ func TestRouterReadsPublishedRecord(t *testing.T) {
 			if tc.WantPool == "true" {
 				wantRunner = labels
 			}
+			if tc.WantRunner != "" {
+				wantRunner = tc.WantRunner
+			}
 			if outputs["runner"] != wantRunner {
 				t.Fatalf("runner=%q, want %q", outputs["runner"], wantRunner)
 			}
@@ -151,7 +157,7 @@ func TestRouterReadsPublishedRecord(t *testing.T) {
 }
 
 // routerScript extracts the production script text from the workflow.
-func routerScript(t *testing.T) string {
+func routerScript(t *testing.T) (string, string) {
 	t.Helper()
 	data, err := os.ReadFile(routerWorkflow)
 	if err != nil {
@@ -161,6 +167,15 @@ func routerScript(t *testing.T) string {
 		t.Fatalf("read workflow: %v", err)
 	}
 	var wf struct {
+		On struct {
+			WorkflowCall struct {
+				Inputs struct {
+					Labels struct {
+						Default string `yaml:"default"`
+					} `yaml:"labels"`
+				} `yaml:"inputs"`
+			} `yaml:"workflow_call"`
+		} `yaml:"on"`
 		Jobs map[string]struct {
 			Steps []struct {
 				Name string `yaml:"name"`
@@ -173,11 +188,14 @@ func routerScript(t *testing.T) string {
 	}
 	for _, step := range wf.Jobs["pick"].Steps {
 		if step.Name == "Pick a runner" {
-			return step.Run
+			if wf.On.WorkflowCall.Inputs.Labels.Default == "" {
+				t.Fatal("workflow labels default is missing")
+			}
+			return step.Run, wf.On.WorkflowCall.Inputs.Labels.Default
 		}
 	}
 	t.Fatal(`workflow has no "Pick a runner" step in job "pick"`)
-	return ""
+	return "", ""
 }
 
 // publishedValue publishes a record through this package's publisher and
