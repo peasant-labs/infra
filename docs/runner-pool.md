@@ -196,7 +196,17 @@ path deletes runner state, images, volumes, credentials, or registrations.
 ### The label stays until the last caller migrates
 
 Retirement does not remove the label that named the pool. It stays in the host
-configuration and on the live scale set while a caller still routes to it.
+configuration and on the live scale set while a caller still routes to it, and
+the configuration warns on every build that says so:
+
+```
+evaluation warning: CUSTOM.services.runner-dispatcher.labels still carries
+"container" while CUSTOM.services.github-runner.enable is false. …
+```
+
+That warning is the reminder, not an error: the state is the prescribed
+intermediate one, and it clears the moment the label is removed from the
+configuration.
 
 A caller that still selects `container` is served by the scale set, on a MicroVM
 slot. A caller on the older router revision probes online runners, sees none
@@ -254,8 +264,8 @@ runners, so those rows are not this check.
    not". The switch also removes the drain helper, so a routine rebuild
    afterwards reports that it did not drain; the persistent pool no longer
    needs draining, and the MicroVM dispatcher keeps its own bounded drain.
-4. The transitional `container` label remains in the host configuration. That
-   residue is the intended state at this point, not a failure of the retirement.
+4. Expect and record the evaluation warning naming the transitional label. It is
+   the intended state at this point, not a failure of the retirement.
 
 ### Verify
 
@@ -339,7 +349,7 @@ runners, so those rows are not this check.
 1. Confirm that no caller still routes to `container`, and that no run could
    still select it.
 2. Remove `container` from `CUSTOM.services.runner-dispatcher.labels` and
-   switch.
+   switch. The evaluation warning disappears at this step.
 3. The live scale set still carries the label, because labels are create-time.
    Update the scale set deliberately, and only while it is idle: recreating or
    deleting a busy scale set to change labels is forbidden. Confirm the label
