@@ -139,6 +139,10 @@ a home-manager consumer would gain nothing from it.
 - **Never publish a runner image that the module's default pin cannot reach.**
   The default digest is what a zero-configuration host pulls; a new publish
   changes it, and the default must follow.
+- **A host that disables this pool must not lose sight of the label it leaves
+  behind.** The dispatcher warns while a host that disabled the pool still
+  advertises a label the pool declared. Removal waits for the last caller and
+  is documented in `docs/runner-pool.md`.
 
 ### Dependency updates
 

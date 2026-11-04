@@ -10,6 +10,55 @@
 }:
 let
   cfg = config.CUSTOM.services.runner-dispatcher;
+
+  # The legacy persistent-container pool, when this host imports its module.
+  # Both modules are in this repository, so reading the sibling's option adds
+  # no dependency on another repository's module; `or null` keeps this module
+  # evaluating on a host that imports only the scale-set dispatcher.
+  legacyPool = config.CUSTOM.services.github-runner or null;
+
+  # Labels the host still advertises for a pool it has already disabled. They
+  # are legitimate only while a caller still routes to them: the pool is
+  # retired, the label is a transitional residue until the last caller
+  # migrates. This is a warning, not an assertion, because failing here would
+  # forbid exactly the intermediate state a retirement passes through.
+  transitionalLabels =
+    if legacyPool == null || legacyPool.enable then [ ]
+    else lib.intersectLists cfg.labels legacyPool.labels;
+
+  # Labels reach the dispatcher as one comma-separated argument. A comma
+  # becomes a label boundary. Leading or trailing whitespace, a comma, or an
+  # empty label would be rewritten on create. Internal whitespace is preserved
+  # by that split and would be kept; it is rejected here so the configured
+  # label and the derived label are identical. An existing scale set is left
+  # unchanged, so evaluation neither repairs nor breaks the live set.
+  # The list is the Unicode White_Space set strings.TrimSpace uses. lib.trim
+  # does not remove every one of these (U+00A0 and U+0085, for example).
+  fromUnicode = code: builtins.fromJSON "\"\\u${code}\"";
+  labelWhitespace = map fromUnicode [
+    "0020" # space
+    "0009" # tab
+    "000A" # line feed
+    "000D" # carriage return
+    "000B" # vertical tab
+    "000C" # form feed
+    "0085" # next line
+    "00A0" # no-break space
+    "1680" # ogham space mark
+    "2000" "2001" "2002" "2003" "2004"
+    "2005" "2006" "2007" "2008" "2009" "200A"
+    "2028" # line separator
+    "2029" # paragraph separator
+    "202F" # narrow no-break space
+    "205F" # medium mathematical space
+    "3000" # ideographic space
+  ];
+  hasLabelWhitespace = label: lib.any (ch: lib.hasInfix ch label) labelWhitespace;
+  malformedLabels = builtins.filter
+    (label: label == "" || lib.hasInfix "," label || hasLabelWhitespace label)
+    cfg.labels;
+
+  quoted = labels: lib.concatMapStringsSep ", " (label: ''"${label}"'') labels;
 in
 {
   options.CUSTOM.services.runner-dispatcher = {
@@ -30,7 +79,17 @@ in
     labels = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ "self-hosted" "linux" "x64" "microvm" ];
-      description = "Labels carried by the scale set.";
+      description = ''
+        Labels carried by the scale set: the selectors a caller puts in
+        `runs-on`. They are applied when the scale set is created; the
+        dispatcher reuses an existing scale set unchanged, so a change here
+        reaches a scale set only after that scale set is created again.
+
+        A label belonging to a legacy persistent-container pool may stay while a
+        caller still routes to it, and the module warns while it does. Removing
+        it is an operator action in two steps, described in
+        `docs/runner-pool.md`.
+      '';
     };
 
     maxCapacity = lib.mkOption {
@@ -94,10 +153,52 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # A retired pool's label is not an error while a caller still routes to it;
+    # it becomes a stale selector the moment the last caller migrates. Warn
+    # every time the configuration still advertises one, so the residue cannot
+    # be forgotten, and say what removal actually takes.
+    warnings = lib.optional (transitionalLabels != [ ]) ''
+      CUSTOM.services.runner-dispatcher.labels still carries ${quoted transitionalLabels} while
+      CUSTOM.services.github-runner.enable is false.
+
+      While a caller still routes to ${quoted transitionalLabels}, the label is a
+      known transitional residue, not a configuration error. Once the last such
+      caller has migrated it is a stale selector for a label this host no longer
+      needs, and removing it takes two steps: drop it from this list, then update the
+      scale set itself while that set is idle. A switch never rewrites a scale set's
+      labels and the pool-health record does not carry them, so only a read of the
+      scale set can prove the live set.
+      See docs/runner-pool.md, "Retiring a host's persistent container pool".
+    '';
+
     assertions = [
       {
         assertion = dispatcherPackage != null;
         message = "CUSTOM.services.runner-dispatcher must be imported through the infra flake output so the dispatcher package is available";
+      }
+      {
+        assertion = malformedLabels == [ ];
+        message = ''
+          CUSTOM.services.runner-dispatcher.labels contains ${quoted malformedLabels}, which
+          cannot be a scale-set label as written.
+
+          What went wrong: a label contains whitespace or a comma, or is empty.
+          Why: labels reach the dispatcher as one comma-separated argument, so a
+          comma becomes a label boundary and surrounding whitespace is trimmed.
+          Leading or trailing whitespace, a comma, or an empty label would be
+          rewritten on create. Internal whitespace would be kept, and is rejected
+          here so the configured label and the derived label are identical.
+          Where: modules/nixos/services/runner-dispatcher/default.nix, driven by
+          CUSTOM.services.runner-dispatcher.labels in the host configuration.
+          When: configuration evaluation, before anything is built or deployed.
+          What it means: a scale set created from a rewritten value would carry
+          different labels than the configuration declares. Internal whitespace
+          would survive creation and is rejected so the two strings stay
+          identical. An existing scale set is left unchanged, so evaluation
+          neither repairs nor breaks the live set.
+          How to fix: one label per list element, no comma, no whitespace, for
+          example [ "self-hosted" "linux" "x64" "microvm" ].
+        '';
       }
     ];
 
@@ -136,6 +237,10 @@ in
             ++ [
               "-scale-set-name" cfg.scaleSetName
               "-runner-group" cfg.runnerGroup
+              # Applied when the scale set is created: the dispatcher reuses an
+              # existing scale set by name and never rewrites its labels, so a
+              # label removed here disappears only once that scale set is
+              # recreated.
               "-labels" (lib.concatStringsSep "," cfg.labels)
               "-max-capacity" (toString cfg.maxCapacity)
               "-vm-driver" "systemd"

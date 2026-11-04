@@ -222,7 +222,43 @@ let
 in
 {
   options.CUSTOM.services.github-runner = {
-    enable = mkEnableOption "GitHub Actions self-hosted runner containers (rootless podman)";
+    enable = mkEnableOption "GitHub Actions self-hosted runner containers (rootless podman)" // {
+      description = ''
+        Whether to deploy the persistent container pool on this host: the runner
+        units, their resource slices, the image pull and verification, and the
+        `github-runner-drain` helper.
+
+        Enabling deploys all of it. Disabling removes all of it at the next
+        switch — no unit files, no slices, and no `github-runner-drain` on the
+        system PATH — and, because the units are no longer wanted by
+        `default.target`, the pool does not come back on a reboot or a user
+        manager restart.
+
+        Disabling also stops active container units that are still present when
+        the switch reaches them. The switch removes their unit files, and
+        stop-on-removal is the default, so the switch runs each container
+        unit's `ExecStop` (`podman stop`). That stop sends the SIGTERM that
+        cancels a job the listener is running, and `Restart = always` does not
+        revive an explicit stop. Do not rely on that later stop. Drain with the
+        installed `github-runner-drain` helper, continue only after it exits 0,
+        stop the `github-runner-container@` units this host installed, then
+        switch. A `Restart = always` runner can accept a job between the drain
+        and the switch's user-unit phase, and the switch would then cancel it.
+        Retiring the pool this way takes those units out of service; it does
+        not change the scale set's labels or the router's routing, which the
+        dispatcher module owns. See `docs/runner-pool.md` for the sequence, the
+        label residue, and the verification.
+
+        The stop also removes the container instance (`--rm`). Disabling keeps
+        the state directory, the pinned image, the registration token, the
+        runner group, and the previous system generation. Setting
+        {option}`enable` back to `true` and switching starts the pool from that
+        existing registration. The entrypoint re-runs `config.sh` only when the
+        runner state is missing or the PAT stamp is missing or does not match,
+        and the restore does not publish a new image. Nothing here deletes
+        runner state, images, volumes, or credentials.
+      '';
+    };
 
     imageRef = mkOption {
       type = types.str;
