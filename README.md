@@ -53,7 +53,8 @@ The shared router targets the desktop's per-job MicroVM scale set by default.
 It reads the dispatcher's health and capacity heartbeat and chooses the caller's
 fallback when the pool is unavailable or full. Deployment and caller cutover
 must be verified separately; the generic persistent-container module remains
-available for other hosts.
+available for other hosts, and a host that retires it keeps the module importable
+for rollback (see `docs/runner-pool.md`).
 
 ```yaml
 jobs:
