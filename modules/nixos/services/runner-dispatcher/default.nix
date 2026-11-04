@@ -26,6 +26,38 @@ let
     if legacyPool == null || legacyPool.enable then [ ]
     else lib.intersectLists cfg.labels legacyPool.labels;
 
+  # Labels reach the dispatcher as one comma-separated argument. A comma
+  # becomes a label boundary. Leading or trailing whitespace, a comma, or an
+  # empty label would be rewritten on create. Internal whitespace is preserved
+  # by that split and would be kept; it is rejected here so the configured
+  # label and the derived label are identical. An existing scale set is left
+  # unchanged, so evaluation neither repairs nor breaks the live set.
+  # The list is the Unicode White_Space set strings.TrimSpace uses. lib.trim
+  # does not remove every one of these (U+00A0 and U+0085, for example).
+  fromUnicode = code: builtins.fromJSON "\"\\u${code}\"";
+  labelWhitespace = map fromUnicode [
+    "0020" # space
+    "0009" # tab
+    "000A" # line feed
+    "000D" # carriage return
+    "000B" # vertical tab
+    "000C" # form feed
+    "0085" # next line
+    "00A0" # no-break space
+    "1680" # ogham space mark
+    "2000" "2001" "2002" "2003" "2004"
+    "2005" "2006" "2007" "2008" "2009" "200A"
+    "2028" # line separator
+    "2029" # paragraph separator
+    "202F" # narrow no-break space
+    "205F" # medium mathematical space
+    "3000" # ideographic space
+  ];
+  hasLabelWhitespace = label: lib.any (ch: lib.hasInfix ch label) labelWhitespace;
+  malformedLabels = builtins.filter
+    (label: label == "" || lib.hasInfix "," label || hasLabelWhitespace label)
+    cfg.labels;
+
   quoted = labels: lib.concatMapStringsSep ", " (label: ''"${label}"'') labels;
 in
 {
@@ -143,6 +175,30 @@ in
       {
         assertion = dispatcherPackage != null;
         message = "CUSTOM.services.runner-dispatcher must be imported through the infra flake output so the dispatcher package is available";
+      }
+      {
+        assertion = malformedLabels == [ ];
+        message = ''
+          CUSTOM.services.runner-dispatcher.labels contains ${quoted malformedLabels}, which
+          cannot be a scale-set label as written.
+
+          What went wrong: a label contains whitespace or a comma, or is empty.
+          Why: labels reach the dispatcher as one comma-separated argument, so a
+          comma becomes a label boundary and surrounding whitespace is trimmed.
+          Leading or trailing whitespace, a comma, or an empty label would be
+          rewritten on create. Internal whitespace would be kept, and is rejected
+          here so the configured label and the derived label are identical.
+          Where: modules/nixos/services/runner-dispatcher/default.nix, driven by
+          CUSTOM.services.runner-dispatcher.labels in the host configuration.
+          When: configuration evaluation, before anything is built or deployed.
+          What it means: a scale set created from a rewritten value would carry
+          different labels than the configuration declares. Internal whitespace
+          would survive creation and is rejected so the two strings stay
+          identical. An existing scale set is left unchanged, so evaluation
+          neither repairs nor breaks the live set.
+          How to fix: one label per list element, no comma, no whitespace, for
+          example [ "self-hosted" "linux" "x64" "microvm" ].
+        '';
       }
     ];
 
