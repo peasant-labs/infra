@@ -11,6 +11,7 @@ deploys through belongs here rather than in a personal repository.
 | Reusable CI | `.github/workflows/runner-router*.yml` | every routed repository |
 | Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the NixOS runner module, every routed job |
 | Runner pool module | `modules/nixos/`, `flake.nix` | any host that imports `nixosModules.default` |
+| Tracker automation | `scripts/tracker_epic_sync.py`, `.github/workflows/tracker-epic-sync.yml` | the Peasant Labs Tracker project |
 
 ## Cloud control plane
 
@@ -62,6 +63,20 @@ runner-availability probe.
   reads the dispatcher heartbeat, not the online runner list. Infra's own
   callers use the local reusable workflow; external callers pin a reviewed SHA.
 - GitHub Actions use immutable commit SHAs with a version comment.
+
+## Tracker automation
+
+`.github/workflows/tracker-epic-sync.yml` keeps every open epic in the
+organization on the Peasant Labs Tracker project (number 4).
+
+- The job runs on a hosted runner on purpose. It must work when the pool is off,
+  and it does not touch production.
+- The `PROJECT_TOKEN` repository secret needs Issues read/write on all
+  repositories and Projects read/write on the organization. A missing token
+  fails closed.
+- The sweep is idempotent and only fills empty fields; it never overwrites an
+  existing value. Epics are matched by the `epic` label, a title prefix, or the
+  presence of sub-issues.
 
 ## Container images
 

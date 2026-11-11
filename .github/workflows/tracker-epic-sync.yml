@@ -1,0 +1,49 @@
+name: Sync epics into Peasant Labs Tracker
+
+# GitHub Free allows one native auto-add workflow, and that workflow targets a
+# single repository and can only filter on labels, not titles. This sweeper is
+# the organization-wide equivalent: one schedule, every repository, epic
+# detection by label, title, or sub-issues.
+#
+# Required repository secret: PROJECT_TOKEN
+#   A fine-grained PAT owned by peasant-labs with:
+#     - All repositories: Issues read
+#     - Organization: Projects read and write
+#     - All repositories: Issues write (only if the token should set Priority)
+#   Without the secret the job fails closed and writes nothing.
+#
+# The script is idempotent. It adds an epic only when it is not on the board and
+# fills a field only when that field is empty. Run the workflow manually with
+# dry_run enabled to inspect decisions first.
+#
+# The job runs on a hosted runner on purpose: it must work when the self-hosted
+# pool is off, and it does not touch production.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report decisions without writing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tracker-epic-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Sync epics
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: python3 scripts/tracker_epic_sync.py
