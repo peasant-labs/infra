@@ -5,6 +5,10 @@ plane**, **reusable CI**, and **container image maintenance**. Anything another
 `peasant-labs` repository calls as a workflow, trusts as a build input, or
 deploys through belongs here rather than in a personal repository.
 
+New shared workflows and organization-wide automation belong here, not in
+`peasant-labs/.github`. The Discord pull request notifier remains in `.github`
+for now; do not add new workflows there.
+
 | Area | Lives in | Consumers |
 |---|---|---|
 | Cloud control plane | `stacks/`, `modules/terraform/`, `scripts/` | nobody imports it; it owns production |

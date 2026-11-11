@@ -4,7 +4,9 @@ Shared infrastructure for Peasant Labs: **cloud control plane**, **reusable CI**
 and **container image maintenance**.
 
 Anything another `peasant-labs` repository calls as a workflow, trusts as a build
-input, or deploys through lives here.
+input, or deploys through lives here. New shared workflows and organization-wide
+automation belong here, not in `peasant-labs/.github`; the Discord pull request
+notifier remains in `.github` for now.
 
 ## Areas
 
