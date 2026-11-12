@@ -15,6 +15,14 @@ type Catalog struct {
 	// Members are the harvested members. One value may appear several times,
 	// once per declaring site; an empty-string value never appears.
 	Members []Member
+	// schemaTSRefs annotate existing schema values with runtime exports from
+	// the pinned TypeScript package. They do not add values to the catalog.
+	schemaTSRefs map[schemaTSKey]string
+}
+
+type schemaTSKey struct {
+	set   string
+	value string
 }
 
 // Member is one value declared by one definition site.

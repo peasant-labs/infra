@@ -55,3 +55,79 @@ cases:
       - { value: error, source: ts-union, file: e.ts, line: 1 }
     why: ["(c.ts:1), 2 more."]
     fix: ["convert the union"]
+
+  - name: built-schema-ts-names-exported-member
+    lang: ts
+    value: public
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: &schema { module: example.test/schema, version: v0.0.1, tree: schema-module }
+    why: ["schema.TranscriptVisibility"]
+    fix: ['TranscriptVisibility.Public from "@peasant-labs/schema"']
+    fix_not: ["schema.VisibilityPublic", "OtherVisibility.Public"]
+
+  - name: built-schema-go-names-go-constant
+    lang: go
+    value: public
+    files:
+      go.mod: |
+        module example.test/app
+        require example.test/schema v0.0.1
+    schema: *schema
+    why: ["schema.TranscriptVisibility"]
+    fix: ["schema.VisibilityPublic from example.test/schema@v0.0.1"]
+    fix_not: ['TranscriptVisibility.Public from "@peasant-labs/schema"']
+
+  - name: built-schema-ts-missing-member-names-set
+    lang: ts
+    value: reader
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *schema
+    fix: ["no TypeScript member", "schema.RepositoryRole"]
+    fix_not: ["schema.RoleReader"]
+
+  - name: built-schema-ts-union-without-member
+    lang: ts
+    value: queued
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *schema
+    fix: ["no TypeScript member", "ShareState"]
+    fix_not: ["use the member ShareState", "ShareState.queued"]
+
+  - name: built-schema-ts-does-not-use-unexported-member
+    lang: ts
+    value: owner
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *schema
+    fix: ["no TypeScript member", "schema.RepositoryRole"]
+    fix_not: ["RepositoryRole.Owner from", "schema.RoleOwner"]
+
+  - name: built-schema-ts-does-not-use-unreexported-enums
+    lang: ts
+    value: public
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema:
+      module: example.test/schema
+      version: v0.0.1
+      files:
+        go.mod: 'module example.test/schema'
+        visibility.go: |
+          package schema
+          type TranscriptVisibility string
+          const (
+            VisibilityPublic TranscriptVisibility = "public"
+            VisibilityPrivate TranscriptVisibility = "private"
+          )
+        typescript/src/index.ts: |
+          // This declaration is private to the generated file, not a root export.
+          export const version = "0.0.1";
+        typescript/src/internal/generated/enums.gen.ts: |
+          export const TranscriptVisibility = Object.freeze({
+            Public: zTranscriptVisibility.parse("public"),
+          } as const);
+    fix: ["no TypeScript member", "schema.TranscriptVisibility"]
+    fix_not: ['TranscriptVisibility.Public from "@peasant-labs/schema"', "schema.VisibilityPublic"]

@@ -59,28 +59,30 @@ func (b *builder) Build(ctx context.Context, req BuildRequest) (Catalog, error) 
 		}
 		members = append(members, found...)
 	}
+	var schemaTSRefs map[schemaTSKey]string
 	if req.SchemaModule != "" {
-		found, err := b.schemaMembers(ctx, req)
+		found, refs, err := b.schemaMembers(ctx, req)
 		if err != nil {
 			return Catalog{}, err
 		}
 		members = append(members, found...)
+		schemaTSRefs = refs
 	}
 	sortMembers(members)
-	return Catalog{Lang: req.Lang, Members: members}, nil
+	return Catalog{Lang: req.Lang, Members: members, schemaTSRefs: schemaTSRefs}, nil
 }
 
 // schemaMembers resolves the pinned schema module and harvests its Go typed
 // constants (outside internal/ and cmd/) and the string-literal unions of its
 // generated TS. Both join the catalog of either language: they are the one
 // contract both sides compare against.
-func (b *builder) schemaMembers(ctx context.Context, req BuildRequest) ([]Member, error) {
+func (b *builder) schemaMembers(ctx context.Context, req BuildRequest) ([]Member, map[schemaTSKey]string, error) {
 	version, err := pinnedSchemaVersion(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if b.deps.Modules == nil {
-		return nil, &BuildError{
+		return nil, nil, &BuildError{
 			What:  "no module resolver is wired into the catalog builder.",
 			Why:   "the schema module " + req.SchemaModule + " cannot be read without one.",
 			Where: "catalog build, schema module step.",
@@ -89,23 +91,23 @@ func (b *builder) schemaMembers(ctx context.Context, req BuildRequest) ([]Member
 	}
 	dir, err := b.deps.Modules.Resolve(ctx, req.SchemaModule, version, req.Env)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	module := req.SchemaModule + "@" + version
 
 	goMembers, err := harvestGo(dir, []string{"."}, true)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var tsMembers []Member
 	if info, statErr := os.Stat(filepath.Join(dir, filepath.FromSlash(SchemaGeneratedTSDir))); statErr == nil && info.IsDir() {
 		tsMembers, err = harvestTS(ctx, b.deps.Runner, dir, []string{SchemaGeneratedTSDir}, unionDiscovery)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if len(goMembers) == 0 && len(tsMembers) == 0 {
-		return nil, &BuildError{
+		return nil, nil, &BuildError{
 			What: fmt.Sprintf("the schema module %s declares no closed set.", module),
 			Why: "the catalog reads the contract's Go typed string constants (outside internal/ and cmd/) and the string-literal unions under " +
 				SchemaGeneratedTSDir + "; finding none means the module path or version names something that is not the contract, " +
@@ -120,7 +122,14 @@ func (b *builder) schemaMembers(ctx context.Context, req BuildRequest) ([]Member
 		m.Site.Module = module
 		members = append(members, m)
 	}
-	return members, nil
+	var refs map[schemaTSKey]string
+	if req.Lang == rules.LangTS {
+		refs, err = harvestSchemaTSRefs(ctx, b.deps.Runner, dir)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return members, refs, nil
 }
 
 func sortMembers(ms []Member) {

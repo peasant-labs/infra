@@ -1,0 +1,32 @@
+# Runtime members of the generated schema package's closed sets. SET and NAME
+# are captured from the actual exported object, not guessed from a Go constant.
+id: stringly-discover-schema-export
+language: tsx
+severity: hint
+message: exported schema member
+rule:
+  kind: string
+  nthChild: 1
+  inside:
+    kind: arguments
+    inside:
+      kind: call_expression
+      has: { field: function, pattern: '$VALIDATOR.parse' }
+      inside:
+        kind: pair
+        has: { field: key, kind: property_identifier, pattern: '$NAME' }
+        inside:
+          kind: object
+          inside:
+            kind: as_expression
+            inside:
+              kind: arguments
+              inside:
+                kind: call_expression
+                has: { field: function, pattern: 'Object.freeze' }
+                inside:
+                  kind: variable_declarator
+                  has: { field: name, kind: identifier, pattern: '$SET' }
+                  inside:
+                    kind: lexical_declaration
+                    inside: { kind: export_statement }
