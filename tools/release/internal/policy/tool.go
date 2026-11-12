@@ -11,7 +11,7 @@ import (
 // vocabulary in intent, so the policy cannot restate command or flag names.
 
 // toolCall renders a regex that matches the tool run with one of the given
-// subcommands, e.g. release-intent plan.
+// typed subcommands.
 func toolCall(commands ...intent.Command) string {
 	quoted := make([]string, 0, len(commands))
 	for _, c := range commands {
@@ -23,14 +23,14 @@ func toolCall(commands ...intent.Command) string {
 // stepIDPattern matches a step id inside an expression.
 const stepIDPattern = `[A-Za-z0-9_-]+`
 
-// stepOutput renders the expression that reads one step's output, e.g.
-// steps.plan.outputs.action. step is an id, or a placeholder in a message.
+// stepOutput renders the expression that reads one step's output. Step is an
+// id, or a placeholder in a message.
 func stepOutput(step string, key intent.OutputKey) string {
 	return "steps." + step + "." + stepOutputSuffix(key)
 }
 
 // stepOutputSuffix renders the part of a step-output expression after the
-// step id, e.g. outputs.action.
+// step id.
 func stepOutputSuffix(key intent.OutputKey) string {
 	return "outputs." + key.String()
 }
@@ -41,8 +41,7 @@ func stepOutputPattern(key intent.OutputKey) string {
 	return `steps\.(` + stepIDPattern + `)\.` + regexp.QuoteMeta(stepOutputSuffix(key))
 }
 
-// repoVar renders the expression path that reads a repository variable,
-// e.g. vars.RELEASE_BATCH_MODE.
+// repoVar renders the expression path that reads a repository variable.
 func repoVar(v intent.RepoVariable) string {
 	return "vars." + v.String()
 }

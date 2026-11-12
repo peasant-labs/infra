@@ -152,13 +152,13 @@ func (c *queueChecker) checkCutRelease() {
 		}
 		if len(workflowTriggers(doc)) == 0 {
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"the cut-release workflow has no trigger during merge-queue policy validation. Trigger only on "+GitHubEventWorkflowDispatch.String()+" so a push can never cut a release")
+				"the "+intent.PRKindCutRelease.String()+" workflow has no trigger during merge-queue policy validation. Trigger only on "+GitHubEventWorkflowDispatch.String()+" so a push can never cut a release")
 			continue
 		}
 		dispatch, only := soleTrigger(doc, GitHubEventWorkflowDispatch)
 		if !only {
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"the cut-release workflow triggers on more than "+GitHubEventWorkflowDispatch.String()+" during merge-queue policy validation. Trigger only on "+GitHubEventWorkflowDispatch.String()+" so a push can never cut a release")
+				"the "+intent.PRKindCutRelease.String()+" workflow triggers on more than "+GitHubEventWorkflowDispatch.String()+" during merge-queue policy validation. Trigger only on "+GitHubEventWorkflowDispatch.String()+" so a push can never cut a release")
 			dispatch, _ = findTrigger(doc, GitHubEventWorkflowDispatch)
 		}
 		c.checkCutLevel(bot.Workflow, bot.Job, dispatch)
@@ -176,7 +176,7 @@ func (c *queueChecker) checkCutRelease() {
 				continue
 			}
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"a cut-release write step has no tag-mode gate during merge-queue policy validation. Test "+tagModeComparison+" in the step if so the button writes nothing while tag mode is off")
+				"a "+intent.PRKindCutRelease.String()+" write step has no tag-mode gate during merge-queue policy validation. Test "+tagModeComparison+" in the step if so the button writes nothing while tag mode is off")
 		}
 	}
 }
@@ -213,7 +213,7 @@ func (c *queueChecker) checkCutLevel(workflow, job string, dispatch trigger) {
 	}
 	if typ != "choice" || !closed || !sameLevels(options, cutLevels) {
 		c.emit(QueueRuleCutRelease, workflow, job,
-			"the cut-release level input is not a choice of exactly "+cutLevels[0].String()+" and "+cutLevels[1].String()+" during merge-queue policy validation. Offer a closed level choice so the button can never cut a numbered release")
+			"the "+intent.PRKindCutRelease.String()+" level input is not a choice of exactly "+cutLevels[0].String()+" and "+cutLevels[1].String()+" during merge-queue policy validation. Offer a closed level choice so the button can never cut a numbered release")
 	}
 }
 
@@ -286,7 +286,7 @@ func (c *queueChecker) checkToolPin() {
 }
 
 // checkClassify (bot-branch-via-classify) requires workflows to call the
-// release-intent classify command instead of comparing a bot branch literal:
+// shared classification command instead of comparing a bot branch literal:
 // no if or run compares == or != against a configured bot branch, and the
 // guard workflow invokes classify to tell the release PR apart. A literal in
 // one workflow drifts from the config the classifier reads.
@@ -327,7 +327,7 @@ func (c *queueChecker) checkClassify() {
 		}
 		if !invokesClassify(doc) {
 			c.emit(QueueRuleClassify, req.Workflow, req.Job,
-				"the guard workflow never calls "+intent.ProgramName+" "+intent.CommandClassify.String()+" during merge-queue policy validation. Call "+intent.CommandClassify.String()+" to tell the release PR apart instead of comparing its head branch, so the protected-path exception follows the one classifier")
+				"the guard workflow never calls "+intent.ProgramName+" "+intent.CommandClassify.String()+" during merge-queue policy validation. Call "+intent.CommandClassify.String()+" to tell the release PR apart instead of comparing its head branch, so the "+intent.ErrProtectedPath.String()+" exception follows the one classifier")
 		}
 	}
 }
@@ -342,7 +342,7 @@ var (
 	// as in a quoted branch on the left of ==.
 	branchLiteralBeforeOp = regexp.MustCompile(`['"]?([A-Za-z0-9_./-]+)['"]?\s*(==|!=)`)
 
-	// classifyInvocation matches a release-intent classify call.
+	// classifyInvocation matches the shared classifier's invocation.
 	classifyInvocation = regexp.MustCompile(toolCall(intent.CommandClassify))
 )
 

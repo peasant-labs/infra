@@ -27,17 +27,8 @@ func writeQueuePolicyFile(t *testing.T, content string) string {
 	return path
 }
 
-const queuePolicyYAML = `queue:
-  required:
-    - { context: merge-gate, workflow: ci.yml, job: merge-gate, aggregator: true }
-    - { context: title-guard, workflow: title-guard.yml, job: title-guard, guard: true }
-  release_job:
-    workflow: release-batch.yml
-    job: release
-    pre_tag_steps: [verify-config, verify-workflows]
-  bot_jobs:
-    - { workflow: cut-release.yml, job: cut, kind: cut-release }
-`
+//go:embed testdata/queue_policy.yaml
+var queuePolicyYAML string
 
 func TestLoadQueuePolicy_QueueSection(t *testing.T) {
 	t.Parallel()
@@ -72,7 +63,7 @@ func TestLoadQueuePolicy_QueueSection(t *testing.T) {
 	}
 	bot := policy.Queue.BotJobs[0]
 	if bot.Workflow != "cut-release.yml" || bot.Job != "cut" || bot.Kind != intent.PRKindCutRelease {
-		t.Fatalf("loaded bot job = %+v, want the cut-release kind entry", bot)
+		t.Fatalf("loaded bot job = %+v, want the %s kind entry", bot, intent.PRKindCutRelease)
 	}
 }
 

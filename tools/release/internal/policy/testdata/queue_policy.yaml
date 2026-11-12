@@ -1,6 +1,3 @@
-# Queue policy for the fixture repo: two required contexts, the release job
-# with its pre-tag steps in verdict order, and the two bot jobs by kind. The
-# branches live in release-intent.yaml bot_branches, the one source.
 queue:
   required:
     - { context: merge-gate, workflow: ci.yml, job: merge-gate, aggregator: true }
@@ -11,4 +8,3 @@ queue:
     pre_tag_steps: [verify-config, verify-workflows]
   bot_jobs:
     - { workflow: cut-release.yml, job: cut, kind: cut-release }
-    - { workflow: nix-vendor-hash.yml, job: update, kind: vendor-hash }

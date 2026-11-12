@@ -22,22 +22,20 @@ import (
 
 var (
 	// actionGate matches an if that compares one plan step's action output
-	// with == against a literal, e.g. steps.plan.outputs.action == 'open-pr'.
+	// with == against a literal.
 	// It captures the step id and the literal, which the caller parses into
 	// an intent.Action.
 	actionGate = regexp.MustCompile(stepOutputPattern(intent.OutputAction) + `\s*==\s*'([^']+)'`)
-	// gateTest matches an if that compares the queue-gate output, e.g.
-	// steps.gate.outputs.gate == 'arm'. The alternation is built from the
-	// planner's closed gate set so a new gate reaches this check with the set.
+	// gateTest matches an if that compares the queue gate output. The
+	// alternation is built from the planner's closed gate set so a new gate
+	// reaches this check with the set.
 	gateTest = regexp.MustCompile(stepOutputPattern(intent.OutputGate) + `\s*==\s*'` + gateAlternatives() + `'`)
-	// pushTest matches an if that tests the push the write step printed, e.g.
-	// steps.write.outputs.push == 'true'.
+	// pushTest matches an if that tests the push the write step printed.
 	pushTest = regexp.MustCompile(stepOutputPattern(intent.OutputPush) + `\b`)
-	// verdictArg extracts the --verdict argument: the canonical ${{ }} form
+	// verdictArg extracts the verdict argument: the canonical ${{ }} form
 	// or the bare taggable literal for a repo with no pre-tag steps.
 	verdictArg = regexp.MustCompile(regexp.QuoteMeta(intent.FlagVerdict.String()) + `\s+(\$\{\{.*?\}\}|\S+)`)
-	// planRunner matches a step that runs the planner, e.g.
-	// release-intent plan --branch develop.
+	// planRunner matches a step that runs the planner.
 	planRunner = regexp.MustCompile(toolCall(intent.CommandPlan))
 	// rangeReader matches a step that reads a commit range.
 	rangeReader = regexp.MustCompile(toolCall(intent.CommandPlan, intent.CommandReleasePR))
@@ -199,7 +197,7 @@ func isWriteStep(step *yaml.Node) bool {
 	return prWrite.MatchString(stepRunText(step))
 }
 
-// isArmHoldStep reports whether the step is gated on the queue-gate output
+// isArmHoldStep reports whether the step is gated on the queue gate output
 // rather than on the planner's action; those steps belong to clause (8) and
 // are exempt from the action-gate clauses.
 func isArmHoldStep(step *yaml.Node) bool {
@@ -263,7 +261,7 @@ func hasDisjunction(cond string) bool {
 	return strings.Contains(cond, "||") || strings.Contains(cond, "always()") || strings.Contains(cond, "success()")
 }
 
-// checkVerdictForm (clause 3) requires every --verdict argument to be the
+// checkVerdictForm (clause 3) requires every verdict argument to be the
 // canonical form: the taggable literal with no pre-tag steps, otherwise the
 // exact expression built from the policy's pre-tag steps in order.
 func (r *releaseChecker) checkVerdictForm() {
@@ -336,8 +334,8 @@ func hasTagModeGate(cond string) bool {
 }
 
 // checkTagPush (clause 2) requires exactly one step to push a tag, gated on
-// the tag action of a plan step that passes --verdict, with no other step or
-// job pushing a tag.
+// the tag action of a plan step that passes the verdict flag, with no other
+// step or job pushing a tag.
 func (r *releaseChecker) checkTagPush() {
 	for _, jobName := range jobNames(r.doc) {
 		job := jobNode(r.doc, jobName)
@@ -509,10 +507,9 @@ func (r *releaseChecker) checkContinueOnError() {
 	}
 }
 
-// checkArmHold (clause 8) requires the auto-merge arm step to test gate ==
-// 'arm' and the hold step to test gate == 'hold', both on the queue-gate
-// output of the same run. On hold the job only turns auto-merge off; no step
-// may call a dequeue.
+// checkArmHold (clause 8) requires the auto-merge arm and hold steps to test
+// their respective intent.Gate values on the queue gate output of the same
+// run. On hold the job only turns auto-merge off; no step may call a dequeue.
 func (r *releaseChecker) checkArmHold() {
 	seen := map[intent.Gate]bool{}
 	for i, step := range r.steps {

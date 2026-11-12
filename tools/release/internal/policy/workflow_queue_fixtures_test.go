@@ -11,6 +11,7 @@ import (
 	"embed"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 
@@ -19,17 +20,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed testdata/workflow_queue
+//go:embed all:testdata/workflow_queue
 var workflowQueueFixtureFS embed.FS
 
-// The layout of one materialized fixture repository. These are the fixture
-// tree's own file names, chosen by this corpus, not the conventional paths a
-// real repository uses.
-const (
-	fixturePolicyFile   = "policy.yml"
-	fixtureConfigFile   = "release-intent.yaml"
-	fixtureWorkflowsDir = "workflows"
-)
+// fixtureWorkflowsDir is a directory chosen by the test corpus. The policy
+// and release config use their owners' real default paths instead.
+const fixtureWorkflowsDir = "workflows"
 
 // queueCaseInput names the case overlay directory under
 // testdata/workflow_queue/overlays. Empty means the base tree as-is.
@@ -217,7 +213,7 @@ func copyEmbeddedDir(t *testing.T, src, dst string) {
 // the bot branches the checker resolves.
 func loadBaseConfig(t *testing.T) intent.Config {
 	t.Helper()
-	data, err := workflowQueueFixtureFS.ReadFile("testdata/workflow_queue/base/" + fixtureConfigFile)
+	data, err := workflowQueueFixtureFS.ReadFile(path.Join("testdata/workflow_queue/base", intent.DefaultConfigPath))
 	if err != nil {
 		t.Fatalf("read base release config: %v", err)
 	}

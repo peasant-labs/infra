@@ -38,10 +38,10 @@ jobs:
           private-key: ${{ secrets.RELEASER_APP_KEY }}
       - id: verify-config
         if: steps.plan.outputs.action == 'verify'
-        run: release-intent check-config --config release-intent.yaml || true
+        run: release-intent check-config || true
       - id: verify-workflows
         if: "!cancelled() && steps.plan.outputs.action == 'verify'"
-        run: release-intent check-workflows --policy policy.yml --dir workflows
+        run: release-intent check-workflows --dir workflows
       - id: verdict
         if: "!cancelled() && steps.plan.outputs.action == 'verify'"
         run: release-intent plan --branch develop --verdict ${{ (steps.verify-config.outcome == 'success' && steps.verify-workflows.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"

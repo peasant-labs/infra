@@ -114,7 +114,7 @@ func ParsePullRequestAction(name string) (PullRequestAction, error) {
 	if a := PullRequestAction(name); a.IsValid() {
 		return a, nil
 	}
-	return "", fmt.Errorf("parse pull_request activity type: %q is not one of the activity types the merge-queue rules read (%s). A caller keeps such a type by its written name as unknown, and it stands in for no member; write one of the listed names if a rule was meant to see it", name, joinMembers(AllPullRequestActions))
+	return "", fmt.Errorf("parse %s activity type: %q is not one of the activity types the merge-queue rules read (%s). A caller keeps such a type by its written name as unknown, and it stands in for no member; write one of the listed names if a rule was meant to see it", GitHubEventPullRequest, name, joinMembers(AllPullRequestActions))
 }
 
 // joinMembers renders a closed set's members for a message, in canonical
