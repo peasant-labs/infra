@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
@@ -58,14 +59,7 @@ var allGitSubcommands = []gitSubcommand{
 func (s gitSubcommand) String() string { return string(s) }
 
 // IsValid reports whether the subcommand is on the allowlist.
-func (s gitSubcommand) IsValid() bool {
-	for _, known := range allGitSubcommands {
-		if s == known {
-			return true
-		}
-	}
-	return false
-}
+func (s gitSubcommand) IsValid() bool { return slices.Contains(allGitSubcommands, s) }
 
 // gitOption is one fixed option the runner passes to git. Options are
 // program text, never user input.

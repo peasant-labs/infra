@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 	regexp "github.com/wasilibs/go-re2"
 	"gopkg.in/yaml.v3"
@@ -47,7 +48,7 @@ func (c *queueChecker) checkUnfiltered() {
 			for _, want := range DefaultPullRequestActions {
 				if !slices.Contains(actions, want) {
 					c.emit(QueueRuleUnfiltered, req.Workflow, req.Job,
-						"the "+event.String()+" trigger names "+triggerKeyTypes+" without "+want.String()+" during merge-queue policy validation, but the workflow owns required context "+req.Context+". Keep every default activity type ("+joinMembers(DefaultPullRequestActions)+") in the list, or drop the list: a head change that skips the check leaves the queue waiting forever")
+						"the "+event.String()+" trigger names "+triggerKeyTypes+" without "+want.String()+" during merge-queue policy validation, but the workflow owns required context "+req.Context+". Keep every default activity type ("+closedset.Join(DefaultPullRequestActions, ", ")+") in the list, or drop the list: a head change that skips the check leaves the queue waiting forever")
 				}
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
@@ -13,17 +14,9 @@ import (
 func parseCommand(raw string) (intent.Command, error) {
 	command, err := intent.ParseCommand(raw)
 	if err != nil {
-		return "", usageErr("unknown subcommand %q: expected one of %s", raw, joinCommands(", "))
+		return "", usageErr("unknown subcommand %q: expected one of %s", raw, closedset.Join(intent.AllCommands, ", "))
 	}
 	return command, nil
-}
-
-func joinCommands(sep string) string {
-	names := make([]string, 0, len(intent.AllCommands))
-	for _, c := range intent.AllCommands {
-		names = append(names, c.String())
-	}
-	return strings.Join(names, sep)
 }
 
 // flagShape is what a flag takes and what it is for. An empty Placeholder
@@ -60,11 +53,11 @@ func shapeOf(f intent.Flag) flagShape {
 	case intent.FlagBranch:
 		return flagShape{"REF", "the branch to plan or build release content from"}
 	case intent.FlagMode:
-		return flagShape{"MODE", "the job mode, one of " + joinModes()}
+		return flagShape{"MODE", "the job mode, one of " + closedset.Join(intent.AllModes, " or ")}
 	case intent.FlagFloor:
 		return flagShape{"SHA", "the recovery floor commit"}
 	case intent.FlagVerdict:
-		return flagShape{"VERDICT", "the pre-tag report, one of " + joinVerdicts()}
+		return flagShape{"VERDICT", "the pre-tag report, one of " + closedset.Join(reportedVerdicts(), " or ")}
 	case intent.FlagWrite:
 		return flagShape{"", "write the release content into the working tree"}
 	case intent.FlagCheck:
@@ -82,14 +75,6 @@ func shapeOf(f intent.Flag) flagShape {
 
 func takesValue(f intent.Flag) bool { return shapeOf(f).Placeholder != "" }
 
-func joinModes() string {
-	names := make([]string, 0, len(intent.AllModes))
-	for _, m := range intent.AllModes {
-		names = append(names, string(m))
-	}
-	return strings.Join(names, " or ")
-}
-
 // reportedVerdicts is the pre-tag reports a workflow may pass: every verdict
 // but the absence of one, which is spelled by omitting the flag.
 func reportedVerdicts() []intent.Verdict {
@@ -100,14 +85,6 @@ func reportedVerdicts() []intent.Verdict {
 		}
 	}
 	return out
-}
-
-func joinVerdicts() string {
-	names := make([]string, 0, len(intent.AllVerdicts))
-	for _, v := range reportedVerdicts() {
-		names = append(names, v.String())
-	}
-	return strings.Join(names, " or ")
 }
 
 // parseReportedVerdict maps the verdict flag's word to its verdict through

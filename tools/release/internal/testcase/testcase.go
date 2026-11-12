@@ -43,8 +43,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"gopkg.in/yaml.v3"
 )
 
@@ -64,14 +66,7 @@ const (
 var AllClassifications = []Classification{MustPass, MustFail}
 
 // IsValid reports whether the classification is one of the known members.
-func (c Classification) IsValid() bool {
-	for _, known := range AllClassifications {
-		if c == known {
-			return true
-		}
-	}
-	return false
-}
+func (c Classification) IsValid() bool { return slices.Contains(AllClassifications, c) }
 
 func (c Classification) String() string { return string(c) }
 
@@ -103,14 +98,7 @@ var AllProvenanceSources = []ProvenanceSource{
 }
 
 // IsValid reports whether the provenance source is one of the known members.
-func (s ProvenanceSource) IsValid() bool {
-	for _, known := range AllProvenanceSources {
-		if s == known {
-			return true
-		}
-	}
-	return false
-}
+func (s ProvenanceSource) IsValid() bool { return slices.Contains(AllProvenanceSources, s) }
 
 func (s ProvenanceSource) String() string { return string(s) }
 
@@ -202,10 +190,10 @@ func (c Case[I, E]) Validate() error {
 		return fmt.Errorf("case name is empty")
 	}
 	if !c.Classification.IsValid() {
-		return fmt.Errorf("case %q: classification %q is not one of must-pass/must-fail", c.Name, c.Classification)
+		return fmt.Errorf("case %q: classification %q is not one of %s", c.Name, c.Classification, closedset.Join(AllClassifications, ", "))
 	}
 	if !c.Provenance.Source.IsValid() {
-		return fmt.Errorf("case %q: provenance source %q is not a known source", c.Name, c.Provenance.Source)
+		return fmt.Errorf("case %q: provenance source %q is not one of %s", c.Name, c.Provenance.Source, closedset.Join(AllProvenanceSources, ", "))
 	}
 	if strings.TrimSpace(c.Provenance.Ref) == "" {
 		return fmt.Errorf("case %q: provenance ref is empty (a case must cite why it exists)", c.Name)

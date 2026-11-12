@@ -1,5 +1,11 @@
 package intent
 
+import (
+	"slices"
+
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
+)
+
 // This file owns the command line's vocabulary: the program name, the
 // subcommands and the flags. The command dispatches on these members and the
 // policy rules read them when they check how a consumer workflow calls the
@@ -49,11 +55,11 @@ var AllCommands = []Command{
 func (c Command) String() string { return string(c) }
 
 // IsValid reports whether the command is one of the known members.
-func (c Command) IsValid() bool { return isMember(AllCommands, c) }
+func (c Command) IsValid() bool { return slices.Contains(AllCommands, c) }
 
 // ParseCommand returns the member spelled raw and refuses anything else.
 func ParseCommand(raw string) (Command, error) {
-	return parseMember(AllCommands, raw, "subcommand", "intent.ParseCommand")
+	return closedset.Parse(AllCommands, raw, parsing("subcommand", "intent.ParseCommand"))
 }
 
 // Flag is one command-line flag of the release tool, spelled as it is typed.
@@ -114,9 +120,9 @@ var AllFlags = []Flag{
 func (f Flag) String() string { return string(f) }
 
 // IsValid reports whether the flag is one of the known members.
-func (f Flag) IsValid() bool { return isMember(AllFlags, f) }
+func (f Flag) IsValid() bool { return slices.Contains(AllFlags, f) }
 
 // ParseFlag returns the member spelled raw and refuses anything else.
 func ParseFlag(raw string) (Flag, error) {
-	return parseMember(AllFlags, raw, "flag", "intent.ParseFlag")
+	return closedset.Parse(AllFlags, raw, parsing("flag", "intent.ParseFlag"))
 }

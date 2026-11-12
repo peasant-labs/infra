@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
@@ -113,22 +114,17 @@ var AllQueueRules = []QueueRule{
 func (r QueueRule) String() string { return string(r) }
 
 // IsValid reports whether the rule is one of the known members.
-func (r QueueRule) IsValid() bool {
-	for _, known := range AllQueueRules {
-		if r == known {
-			return true
-		}
-	}
-	return false
-}
+func (r QueueRule) IsValid() bool { return slices.Contains(AllQueueRules, r) }
 
 // ParseQueueRule maps a rule name to its member. Any other name is refused,
 // never mapped to a nearby rule.
 func ParseQueueRule(name string) (QueueRule, error) {
-	if r := QueueRule(name); r.IsValid() {
-		return r, nil
-	}
-	return "", fmt.Errorf("parse queue rule: %q is not a merge-queue rule (%s). A rule name selects which check a diagnostic or a test case belongs to, so an unknown name selects none; write one of the listed names", name, joinMembers(AllQueueRules))
+	return closedset.Parse(AllQueueRules, name, closedset.Context{
+		Set:   "merge-queue rule",
+		Where: "policy.ParseQueueRule",
+		When:  "reading a rule name for a diagnostic or a test case",
+		Means: "a rule name selects which check a diagnostic or a test case belongs to, so an unknown name selects none",
+	})
 }
 
 // UnmarshalText parses a rule name at a decoding boundary, so a document
@@ -265,7 +261,7 @@ func validateQueueSection(path string, queue QueueSection) error {
 			return fmt.Errorf("%s has an empty job during merge-queue policy validation. Set 'job:' to the bot job that pushes its kind's branch", where)
 		}
 		if !botKindValid(bot.Kind) {
-			return fmt.Errorf("%s names kind %q during merge-queue policy validation. A bot job claims one of the bot PR kinds (%s), so the checker can resolve its branch from the release config; the %s kind belongs to the release job", where, bot.Kind.String(), joinMembers(botKinds()), intent.PRKindRelease.String())
+			return fmt.Errorf("%s names kind %q during merge-queue policy validation. A bot job claims one of the bot PR kinds (%s), so the checker can resolve its branch from the release config; the %s kind belongs to the release job", where, bot.Kind.String(), closedset.Join(botKinds(), ", "), intent.PRKindRelease.String())
 		}
 	}
 	return nil

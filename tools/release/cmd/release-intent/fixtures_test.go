@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -132,7 +133,7 @@ func (w *wantExit) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	status := exitStatus(n)
-	if !isMemberOf(allExitStatuses, status) {
+	if !slices.Contains(allExitStatuses, status) {
 		return fmt.Errorf("line %d: exit status %d is not in the closed set %v", node.Line, n, allExitStatuses)
 	}
 	w.Status = status
@@ -246,7 +247,7 @@ func assertKeysAbsent(t *testing.T, name, stdout string, absent []intent.OutputK
 		if err != nil {
 			continue
 		}
-		if isMemberOf(absent, key) {
+		if slices.Contains(absent, key) {
 			t.Fatalf("%s: stdout %q must not carry a %q line", name, stdout, key)
 		}
 	}
@@ -301,7 +302,7 @@ func decodeMember[T ~string](node *yaml.Node, all []T, set string) (T, error) {
 		return "", err
 	}
 	member := T(raw)
-	if !isMemberOf(all, member) {
+	if !slices.Contains(all, member) {
 		return "", fmt.Errorf("line %d: unknown %s %q: want one of %v", node.Line, set, raw, all)
 	}
 	return member, nil

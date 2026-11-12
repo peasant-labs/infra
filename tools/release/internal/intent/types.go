@@ -1,8 +1,11 @@
 package intent
 
 import (
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 )
 
 // This file defines every closed set the package trades in. Closed sets are
@@ -35,13 +38,13 @@ var AllTypes = []Type{
 }
 
 // IsValid reports whether the type is one of the known members.
-func (t Type) IsValid() bool { return isMember(AllTypes, t) }
+func (t Type) IsValid() bool { return slices.Contains(AllTypes, t) }
 
 func (t Type) String() string { return string(t) }
 
 // ParseType returns the member spelled raw and refuses anything else.
 func ParseType(raw string) (Type, error) {
-	return parseMember(AllTypes, raw, "title type", "intent.ParseType")
+	return closedset.Parse(AllTypes, raw, parsing("title type", "intent.ParseType"))
 }
 
 // UnmarshalText parses a type through ParseType.
@@ -75,7 +78,7 @@ const (
 var AllClasses = []Class{ClassMustRelease, ClassMayRelease, ClassNeverRelease}
 
 // IsValid reports whether the class is one of the known members.
-func (c Class) IsValid() bool { return isMember(AllClasses, c) }
+func (c Class) IsValid() bool { return slices.Contains(AllClasses, c) }
 
 // classWords spells each class once.
 var classWords = map[Class]string{
@@ -173,7 +176,7 @@ var levelWords = map[Level]string{
 }
 
 // IsValid reports whether the level is one of the known members.
-func (l Level) IsValid() bool { return isMember(AllLevels, l) }
+func (l Level) IsValid() bool { return slices.Contains(AllLevels, l) }
 
 // String returns the level's word. A value outside the closed set renders as
 // an invalid marker that ParseLevel refuses, never as a member's word.
@@ -250,7 +253,7 @@ var AllModes = []Mode{ModePlanOnly, ModeTag}
 func (m Mode) String() string { return string(m) }
 
 // IsValid reports whether the mode is one of the known members.
-func (m Mode) IsValid() bool { return isMember(AllModes, m) }
+func (m Mode) IsValid() bool { return slices.Contains(AllModes, m) }
 
 // modeUnset is the value of an unset repository variable.
 const modeUnset = ""
@@ -273,7 +276,7 @@ func ParseMode(raw string) (Mode, error) {
 		"intent.ParseMode",
 		"reading the release-job mode",
 		"no plan can be made from this value",
-		"set the repository variable "+VarBatchMode.String()+" to one of "+memberList(AllModes)+", or leave it unset to plan without writing",
+		"set the repository variable "+VarBatchMode.String()+" to one of "+closedset.Join(AllModes, ", ")+", or leave it unset to plan without writing",
 	)
 }
 
@@ -309,11 +312,11 @@ var AllActions = []Action{ActionNone, ActionVerify, ActionTag, ActionOpenPR, Act
 func (a Action) String() string { return string(a) }
 
 // IsValid reports whether the value is one of the known members.
-func (a Action) IsValid() bool { return isMember(AllActions, a) }
+func (a Action) IsValid() bool { return slices.Contains(AllActions, a) }
 
 // ParseAction returns the member spelled raw and refuses anything else.
 func ParseAction(raw string) (Action, error) {
-	return parseMember(AllActions, raw, "plan action", "intent.ParseAction")
+	return closedset.Parse(AllActions, raw, parsing("plan action", "intent.ParseAction"))
 }
 
 // UnmarshalText parses the value through ParseAction.
@@ -345,11 +348,11 @@ var AllVerdicts = []Verdict{VerdictNone, VerdictTaggable, VerdictRejected}
 func (v Verdict) String() string { return string(v) }
 
 // IsValid reports whether the value is one of the known members.
-func (v Verdict) IsValid() bool { return isMember(AllVerdicts, v) }
+func (v Verdict) IsValid() bool { return slices.Contains(AllVerdicts, v) }
 
 // ParseVerdict returns the member spelled raw and refuses anything else.
 func ParseVerdict(raw string) (Verdict, error) {
-	return parseMember(AllVerdicts, raw, "pre-tag verdict", "intent.ParseVerdict")
+	return closedset.Parse(AllVerdicts, raw, parsing("pre-tag verdict", "intent.ParseVerdict"))
 }
 
 // UnmarshalText parses the value through ParseVerdict.
@@ -378,11 +381,11 @@ var AllGates = []Gate{GateArm, GateHold}
 func (g Gate) String() string { return string(g) }
 
 // IsValid reports whether the value is one of the known members.
-func (g Gate) IsValid() bool { return isMember(AllGates, g) }
+func (g Gate) IsValid() bool { return slices.Contains(AllGates, g) }
 
 // ParseGate returns the member spelled raw and refuses anything else.
 func ParseGate(raw string) (Gate, error) {
-	return parseMember(AllGates, raw, "queue gate", "intent.ParseGate")
+	return closedset.Parse(AllGates, raw, parsing("queue gate", "intent.ParseGate"))
 }
 
 // UnmarshalText parses the value through ParseGate.
@@ -415,11 +418,11 @@ var AllFreshness = []Freshness{FreshnessUnknown, FreshnessFresh, FreshnessStale}
 func (f Freshness) String() string { return string(f) }
 
 // IsValid reports whether the value is one of the known members.
-func (f Freshness) IsValid() bool { return isMember(AllFreshness, f) }
+func (f Freshness) IsValid() bool { return slices.Contains(AllFreshness, f) }
 
 // ParseFreshness returns the member spelled raw and refuses anything else.
 func ParseFreshness(raw string) (Freshness, error) {
-	return parseMember(AllFreshness, raw, "freshness", "intent.ParseFreshness")
+	return closedset.Parse(AllFreshness, raw, parsing("freshness", "intent.ParseFreshness"))
 }
 
 // UnmarshalText parses the value through ParseFreshness.
@@ -452,11 +455,11 @@ var AllPRKinds = []PRKind{PRKindOrdinary, PRKindRelease, PRKindVendorHash, PRKin
 func (k PRKind) String() string { return string(k) }
 
 // IsValid reports whether the value is one of the known members.
-func (k PRKind) IsValid() bool { return isMember(AllPRKinds, k) }
+func (k PRKind) IsValid() bool { return slices.Contains(AllPRKinds, k) }
 
 // ParsePRKind returns the member spelled raw and refuses anything else.
 func ParsePRKind(raw string) (PRKind, error) {
-	return parseMember(AllPRKinds, raw, "PR kind", "intent.ParsePRKind")
+	return closedset.Parse(AllPRKinds, raw, parsing("PR kind", "intent.ParsePRKind"))
 }
 
 // UnmarshalText parses the value through ParsePRKind.
@@ -524,11 +527,11 @@ var AllErrorCodes = []ErrorCode{
 func (c ErrorCode) String() string { return string(c) }
 
 // IsValid reports whether the value is one of the known members.
-func (c ErrorCode) IsValid() bool { return isMember(AllErrorCodes, c) }
+func (c ErrorCode) IsValid() bool { return slices.Contains(AllErrorCodes, c) }
 
 // ParseErrorCode returns the member spelled raw and refuses anything else.
 func ParseErrorCode(raw string) (ErrorCode, error) {
-	return parseMember(AllErrorCodes, raw, "error code", "intent.ParseErrorCode")
+	return closedset.Parse(AllErrorCodes, raw, parsing("error code", "intent.ParseErrorCode"))
 }
 
 // UnmarshalText parses the value through ParseErrorCode.
