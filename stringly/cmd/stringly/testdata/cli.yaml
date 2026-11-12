@@ -1,0 +1,109 @@
+# Command-line cases for the stringly entry point, run through run(), the
+# same function main calls.
+#
+# args          the command line after the program name.
+# linked        the -ldflags "-X main.version=…" value; empty when not set.
+# built         the main module version from the build information.
+# devEnv        the STRINGLY_DEV value; empty when unset.
+# wantExit      the exit code.
+# wantStdout    the exact standard output.
+# wantStderr    substrings standard error must contain. Every failure also
+#               has to print the why, where and fix parts.
+
+# The closed sets of the command line, asserted by exact membership.
+commands: [check, update, init, show]
+showTopics: [catalog, rules, version]
+# Words neither ParseCommand nor ParseShowTopic may accept.
+invalidWords: ["", Show, VERSION, lint, help, " show"]
+
+cases:
+  - name: show-version-prints-linked-version
+    args: [show, version]
+    linked: v0.1.0
+    wantExit: 0
+    wantStdout: "stringly v0.1.0 (requires ast-grep 0.51.2)\n"
+
+  - name: show-version-prints-build-info-version
+    args: [show, version]
+    built: v0.2.0
+    wantExit: 0
+    wantStdout: "stringly v0.2.0 (requires ast-grep 0.51.2)\n"
+
+  - name: linked-version-overrides-build-info
+    args: [show, version]
+    linked: v0.1.0
+    built: v0.2.0
+    wantExit: 0
+    wantStdout: "stringly v0.1.0 (requires ast-grep 0.51.2)\n"
+
+  - name: build-info-pseudo-version-is-a-version
+    args: [show, version]
+    built: v0.0.0-20261112183000-0123456789ab
+    wantExit: 0
+    wantStdout: "stringly v0.0.0-20261112183000-0123456789ab (requires ast-grep 0.51.2)\n"
+
+  - name: devel-build-runs-with-dev-env
+    args: [show, version]
+    built: (devel)
+    devEnv: "1"
+    wantExit: 0
+    wantStdout: "stringly (development build) (requires ast-grep 0.51.2)\n"
+
+  - name: devel-build-refused-without-dev-env
+    args: [show, version]
+    built: (devel)
+    wantExit: 2
+    wantStderr: ["(devel)", "STRINGLY_DEV=1", "-ldflags"]
+
+  - name: dirty-build-refused-without-dev-env
+    args: [show, version]
+    built: v0.0.0-20261112183000-0123456789ab+dirty
+    wantExit: 2
+    wantStderr: ["+dirty", "STRINGLY_DEV=1"]
+
+  - name: no-version-refused-without-dev-env
+    args: [show, version]
+    wantExit: 2
+    wantStderr: ["no version", "STRINGLY_DEV=1"]
+
+  - name: dev-env-other-than-one-is-refused
+    args: [show, version]
+    devEnv: "true"
+    wantExit: 2
+    wantStderr: ["STRINGLY_DEV=1"]
+
+  - name: malformed-linked-version-refused
+    args: [show, version]
+    linked: 0.1.0
+    wantExit: 2
+    wantStderr: ["\"0.1.0\"", "vMAJOR.MINOR.PATCH"]
+
+  - name: no-command-lists-commands
+    args: []
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["no command given", "check, update, init, show"]
+
+  - name: unknown-command-lists-commands
+    args: [lint]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["unknown command \"lint\"", "check, update, init, show"]
+
+  - name: show-without-topic-lists-topics
+    args: [show]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["needs a topic", "catalog, rules, version"]
+
+  - name: show-unknown-topic-lists-topics
+    args: [show, versions]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["unknown topic \"versions\"", "catalog, rules, version"]
+
+  - name: show-version-refuses-extra-argument
+    args: [show, version, extra]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["unexpected argument \"extra\""]
