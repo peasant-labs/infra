@@ -37,6 +37,8 @@ required_names:
   - commits-after-fresh-candidate
   - stale-candidate-close-pr-when-empty
   - plan-only-with-fresh-candidate
+  - mode-outside-the-set-is-an-error
+  - verdict-outside-the-set-is-an-error
 cases:
   - name: tag-mode-off-gives-none
     input:
@@ -69,7 +71,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: tag mode off gives none"}
     mutation: {description: "a pending batch with the job disarmed"}
@@ -111,7 +112,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a fresh candidate with no verdict gives verify"}
     mutation: {description: "a fresh release commit awaiting its pre-tag report"}
@@ -153,7 +153,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a fresh candidate with a taggable verdict gives tag"}
     mutation: {description: "a fresh release commit whose pre-tag steps passed"}
@@ -195,7 +194,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a rejected verdict leaves the subjects before the candidate pending"}
     mutation: {description: "a fresh release commit whose pre-tag steps failed"}
@@ -223,7 +221,6 @@ cases:
       breaking: false
       version: ""
       tag: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: nothing pending gives close-pr"}
     mutation: {description: "a range with no releasing subject and no candidate"}
@@ -265,7 +262,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a stale candidate is never tagged, with any verdict"}
     mutation: {description: "a release commit whose content drifted, judged taggable anyway"}
@@ -307,7 +303,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: no freshness entry is unknown, never stale"}
     mutation: {description: "a candidate with no recorded comparison"}
@@ -326,13 +321,10 @@ cases:
         verdict: ""
         fresh: {}
     expected:
-      action: ""
       range_base: ""
       version_base: ""
       candidate: ""
-      candidate_fresh: ""
       pending: []
-      level: ""
       breaking: false
       version: ""
       tag: ""
@@ -356,13 +348,10 @@ cases:
         verdict: ""
         fresh: {}
     expected:
-      action: ""
       range_base: ""
       version_base: ""
       candidate: ""
-      candidate_fresh: ""
       pending: []
-      level: ""
       breaking: false
       version: ""
       tag: ""
@@ -385,13 +374,10 @@ cases:
         verdict: ""
         fresh: {}
     expected:
-      action: ""
       range_base: ""
       version_base: ""
       candidate: ""
-      candidate_fresh: ""
       pending: []
-      level: ""
       breaking: false
       version: ""
       tag: ""
@@ -431,7 +417,6 @@ cases:
         version: "0.3.0"
         tag: "v0.3.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a higher tag off the chain lifts the computed version"}
     mutation: {description: "a hand-pushed tag above the chain"}
@@ -449,13 +434,10 @@ cases:
         verdict: ""
         fresh: {}
     expected:
-      action: ""
       range_base: ""
       version_base: ""
       candidate: ""
-      candidate_fresh: ""
       pending: []
-      level: ""
       breaking: false
       version: ""
       tag: ""
@@ -478,13 +460,10 @@ cases:
         verdict: ""
         fresh: {}
     expected:
-      action: ""
       range_base: ""
       version_base: ""
       candidate: ""
-      candidate_fresh: ""
       pending: []
-      level: ""
       breaking: false
       version: ""
       tag: ""
@@ -525,7 +504,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: commits at or before the floor leave the range"}
     mutation: {description: "a floor cutting an older subject out of the range"}
@@ -563,7 +541,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a floor at or older than the range base changes nothing"}
     mutation: {description: "a floor naming the range-base commit itself"}
@@ -599,7 +576,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: the floor drops a bad subject and everything before it"}
     mutation: {description: "a floor cutting an unparseable subject out of the range"}
@@ -634,7 +610,6 @@ cases:
         version: "0.1.1"
         tag: "v0.1.1"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: one empty release subject plans one patch"}
     mutation: {description: "a forced release with no other change"}
@@ -672,7 +647,6 @@ cases:
         version: "0.1.1"
         tag: "v0.1.1"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: one batch plans one release no matter its size"}
     mutation: {description: "two releasing subjects landing together"}
@@ -707,7 +681,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a break below 1.0 moves the middle number"}
     mutation: {description: "a declared break in the pending set"}
@@ -749,7 +722,6 @@ cases:
         version: "0.1.1"
         tag: "v0.1.1"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a release commit never joins pending whatever its state"}
     mutation: {description: "a landed release commit above a pending fix"}
@@ -785,7 +757,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: the epoch commit itself is parsed"}
     mutation: {description: "an epoch commit inside the range"}
@@ -804,13 +775,10 @@ cases:
         verdict: ""
         fresh: {}
     expected:
-      action: ""
       range_base: ""
       version_base: ""
       candidate: ""
-      candidate_fresh: ""
       pending: []
-      level: ""
       breaking: false
       version: ""
       tag: ""
@@ -851,7 +819,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a non-version word with the prefix bases nothing"}
     mutation: {description: "a bare word sharing the prefix on the tip commit"}
@@ -886,7 +853,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: only final tags base arithmetic"}
     mutation: {description: "a release candidate above the highest final tag"}
@@ -932,7 +898,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: "2026-11-13"
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a rejected candidate leaves the full pending set"}
     mutation: {description: "a later minor landing after a rejected fresh candidate"}
@@ -978,7 +943,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: "2026-11-13"
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a stale candidate leaves the full pending set"}
     mutation: {description: "a later minor landing after a stale candidate"}
@@ -1022,7 +986,6 @@ cases:
         version: "0.1.1"
         tag: "v0.1.1"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: no tag for either of an older fresh and a newer stale candidate"}
     mutation: {description: "an untagged fresh release commit under a newer stale one"}
@@ -1067,7 +1030,6 @@ cases:
         tag: "v0.2.0"
         date: "2026-11-13"
       date: "2026-11-11"
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: Full holds everything pending whatever the verdict"}
     mutation: {description: "a tag action with a later subject outside its set"}
@@ -1103,7 +1065,6 @@ cases:
         tag: "v0.2.0"
         date: "2026-11-12"
       date: "2026-11-12"
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: Full holds everything pending with no candidate"}
     mutation: {description: "an open-pr plan with no release commit in range"}
@@ -1148,7 +1109,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: "2026-11-13"
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: verify and tag judge the subjects older than the candidate"}
     mutation: {description: "a later minor landing after a fresh release commit"}
@@ -1193,7 +1153,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: "2026-11-13"
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: verify and tag judge the subjects older than the candidate"}
     mutation: {description: "a later minor awaiting its pre-tag report"}
@@ -1238,7 +1197,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: "2026-11-13"
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: the tag comes from the subjects the candidate covers"}
     mutation: {description: "a releasing subject queued behind a fresh release commit"}
@@ -1273,7 +1231,6 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: the verdict only speaks for a fresh candidate"}
     mutation: {description: "a taggable verdict with no candidate to tag"}
@@ -1301,7 +1258,6 @@ cases:
       breaking: false
       version: ""
       tag: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: a stale candidate with nothing pending closes"}
     mutation: {description: "a stale release commit with an empty pending set"}
@@ -1343,7 +1299,44 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: ""
-      code: ""
     classification: must-pass
     provenance: {source: requirement, ref: "planner: tag mode off gives none on every shape"}
     mutation: {description: "a taggable-shaped run with the job disarmed"}
+  - name: mode-outside-the-set-is-an-error
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      facts:
+        commits:
+          - {sha: "aaa", subject: "feat(x)[minor]: one (#11)", changes_changelog: false}
+          - {sha: "e00", subject: "chore: adopt the release config", changes_changelog: false}
+        tags: {"v0.1.0": "e00"}
+        epoch: "e00"
+        floor: ""
+        mode: "plan-only"
+        verdict: ""
+        fresh: {}
+      raw_mode: "tags"
+    expected: {}
+    classification: must-fail
+    sibling: tag-mode-off-gives-none
+    provenance: {source: boundary, ref: "planner: a mode outside the closed set is refused, never read as plan-only"}
+    mutation: {description: "misspelled the mode in the facts"}
+  - name: verdict-outside-the-set-is-an-error
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      facts:
+        commits:
+          - {sha: "aaa", subject: "feat(x)[minor]: one (#11)", changes_changelog: false}
+          - {sha: "e00", subject: "chore: adopt the release config", changes_changelog: false}
+        tags: {"v0.1.0": "e00"}
+        epoch: "e00"
+        floor: ""
+        mode: "plan-only"
+        verdict: ""
+        fresh: {}
+      raw_verdict: "passed"
+    expected: {}
+    classification: must-fail
+    sibling: tag-mode-off-gives-none
+    provenance: {source: boundary, ref: "planner: a verdict outside the closed set is refused, never read as no report"}
+    mutation: {description: "passed a verdict word no member holds"}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/arithmetic_corpus.yaml
@@ -16,13 +17,16 @@ var arithmeticCorpusYAML []byte
 var semverCorpusYAML []byte
 
 type arithmeticInput struct {
-	Base     string `yaml:"base"`
-	Level    string `yaml:"level"`
-	Breaking bool   `yaml:"breaking"`
+	Base     string       `yaml:"base"`
+	Level    intent.Level `yaml:"level"`
+	Breaking bool         `yaml:"breaking"`
+	// RawLevel carries a number outside the closed set straight into the
+	// call, for the row that proves NextVersion refuses one.
+	RawLevel int `yaml:"raw_level"`
 }
 
 type arithmeticExpected struct {
-	Next string `yaml:"next"`
+	Next intent.SemVer `yaml:"next"`
 }
 
 type semverInput struct {
@@ -30,15 +34,19 @@ type semverInput struct {
 }
 
 type semverExpected struct {
-	Value string `yaml:"value"`
+	Value intent.SemVer `yaml:"value"`
 }
 
 func TestNextVersion(t *testing.T) {
 	corpus := loadNamedCorpus[arithmeticInput, arithmeticExpected](t, arithmeticCorpusYAML)
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
-			got, err := intent.NextVersion(intent.SemVer(c.Input.Base), testLevel(c.Input.Level), c.Input.Breaking)
-			if c.Classification == "must-fail" {
+			level := c.Input.Level
+			if c.Input.RawLevel != 0 {
+				level = intent.Level(c.Input.RawLevel)
+			}
+			got, err := intent.NextVersion(intent.SemVer(c.Input.Base), level, c.Input.Breaking)
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("NextVersion(%q): expected an error, got %q", c.Input.Base, got)
 				}
@@ -48,7 +56,7 @@ func TestNextVersion(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NextVersion(%q): unexpected error: %v", c.Input.Base, err)
 			}
-			if string(got) != c.Expected.Next {
+			if got != c.Expected.Next {
 				t.Errorf("NextVersion = %q, want %q", got, c.Expected.Next)
 			}
 		})
@@ -60,7 +68,7 @@ func TestParseSemVer(t *testing.T) {
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			got, err := intent.ParseSemVer(c.Input.Raw)
-			if c.Classification == "must-fail" {
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("ParseSemVer(%q): expected an error, got %q", c.Input.Raw, got)
 				}
@@ -70,22 +78,9 @@ func TestParseSemVer(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseSemVer(%q): unexpected error: %v", c.Input.Raw, err)
 			}
-			if string(got) != c.Expected.Value {
+			if got != c.Expected.Value {
 				t.Errorf("ParseSemVer = %q, want %q", got, c.Expected.Value)
 			}
 		})
-	}
-}
-
-func testLevel(word string) intent.Level {
-	switch word {
-	case "patch":
-		return intent.LevelPatch
-	case "minor":
-		return intent.LevelMinor
-	case "major":
-		return intent.LevelMajor
-	default:
-		return intent.LevelNone
 	}
 }

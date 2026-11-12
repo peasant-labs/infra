@@ -84,8 +84,17 @@ func NextVersion(base SemVer, level Level, breaking bool) (SemVer, error) {
 			return semVerOf(0, minor+1, 0), nil
 		}
 		return semVerOf(major+1, 0, 0), nil
-	default:
+	case LevelNone:
 		return base, nil
+	default:
+		return "", inputError(
+			"invalid level "+strconv.Quote(level.String()),
+			"the level set is closed, and an unknown level is never read as no release",
+			"intent.NextVersion",
+			"computing the next version",
+			"no next version can be computed from this level",
+			"pass one of "+levelList(AllLevels),
+		)
 	}
 }
 

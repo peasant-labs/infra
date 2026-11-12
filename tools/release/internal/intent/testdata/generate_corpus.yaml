@@ -15,6 +15,7 @@ required_names:
   - no-section-base
   - empty-pending-is-error
   - empty-tag-is-error
+  - base-changelog-not-utf8
 cases:
   - name: two-minors-schema-style
     input:
@@ -466,3 +467,19 @@ cases:
     sibling: two-minors-schema-style
     provenance: {source: boundary, ref: "generator: the version and tag are required"}
     mutation: {description: "cleared the version and tag"}
+  - name: base-changelog-not-utf8
+    # The base text of the sibling with one byte that is not text inside the
+    # date of its heading.
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [{path: "package.json", field: "version"}], protected_paths: [], surfaces: {}, bot_branches: {}}
+      pending:
+        - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "one", pr: 11}
+      base_changelog_hex: "23204368616e67656c6f670a0a2323205b76302e312e305d202d20323032362d31312dff30310a0a2d206f6e6520282339290a"
+      version: "0.2.0"
+      tag: "v0.2.0"
+      date: "2026-11-12"
+    expected: {}
+    classification: must-fail
+    sibling: two-minors-schema-style
+    provenance: {source: boundary, ref: "generator: a base changelog that is not valid UTF-8 is refused before any heading is read"}
+    mutation: {description: "put a byte that is not text in the latest heading's date"}

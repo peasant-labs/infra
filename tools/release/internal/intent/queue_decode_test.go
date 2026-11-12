@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/queue_decode_corpus.yaml
@@ -28,7 +29,7 @@ func TestDecodeQueueResponse(t *testing.T) {
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			got, err := intent.DecodeQueueResponse([]byte(c.Input.Document))
-			if c.Classification == "must-fail" {
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("DecodeQueueResponse: expected an error, got %+v", got)
 				}

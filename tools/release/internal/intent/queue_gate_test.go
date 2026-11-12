@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/queue_gate_corpus.yaml
@@ -19,16 +20,16 @@ type queueGateInput struct {
 }
 
 type queueGateExpected struct {
-	Gate string `yaml:"gate"`
+	Gate intent.Gate `yaml:"gate"`
 }
 
 func TestQueueGate(t *testing.T) {
 	corpus := loadNamedCorpus[queueGateInput, queueGateExpected](t, queueGateCorpusYAML)
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
-			cfg := intent.Config{Releases: true, TagPrefix: "v"}
+			cfg := intent.Config{Releases: true}
 			got, err := intent.QueueGate(cfg, intent.SemVer(c.Input.Current), c.Input.Entries, c.Input.ReleasePR)
-			if c.Classification == "must-fail" {
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("QueueGate: expected an error, got %q", got)
 				}
@@ -38,7 +39,7 @@ func TestQueueGate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("QueueGate: unexpected error: %v", err)
 			}
-			if string(got) != c.Expected.Gate {
+			if got != c.Expected.Gate {
 				t.Errorf("QueueGate = %q, want %q", got, c.Expected.Gate)
 			}
 		})

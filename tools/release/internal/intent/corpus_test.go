@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,17 +27,17 @@ type namedCorpus[I any, E any] struct {
 
 // corpusCase mirrors testcase.Case without importing testing into the shape.
 type corpusCase[I any, E any] struct {
-	Name           string `yaml:"name"`
-	Input          I      `yaml:"input"`
-	Expected       E      `yaml:"expected"`
-	Classification string `yaml:"classification"`
+	Name           string                  `yaml:"name"`
+	Input          I                       `yaml:"input"`
+	Expected       E                       `yaml:"expected"`
+	Classification testcase.Classification `yaml:"classification"`
 	// Sibling names the accept case a must-fail row is one fault away
 	// from: the suite proves the sibling exists, passes, and stays passing,
 	// so the reject fails for the named fault and not an unrelated error.
 	Sibling    string `yaml:"sibling"`
 	Provenance struct {
-		Source string `yaml:"source"`
-		Ref    string `yaml:"ref"`
+		Source testcase.ProvenanceSource `yaml:"source"`
+		Ref    string                    `yaml:"ref"`
 	} `yaml:"provenance"`
 	Mutation struct {
 		Description string `yaml:"description"`
@@ -70,22 +71,25 @@ func loadNamedCorpus[I any, E any](t *testing.T, data []byte) namedCorpus[I, E] 
 			t.Fatalf("duplicate case name %q", cse.Name)
 		}
 		seen[cse.Name] = true
-		if cse.Classification != "must-pass" && cse.Classification != "must-fail" {
-			t.Fatalf("case %q: classification %q is not must-pass/must-fail", cse.Name, cse.Classification)
+		if !cse.Classification.IsValid() {
+			t.Fatalf("case %q: classification %q is not one of %v", cse.Name, cse.Classification, testcase.AllClassifications)
 		}
-		if strings.TrimSpace(cse.Provenance.Source) == "" || strings.TrimSpace(cse.Provenance.Ref) == "" {
-			t.Fatalf("case %q: provenance must name a source and a ref", cse.Name)
+		if !cse.Provenance.Source.IsValid() {
+			t.Fatalf("case %q: provenance source %q is not one of %v", cse.Name, cse.Provenance.Source, testcase.AllProvenanceSources)
+		}
+		if strings.TrimSpace(cse.Provenance.Ref) == "" {
+			t.Fatalf("case %q: provenance must name a ref", cse.Name)
 		}
 		if strings.TrimSpace(cse.Mutation.Description) == "" {
 			t.Fatalf("case %q: mutation description is empty", cse.Name)
 		}
 	}
-	classOf := make(map[string]string, len(c.Cases))
+	classOf := make(map[string]testcase.Classification, len(c.Cases))
 	for _, cse := range c.Cases {
 		classOf[cse.Name] = cse.Classification
 	}
 	for _, cse := range c.Cases {
-		if cse.Classification == "must-fail" {
+		if cse.Classification == testcase.MustFail {
 			if strings.TrimSpace(cse.Sibling) == "" {
 				t.Fatalf("case %q: a reject case must name its accept sibling", cse.Name)
 			}
@@ -93,8 +97,8 @@ func loadNamedCorpus[I any, E any](t *testing.T, data []byte) namedCorpus[I, E] 
 			if !ok {
 				t.Fatalf("case %q: sibling %q is not in the corpus", cse.Name, cse.Sibling)
 			}
-			if siblingClass != "must-pass" {
-				t.Fatalf("case %q: sibling %q is %s, want must-pass", cse.Name, cse.Sibling, siblingClass)
+			if siblingClass != testcase.MustPass {
+				t.Fatalf("case %q: sibling %q is %s, want %s", cse.Name, cse.Sibling, siblingClass, testcase.MustPass)
 			}
 		} else if strings.TrimSpace(cse.Sibling) != "" {
 			t.Fatalf("case %q: an accept case names no sibling", cse.Name)
@@ -119,13 +123,16 @@ func loadNamedCorpus[I any, E any](t *testing.T, data []byte) namedCorpus[I, E] 
 }
 
 // requireSixParts fails unless an intent rejection carries every part.
-func requireSixParts(t *testing.T, err error, wantCode string) {
+func requireSixParts(t *testing.T, err error, wantCode intent.ErrorCode) {
 	t.Helper()
 	var rej *intent.Error
 	if !errors.As(err, &rej) {
 		t.Fatalf("expected a typed intent.Error, got %T: %v", err, err)
 	}
-	if string(rej.Code) != wantCode {
+	if !wantCode.IsValid() {
+		t.Fatalf("the fixture names no known error code for this rejection (got %q)", wantCode)
+	}
+	if rej.Code != wantCode {
 		t.Fatalf("code = %q, want %q", rej.Code, wantCode)
 	}
 	parts := map[string]string{

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/protected_corpus.yaml
@@ -20,7 +21,7 @@ type protectedInput struct {
 }
 
 type protectedExpected struct {
-	Code string `yaml:"code"`
+	Code intent.ErrorCode `yaml:"code"`
 }
 
 func TestCheckProtectedPaths(t *testing.T) {
@@ -28,7 +29,7 @@ func TestCheckProtectedPaths(t *testing.T) {
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			err := intent.CheckProtectedPaths(c.Input.Config, c.Input.Changes, c.Input.IsReleasePR)
-			if c.Classification == "must-fail" {
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("CheckProtectedPaths: expected an error, got nil")
 				}
