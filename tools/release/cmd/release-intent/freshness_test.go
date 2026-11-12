@@ -1,325 +1,270 @@
 package main
 
 import (
-	_ "embed"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/peasant-labs/infra/tools/release/internal/intent"
 	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed testdata/freshness.yaml
-var freshnessFixtureYAML []byte
+// freshScenario names the history one freshness row builds.
+type freshScenario string
+
+const (
+	// freshAfterWrite commits the written content as the release.
+	freshAfterWrite freshScenario = "fresh-after-write"
+	// freshStaleNewReleasing lands one more releasing commit between the
+	// write and the release commit.
+	freshStaleNewReleasing freshScenario = "stale-new-releasing"
+	// freshCheckStaleTree is the same stale history, then a check of the tree.
+	freshCheckStaleTree freshScenario = "check-stale-tree"
+	// freshOlderFreshNewerStale leaves an older fresh release untagged and
+	// hand-builds a newer stale one.
+	freshOlderFreshNewerStale freshScenario = "older-fresh-newer-stale"
+	// freshReadError deletes the version file in the release commit.
+	freshReadError freshScenario = "read-error"
+	// freshRejectedLaterMinor lands a minor after a fresh release, then writes.
+	freshRejectedLaterMinor freshScenario = "rejected-later-minor-writes-full"
+	// freshLaterSubjectChecksFull does the same, then checks the written tree.
+	freshLaterSubjectChecksFull freshScenario = "fresh-candidate-later-subject-checks-full"
+	// freshStaleRebuild rebuilds after a stale release commit.
+	freshStaleRebuild freshScenario = "stale-rebuild-single-section"
+)
+
+var allFreshScenarios = []freshScenario{
+	freshAfterWrite, freshStaleNewReleasing, freshCheckStaleTree, freshOlderFreshNewerStale,
+	freshReadError, freshRejectedLaterMinor, freshLaterSubjectChecksFull, freshStaleRebuild,
+}
+
+func (s *freshScenario) UnmarshalYAML(node *yaml.Node) error {
+	member, err := decodeMember(node, allFreshScenarios, "freshness scenario")
+	*s = member
+	return err
+}
 
 type freshInput struct {
-	Style    string `yaml:"style"`
-	Scenario string `yaml:"scenario"`
+	BaseChangelog string        `yaml:"baseChangelog"`
+	Scenario      freshScenario `yaml:"scenario"`
 }
 
 type freshExpected struct {
-	Exit   int      `yaml:"exit"`
-	Action string   `yaml:"action"`
-	Fresh  string   `yaml:"fresh"`
-	Error  string   `yaml:"error"`
-	Lines  []string `yaml:"lines"`
-	// CheckLines is the exact stdout of the release-pr --check that follows
-	// the write, for scenarios that run both.
-	CheckLines []string `yaml:"check_lines"`
-	Absent     []string `yaml:"absent"`
-	Sections   int      `yaml:"sections"`
-	Version    string   `yaml:"version"`
+	Exit wantExit `yaml:"exit"`
+	// Action is the plan's action, for rows that end on a plan.
+	Action intent.Action `yaml:"action"`
+	// CandidateFresh is the plan's freshness line, for rows that end on a plan.
+	CandidateFresh *bool `yaml:"candidate_fresh"`
+	// Lines is the exact stdout of the row's final release-pr run.
+	Lines []wantLine `yaml:"lines"`
+	// CheckLines is the exact stdout of the check that follows the write,
+	// for scenarios that run both.
+	CheckLines []wantLine `yaml:"check_lines"`
+	AbsentKeys []wantKey  `yaml:"absent_keys"`
+	// Sections is how many changelog sections the rebuilt version may have.
+	Sections int `yaml:"sections"`
 }
 
-type freshFixtures struct {
-	RequiredNames []string                                   `yaml:"required_names"`
-	Cases         testcase.Corpus[freshInput, freshExpected] `yaml:"cases"`
-}
+type freshCase = testcase.Case[freshInput, freshExpected]
 
-func loadFreshnessFixtures(t *testing.T) freshFixtures {
+// Commit dates are pinned away from the test day, so a dated heading shows
+// the pending commit's date and never today's.
+const (
+	dateSeed         = "2020-01-01T00:00:00Z"
+	datePending      = "2020-01-02T00:00:00Z"
+	dateRelease      = "2020-01-03T00:00:00Z"
+	dateLater        = "2020-01-04T00:00:00Z"
+	dateLaterRelease = "2020-01-05T00:00:00Z"
+)
+
+var (
+	titlePendingPatch = titled(intent.TypeFeat, "graph", intent.LevelPatch, "add facet")
+	titleLaterPatch   = titled(intent.TypeFeat, "graph", intent.LevelPatch, "later facet")
+	titleLaterMinor   = titled(intent.TypeFeat, "graph", intent.LevelMinor, "later facet")
+	titleCut          = releaseTitled(intent.LevelPatch, "cut it")
+	titleCutAgain     = releaseTitled(intent.LevelPatch, "cut again")
+)
+
+// laterFile is the one file a later commit adds; it is outside the release
+// content.
+const laterFile = "later.txt"
+
+// newFreshRepo seeds a repository whose changelog is the row's base
+// changelog and whose seed carries an annotated release tag: the plan path
+// must run on the tag shape with a tag object between the name and the
+// commit.
+func newFreshRepo(t *testing.T, baseChangelog string) *testRepo {
 	t.Helper()
-	var f freshFixtures
-	if err := yaml.Unmarshal(freshnessFixtureYAML, &f); err != nil {
-		t.Fatalf("parse freshness fixture: %v", err)
-	}
-	if err := f.Cases.Validate(); err != nil {
-		t.Fatalf("freshness fixtures: %v", err)
-	}
-	seen := map[string]struct{}{}
-	for _, c := range f.Cases.Cases {
-		seen[c.Name] = struct{}{}
-	}
-	checkRequiredNames(t, f.RequiredNames, seen, "freshness fixtures")
-	checkCorpusSiblings(t, freshnessFixtureYAML, "freshness fixtures")
-	return f
+	r := newTestRepo(t, repoStandard)
+	r.Seed()
+	r.WriteChangelog(baseChangelog)
+	r.Commit(titleSeed, at(dateSeed))
+	r.TagAnnotated(r.fix.SeedVersion)
+	return r
 }
 
-const freshPendingDate = "2020-01-02T00:00:00Z"
+func commitPending(r *testRepo) {
+	r.t.Helper()
+	r.WriteFile("work.txt", "more\n")
+	r.Commit(titlePendingPatch, at(datePending))
+}
 
-func freshBaseChangelog(style string) string {
-	switch style {
-	case "bare":
-		return "# changelog\n\n## 0.1.0\n\n- old\n"
-	case "bracket-undated":
-		return "# changelog\n\n## [v0.1.0]\n\n- old\n"
-	case "bracket-dated":
-		return "# changelog\n\n## [v0.1.0] - 2020-01-01\n\n- old\n"
-	case "no-section":
-		return "# changelog\n"
-	default:
-		return "# changelog\n"
+// commitLater commits only the later file, leaving written release content
+// in the working tree uncommitted.
+func commitLater(r *testRepo, title intent.Title) {
+	r.t.Helper()
+	r.WriteFile(laterFile, "later\n")
+	r.Commit(title, at(dateLater), only(laterFile))
+}
+
+var (
+	argvWrite = argvOf(intent.CommandReleasePR, intent.FlagBranch, headRev, intent.FlagWrite)
+	argvCheck = argvOf(intent.CommandReleasePR, intent.FlagBranch, headRev, intent.FlagCheck)
+	argvPlan  = argvOf(intent.CommandPlan, intent.FlagBranch, headRev, intent.FlagMode, intent.ModeTag, intent.FlagVerdict, intent.VerdictTaggable)
+)
+
+// mustWrite writes the release content and fails the test on any refusal.
+func mustWrite(r *testRepo, name string) {
+	r.t.Helper()
+	if result := r.Run(argvWrite...); result.Exit != exitAccepted {
+		r.t.Fatalf("%s: %v exit = %d, want %d\nstdout: %q\nstderr: %q", name, argvWrite, result.Exit, exitAccepted, result.Stdout, result.Stderr)
 	}
-}
-
-func newFreshRepo(t *testing.T, style string) string {
-	t.Helper()
-	dir := newBareRepo(t)
-	writeFile(t, dir, ".github/release-intent.yaml", checkTitleTestConfig)
-	writeFile(t, dir, "CHANGELOG.md", freshBaseChangelog(style))
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\"}\n")
-	runGit(t, dir, "add", ".")
-	runGitDated(t, dir, "2020-01-01T00:00:00Z", "commit", "-q", "-m", "feat(init)[minor]: seed")
-	// Annotated, like the fairtrade and schema release tags: the plan path
-	// must run on the tag shape with a tag object between the name and the
-	// commit.
-	runGit(t, dir, "tag", "-a", "v0.1.0", "-m", "release 0.1.0")
-	return dir
-}
-
-func freshCommitPending(t *testing.T, dir string) {
-	t.Helper()
-	writeFile(t, dir, "work.txt", "more\n")
-	runGit(t, dir, "add", "work.txt")
-	runGitDated(t, dir, freshPendingDate, "commit", "-q", "-m", "feat(graph)[patch]: add facet")
-}
-
-func freshCommitRelease(t *testing.T, dir, date, subject string) {
-	t.Helper()
-	runGit(t, dir, "add", "-A")
-	runGitDated(t, dir, date, "commit", "-q", "-m", subject)
-}
-
-func gitTagPointsAt(t *testing.T, dir, rev string) string {
-	t.Helper()
-	cmd := exec.Command("git", "tag", "--points-at", rev)
-	cmd.Dir = dir
-	cmd.Env = hermeticGitEnv(t)
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git tag --points-at %q: %v", rev, err)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func planOutput(t *testing.T, dir string, extra ...string) (int, map[string]string, string) {
-	t.Helper()
-	argv := append([]string{"plan", "--branch", "HEAD", "--mode", "tag", "--verdict", "taggable"}, extra...)
-	exit, stdout, _ := runBinary(t, dir, argv, "", nil)
-	out := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSuffix(stdout, "\n"), "\n") {
-		if line == "" {
-			continue
-		}
-		k, v, _ := strings.Cut(line, "=")
-		out[k] = v
-	}
-	return exit, out, stdout
 }
 
 // TestFreshness drives the built binary on temp repositories: write, commit,
 // plan and check across heading styles, stale histories, read errors and the
-// stale-rebuild section count. Commit dates are pinned away from the test day
-// so dated headings are deterministic.
+// stale-rebuild section count.
 func TestFreshness(t *testing.T) {
-	f := loadFreshnessFixtures(t)
-	for _, c := range f.Cases.Cases {
+	for _, c := range loadCorpus[freshInput, freshExpected](t, "freshness.yaml") {
 		c := c
 		t.Run(c.Name, func(t *testing.T) {
-			dir := newFreshRepo(t, c.Input.Style)
+			r := newFreshRepo(t, c.Input.BaseChangelog)
+			commitPending(r)
+			mustWrite(r, c.Name)
 			switch c.Input.Scenario {
-			case "fresh-after-write":
-				freshCommitPending(t, dir)
-				if exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil); exit != 0 {
-					t.Fatalf("%s: release-pr --write exit = %d, want 0\nstdout: %q", c.Name, exit, stdout)
-				}
-				freshCommitRelease(t, dir, "2020-01-03T00:00:00Z", "release[patch]: cut it")
-				exit, got, _ := planOutput(t, dir)
-				assertFreshRow(t, c.Name, c.Expected, exit, got)
-			case "stale-new-releasing", "check-stale-tree":
-				// A release built from an older tip: write, let one releasing
-				// commit land, then commit the stale content as the release.
-				freshCommitPending(t, dir)
-				if exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil); exit != 0 {
-					t.Fatalf("%s: release-pr --write exit = %d, want 0\nstdout: %q", c.Name, exit, stdout)
-				}
-				writeFile(t, dir, "later.txt", "later\n")
-				runGit(t, dir, "add", "later.txt")
-				runGitDated(t, dir, "2020-01-04T00:00:00Z", "commit", "-q", "-m", "feat(graph)[patch]: later facet")
-				freshCommitRelease(t, dir, "2020-01-05T00:00:00Z", "release[patch]: cut it")
-				if c.Input.Scenario == "check-stale-tree" {
-					exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--check"}, "", nil)
-					if exit != c.Expected.Exit {
-						t.Fatalf("%s: release-pr --check exit = %d, want %d\nstdout: %q", c.Name, exit, c.Expected.Exit, stdout)
-					}
-					assertExactLines(t, stdout, c.Expected.Lines, c.Name)
+			case freshAfterWrite:
+				r.Commit(titleCut, at(dateRelease))
+				assertPlanRow(t, c, r.Run(argvPlan...))
+			case freshStaleNewReleasing, freshCheckStaleTree:
+				// A release built from an older tip: one releasing commit
+				// lands, then the stale content is committed as the release.
+				commitLater(r, titleLaterPatch)
+				r.Commit(titleCut, at(dateLaterRelease))
+				if c.Input.Scenario == freshCheckStaleTree {
+					assertRunLines(t, c.Name, r.Run(argvCheck...), c.Expected.Exit.Status, c.Expected.Lines)
 					return
 				}
-				exit, got, _ := planOutput(t, dir)
-				assertFreshRow(t, c.Name, c.Expected, exit, got)
-			case "older-fresh-newer-stale":
-				freshCommitPending(t, dir)
-				if exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil); exit != 0 {
-					t.Fatalf("%s: release-pr --write exit = %d, want 0\nstdout: %q", c.Name, exit, stdout)
-				}
+				assertPlanRow(t, c, r.Run(argvPlan...))
+			case freshOlderFreshNewerStale:
 				// The older release commit is fresh but stays untagged, so it
 				// is a candidate, never the range base.
-				freshCommitRelease(t, dir, "2020-01-03T00:00:00Z", "release[patch]: cut it")
-				older := gitRev(t, dir, "HEAD")
-				// A new pending subject, then a hand-built stale release: its
-				// bytes do not match the generator, so the newer candidate is
-				// stale.
-				writeFile(t, dir, "later.txt", "later\n")
-				runGit(t, dir, "add", "later.txt")
-				runGitDated(t, dir, "2020-01-04T00:00:00Z", "commit", "-q", "-m", "feat(graph)[patch]: later facet")
-				writeFile(t, dir, "CHANGELOG.md", "# changelog\n\n## 0.1.1\n\n- hand-written entry\n")
-				writeFile(t, dir, "package.json", "{\"version\": \"0.1.1\"}\n")
-				runGit(t, dir, "add", "-A")
-				runGitDated(t, dir, "2020-01-05T00:00:00Z", "commit", "-q", "-m", "release[patch]: cut again")
-				newer := gitRev(t, dir, "HEAD")
-				exit, got, _ := planOutput(t, dir)
-				assertFreshRow(t, c.Name, c.Expected, exit, got)
-				if got["candidate"] != newer {
-					t.Fatalf("%s: candidate = %q, want the newer stale release %q", c.Name, got["candidate"], newer)
+				older := r.Commit(titleCut, at(dateRelease))
+				// A new pending subject, then a hand-built release: its bytes
+				// do not match the generator, so the newer candidate is stale.
+				commitLater(r, titleLaterPatch)
+				next := laterVersion(t, r, intent.LevelPatch)
+				r.WriteChangelog(r.fix.ChangelogTitle + "\n## " + next.String() + "\n\n- hand-written entry\n")
+				r.SetVersionField(0, next)
+				newer := r.Commit(titleCutAgain, at(dateLaterRelease))
+				result := r.Run(argvPlan...)
+				assertPlanRow(t, c, result)
+				if got := outputValues(t, c.Name, result.Stdout)[intent.OutputCandidate]; got != newer {
+					t.Fatalf("%s: candidate = %q, want the newer stale release %q", c.Name, got, newer)
 				}
-				if out := gitTagPointsAt(t, dir, older); out != "" {
-					t.Fatalf("%s: older release commit carries tags %q, want none", c.Name, out)
+				if tags := r.TagsAt(older); len(tags) != 0 {
+					t.Fatalf("%s: older release commit carries tags %v, want none", c.Name, tags)
 				}
-			case "freshness-read-error":
-				freshCommitPending(t, dir)
-				if exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil); exit != 0 {
-					t.Fatalf("%s: release-pr --write exit = %d, want 0\nstdout: %q", c.Name, exit, stdout)
+			case freshReadError:
+				r.RemoveVersionFile(0)
+				r.Commit(titleCut, at(dateRelease))
+				result := r.Run(argvPlan...)
+				if result.Exit != c.Expected.Exit.Status {
+					t.Fatalf("%s: exit = %d, want %d\nstdout: %q", c.Name, result.Exit, c.Expected.Exit.Status, result.Stdout)
 				}
-				runGit(t, dir, "rm", "-qf", "package.json")
-				freshCommitRelease(t, dir, "2020-01-03T00:00:00Z", "release[patch]: cut it")
-				exit, got, stdout := planOutput(t, dir)
-				if exit != c.Expected.Exit {
-					t.Fatalf("%s: exit = %d, want %d\nstdout: %q", c.Name, exit, c.Expected.Exit, stdout)
-				}
-				for _, absent := range c.Expected.Absent {
-					if strings.Contains(stdout, absent) {
-						t.Fatalf("%s: stdout %q must not contain %q on a read error", c.Name, stdout, absent)
-					}
-				}
-				_ = got
-			case "rejected-later-minor-writes-full", "fresh-candidate-later-subject-checks-full":
-				freshCommitPending(t, dir)
-				if exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil); exit != 0 {
-					t.Fatalf("%s: release-pr --write exit = %d, want 0\nstdout: %q", c.Name, exit, stdout)
-				}
-				freshCommitRelease(t, dir, "2020-01-03T00:00:00Z", "release[patch]: cut it")
+				assertKeysAbsent(t, c.Name, result.Stdout, plainKeys(c.Expected.AbsentKeys))
+			case freshRejectedLaterMinor, freshLaterSubjectChecksFull:
+				r.Commit(titleCut, at(dateRelease))
 				// A later minor that touches no changelog file: the candidate
-				// stays fresh and the plan speaks for the before set (0.1.1),
-				// yet the release content must be the full set (0.2.0).
-				writeFile(t, dir, "later.txt", "later\n")
-				runGit(t, dir, "add", "later.txt")
-				runGitDated(t, dir, "2020-01-04T00:00:00Z", "commit", "-q", "-m", "feat(graph)[minor]: later facet")
-				if exit, got, _ := planOutput(t, dir); exit != 0 || got["candidate_fresh"] != "true" {
-					t.Fatalf("%s: candidate must stay fresh, got exit=%d plan=%v", c.Name, exit, got)
+				// stays fresh and the plan speaks for the before set, yet the
+				// release content must be the full set.
+				commitLater(r, titleLaterMinor)
+				plan := r.Run(argvPlan...)
+				if fresh := outputValues(t, c.Name, plan.Stdout)[intent.OutputCandidateFresh]; plan.Exit != exitAccepted || fresh != strconv.FormatBool(true) {
+					t.Fatalf("%s: candidate must stay fresh, got exit=%d stdout=%q", c.Name, plan.Exit, plan.Stdout)
 				}
-				exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil)
-				if exit != c.Expected.Exit {
-					t.Fatalf("%s: release-pr --write exit = %d, want %d\nstdout: %q", c.Name, exit, c.Expected.Exit, stdout)
+				write := r.Run(argvWrite...)
+				assertRunLines(t, c.Name, write, c.Expected.Exit.Status, c.Expected.Lines)
+				version := outputValues(t, c.Name, write.Stdout)[intent.OutputVersion]
+				changelog := r.ReadChangelog()
+				for _, want := range []string{version, titleLaterMinor.Subject, titlePendingPatch.Subject} {
+					if !strings.Contains(changelog, want) {
+						t.Fatalf("%s: rewritten changelog must hold the %s section with both subjects, missing %q:\n%s", c.Name, version, want, changelog)
+					}
 				}
-				assertExactLines(t, stdout, c.Expected.Lines, c.Name)
-				data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
-				if err != nil {
-					t.Fatalf("%s: read rewritten changelog: %v", c.Name, err)
+				if got := r.ReadVersionField(0); got != version {
+					t.Fatalf("%s: rewritten version field = %q, want %q", c.Name, got, version)
 				}
-				if !strings.Contains(string(data), "## 0.2.0") || !strings.Contains(string(data), "later facet") || !strings.Contains(string(data), "add facet") {
-					t.Fatalf("%s: rewritten changelog must hold the 0.2.0 section with both subjects:\n%s", c.Name, string(data))
-				}
-				pkg, err := os.ReadFile(filepath.Join(dir, "package.json"))
-				if err != nil {
-					t.Fatalf("%s: read rewritten package.json: %v", c.Name, err)
-				}
-				if !strings.Contains(string(pkg), `"version": "0.2.0"`) {
-					t.Fatalf("%s: rewritten package.json must carry 0.2.0:\n%s", c.Name, string(pkg))
-				}
-				if c.Input.Scenario == "fresh-candidate-later-subject-checks-full" {
+				if c.Input.Scenario == freshLaterSubjectChecksFull {
 					// The check compares the tree with the same full set.
-					exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--check"}, "", nil)
-					if exit != c.Expected.Exit {
-						t.Fatalf("%s: release-pr --check exit = %d, want %d\nstdout: %q", c.Name, exit, c.Expected.Exit, stdout)
-					}
-					assertExactLines(t, stdout, c.Expected.CheckLines, c.Name)
+					assertRunLines(t, c.Name, r.Run(argvCheck...), c.Expected.Exit.Status, c.Expected.CheckLines)
 				}
-			case "stale-rebuild-single-section":
-				freshCommitPending(t, dir)
-				if exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil); exit != 0 {
-					t.Fatalf("%s: release-pr --write exit = %d, want 0\nstdout: %q", c.Name, exit, stdout)
+			case freshStaleRebuild:
+				commitLater(r, titleLaterPatch)
+				r.Commit(titleCut, at(dateLaterRelease))
+				rebuild := r.Run(argvWrite...)
+				if rebuild.Exit != c.Expected.Exit.Status {
+					t.Fatalf("%s: rebuild exit = %d, want %d\nstdout: %q", c.Name, rebuild.Exit, c.Expected.Exit.Status, rebuild.Stdout)
 				}
-				writeFile(t, dir, "later.txt", "later\n")
-				runGit(t, dir, "add", "later.txt")
-				runGitDated(t, dir, "2020-01-04T00:00:00Z", "commit", "-q", "-m", "feat(graph)[patch]: later facet")
-				freshCommitRelease(t, dir, "2020-01-05T00:00:00Z", "release[patch]: cut it")
-				if exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil); exit != c.Expected.Exit {
-					t.Fatalf("%s: rebuild exit = %d, want %d\nstdout: %q", c.Name, exit, c.Expected.Exit, stdout)
+				version := outputValues(t, c.Name, rebuild.Stdout)[intent.OutputVersion]
+				if version == "" {
+					t.Fatalf("%s: the rebuild printed no version: %q", c.Name, rebuild.Stdout)
 				}
-				data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
-				if err != nil {
-					t.Fatalf("%s: read rebuilt changelog: %v", c.Name, err)
-				}
-				n := 0
-				for _, line := range strings.Split(string(data), "\n") {
-					if strings.HasPrefix(strings.TrimSpace(line), "## ") && strings.Contains(line, "0.1.1") {
-						n++
+				changelog := r.ReadChangelog()
+				sections := 0
+				for _, line := range strings.Split(changelog, "\n") {
+					if strings.HasPrefix(strings.TrimSpace(line), "## ") && strings.Contains(line, version) {
+						sections++
 					}
 				}
-				if n != c.Expected.Sections {
-					t.Fatalf("%s: rebuilt changelog has %d sections for 0.1.1, want %d (exactly one section per version)\n%s", c.Name, n, c.Expected.Sections, string(data))
+				if sections != c.Expected.Sections {
+					t.Fatalf("%s: rebuilt changelog has %d sections for %s, want %d (exactly one section per version)\n%s", c.Name, sections, version, c.Expected.Sections, changelog)
 				}
 			default:
-				t.Fatalf("unknown freshness scenario %q", c.Input.Scenario)
+				t.Fatalf("freshness scenario %q is in the closed set but has no builder", c.Input.Scenario)
 			}
 		})
 	}
 }
 
-func assertFreshRow(t *testing.T, name string, want freshExpected, exit int, got map[string]string) {
+// assertPlanRow checks a row that ends on a plan: the exit status, the
+// action and the candidate's freshness, each compared as its typed member.
+func assertPlanRow(t *testing.T, c freshCase, result processResult) {
 	t.Helper()
-	if exit != want.Exit {
-		t.Fatalf("%s: exit = %d, want %d (plan %v)", name, exit, want.Exit, got)
+	if result.Exit != c.Expected.Exit.Status {
+		t.Fatalf("%s: exit = %d, want %d\nstdout: %q\nstderr: %q", c.Name, result.Exit, c.Expected.Exit.Status, result.Stdout, result.Stderr)
 	}
-	if want.Action != "" && got["action"] != want.Action {
-		t.Fatalf("%s: action = %q, want %q", name, got["action"], want.Action)
+	got := outputValues(t, c.Name, result.Stdout)
+	action, err := intent.ParseAction(got[intent.OutputAction])
+	if err != nil {
+		t.Fatalf("%s: the plan printed an action outside the closed set: %v", c.Name, err)
 	}
-	if want.Fresh != "" && got["candidate_fresh"] != want.Fresh {
-		t.Fatalf("%s: candidate_fresh = %q, want %q", name, got["candidate_fresh"], want.Fresh)
+	if action != c.Expected.Action {
+		t.Fatalf("%s: action = %q, want %q", c.Name, action, c.Expected.Action)
 	}
-	if want.Error != "" && got["error"] != want.Error {
-		t.Fatalf("%s: error = %q, want %q", name, got["error"], want.Error)
+	if c.Expected.CandidateFresh == nil {
+		t.Fatalf("%s: a row that ends on a plan must state candidate_fresh", c.Name)
 	}
-	if want.Version != "" && got["version"] != want.Version {
-		t.Fatalf("%s: version = %q, want %q", name, got["version"], want.Version)
+	if want := strconv.FormatBool(*c.Expected.CandidateFresh); got[intent.OutputCandidateFresh] != want {
+		t.Fatalf("%s: %s = %q, want %q", c.Name, intent.OutputCandidateFresh, got[intent.OutputCandidateFresh], want)
 	}
 }
 
-func assertExactLines(t *testing.T, out string, want []string, name string) {
+// assertRunLines checks one run's exit status and exact stdout lines.
+func assertRunLines(t *testing.T, name string, result processResult, exit exitStatus, want []wantLine) {
 	t.Helper()
-	trimmed := strings.TrimSuffix(out, "\n")
-	var lines []string
-	if trimmed != "" {
-		lines = strings.Split(trimmed, "\n")
+	if result.Exit != exit {
+		t.Fatalf("%s: exit = %d, want %d\nstdout: %q\nstderr: %q", name, result.Exit, exit, result.Stdout, result.Stderr)
 	}
-	if len(lines) != len(want) {
-		t.Fatalf("%s: stdout has %d lines %q, want %d %q (exact match)", name, len(lines), out, len(want), want)
-	}
-	for i := range want {
-		if lines[i] != want[i] {
-			t.Fatalf("%s: stdout line %d = %q, want %q (exact match)", name, i, lines[i], want[i])
-		}
-	}
+	assertStdoutLines(t, name, result.Stdout, plainLines(want))
 }

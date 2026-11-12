@@ -1,0 +1,83 @@
+# The command line's closed sets in their wire spellings: exact membership
+# and order, the flag set and synopsis of every command, and the words each
+# parser must refuse. A member added to or dropped from a Go set fails the
+# test until this file agrees.
+program: release-intent
+commands:
+  - name: check-config
+    usage: "usage: release-intent check-config [--config FILE]"
+    flags:
+      - {flag: --config}
+  - name: check-workflows
+    usage: "usage: release-intent check-workflows [--policy FILE] --dir DIR [--print-required]"
+    flags:
+      - {flag: --policy}
+      - {flag: --dir, required: true}
+      - {flag: --print-required}
+  - name: check-title
+    usage: "usage: release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH"
+    flags:
+      - {flag: --base, required: true}
+      - {flag: --head, required: true}
+      - {flag: --author, required: true}
+      - {flag: --head-branch, required: true}
+  - name: classify
+    usage: "usage: release-intent classify --author LOGIN --head-branch BRANCH --rev REV"
+    flags:
+      - {flag: --author, required: true}
+      - {flag: --head-branch, required: true}
+      - {flag: --rev, required: true}
+  - name: group-pr
+    usage: "usage: release-intent group-pr --ref REF"
+    flags:
+      - {flag: --ref, required: true}
+  - name: plan
+    usage: "usage: release-intent plan --branch REF --mode MODE [--floor SHA] [--verdict VERDICT]"
+    flags:
+      - {flag: --branch, required: true}
+      - {flag: --mode, required: true}
+      - {flag: --floor}
+      - {flag: --verdict}
+  - name: release-pr
+    usage: "usage: release-intent release-pr --branch REF [--floor SHA] [--write] [--check] [--current REF]"
+    flags:
+      - {flag: --branch, required: true}
+      - {flag: --floor}
+      - {flag: --write}
+      - {flag: --check}
+      - {flag: --current}
+  - name: queue-gate
+    usage: "usage: release-intent queue-gate --queue FILE --release-pr N"
+    flags:
+      - {flag: --queue, required: true}
+      - {flag: --release-pr, required: true}
+flags:
+  - {flag: --config, takes_value: true}
+  - {flag: --policy, takes_value: true}
+  - {flag: --dir, takes_value: true}
+  - {flag: --print-required}
+  - {flag: --base, takes_value: true}
+  - {flag: --head, takes_value: true}
+  - {flag: --author, takes_value: true}
+  - {flag: --head-branch, takes_value: true}
+  - {flag: --rev, takes_value: true}
+  - {flag: --ref, takes_value: true}
+  - {flag: --branch, takes_value: true}
+  - {flag: --mode, takes_value: true}
+  - {flag: --floor, takes_value: true}
+  - {flag: --verdict, takes_value: true}
+  - {flag: --write}
+  - {flag: --check}
+  - {flag: --current, takes_value: true}
+  - {flag: --queue, takes_value: true}
+  - {flag: --release-pr, takes_value: true}
+git_subcommands: [merge-base, log, diff, show, ls-tree, for-each-ref, merge-tree]
+exit_statuses: [0, 1, 2]
+reported_verdicts: [taggable, rejected]
+# Words outside each closed set. None may parse as a member, and none may
+# fall back to a default member.
+rejected:
+  commands: ["", "Plan", "check_config", "check-contract", "freeze-plan", "push", " plan"]
+  flags: ["", "--bogus", "-branch", "--Branch", "branch", "--until", "--branch "]
+  git_subcommands: ["", "push", "commit", "tag", "rev-list", "Log"]
+  reported_verdicts: ["", "none", "Taggable", "fresh"]

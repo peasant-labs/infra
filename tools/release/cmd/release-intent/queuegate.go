@@ -4,56 +4,29 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
-// runQueueGate implements: release-intent queue-gate --queue FILE --release-pr N.
-func runQueueGate(args []string) error {
-	var queuePath string
-	var releasePR int
-	var haveQueue, havePR bool
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--queue":
-			val, next, err := requireFlagValue(args, i, "--queue")
-			if err != nil {
-				return err
-			}
-			queuePath = val
-			haveQueue = true
-			i = next
-		case "--release-pr":
-			val, next, err := requireFlagValue(args, i, "--release-pr")
-			if err != nil {
-				return err
-			}
-			var n int
-			if _, err := fmt.Sscanf(val, "%d", &n); err != nil || n <= 0 {
-				return usageErr("usage: release-intent queue-gate --queue FILE --release-pr N (bad --release-pr %q): pass the release PR number as a positive integer", val)
-			}
-			releasePR = n
-			havePR = true
-			i = next
-		default:
-			return usageErr("unknown flag %q for queue-gate: expected --queue FILE --release-pr N", args[i])
-		}
-	}
-	if !haveQueue {
-		return usageErr("usage: release-intent queue-gate --queue FILE --release-pr N (missing required --queue): pass the file holding the raw queue response")
-	}
-	if !havePR {
-		return usageErr("usage: release-intent queue-gate --queue FILE --release-pr N (missing required --release-pr): pass the release PR number")
+// runQueueGate implements the queue-gate command: the hold decision for the
+// release PR, from the raw merge-queue response in a file.
+func runQueueGate(flags flagValues) error {
+	queuePath := flags.Value(intent.FlagQueue)
+	rawPR := flags.Value(intent.FlagReleasePR)
+	releasePR, err := strconv.Atoi(rawPR)
+	if err != nil || releasePR <= 0 {
+		return usageErr("%s (bad %s %q): pass %s", usageOf(intent.CommandQueueGate), intent.FlagReleasePR, rawPR, shapeOf(intent.FlagReleasePR).Meaning)
 	}
 	data, err := os.ReadFile(queuePath)
 	if err != nil {
-		return fmt.Errorf("queue-gate: cannot read queue file %q: %v. The workflow must write the raw queue response to this path before calling queue-gate", queuePath, err)
+		return fmt.Errorf("%s: cannot read queue file %q: %v. The workflow must write the raw queue response to this path before calling %s", intent.CommandQueueGate, queuePath, err, intent.CommandQueueGate)
 	}
 	entries, err := intent.DecodeQueueResponse(data)
 	if err != nil {
-		return rejectAs("queue-gate", err)
+		return rejectAs(intent.CommandQueueGate, err)
 	}
-	cfg, err := loadConfig("queue-gate", DefaultConfigPath)
+	cfg, err := loadConfig(intent.CommandQueueGate, intent.DefaultConfigPath)
 	if err != nil {
 		return err
 	}
@@ -63,9 +36,9 @@ func runQueueGate(args []string) error {
 	}
 	gate, err := intent.QueueGate(cfg, current, entries, releasePR)
 	if err != nil {
-		return rejectAs("queue-gate", err)
+		return rejectAs(intent.CommandQueueGate, err)
 	}
-	return emitLines([]string{"gate=" + gate.String()})
+	return emit(out(intent.OutputGate, gate.String()))
 }
 
 // queueCurrent reads the current version from git tags for the hold rule. A
@@ -78,11 +51,11 @@ func queueCurrent(cfg intent.Config) (intent.SemVer, error) {
 	}
 	tags, err := runner.Tags(ctx, cfg.TagPrefix)
 	if err != nil {
-		return "", fmt.Errorf("queue-gate: cannot list tags with prefix %q: %w", cfg.TagPrefix, err)
+		return "", fmt.Errorf("%s: cannot list tags with prefix %q: %w", intent.CommandQueueGate, cfg.TagPrefix, err)
 	}
 	_, version, ok := intent.HighestFinalTag(tags, cfg.TagPrefix)
 	if !ok {
-		return "", fmt.Errorf("queue-gate: no final release tag found for the hold rule")
+		return "", fmt.Errorf("%s: no final release tag with prefix %q found for the hold rule. Confirm tags are fetched", intent.CommandQueueGate, cfg.TagPrefix)
 	}
 	return version, nil
 }

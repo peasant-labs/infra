@@ -1,0 +1,4 @@
+queue:
+  required:
+    - {context: title-guard, workflow: title-guard.yml, job: title-guard}
+    - {context: lib, workflow: ci.yml, job: lib}
