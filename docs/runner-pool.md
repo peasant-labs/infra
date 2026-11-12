@@ -45,6 +45,8 @@ determine-runner:
   uses: peasant-labs/infra/.github/workflows/runner-router.yml@<reviewed-40-character-commit-sha>
   with:
     fallback: '["blacksmith-4vcpu-ubuntu-2404"]'
+    # Only when this run places several pool jobs at once, say how many:
+    # required_slots: 4
   secrets:
     RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 ```
@@ -53,14 +55,32 @@ The router reads the dispatcher's pool-health record — the repository
 variable `RUNNER_POOL_HEALTH` in this repository — and returns `runner` (the
 label array for `runs-on`), `pool` (`true` when the pool was chosen), and
 `reason` (`pool-online`, `pool-busy`, `pool-stale`, or `query-failed`). The
-record counts as online when it is younger than five minutes, reports a healthy
-listener, and has a free slot: the router falls back when `assigned_jobs`
-(booting and running) fills `max_capacity`, because the job would otherwise
-wait in the pool's queue. A record without `max_capacity` skips the capacity
-gate, so an older dispatcher keeps routing by health alone. The runner list is
-deliberately not consulted, because a scale set has no registered runners while
-it is idle. The fallback is written before the check, so an abort still yields a
-runnable label set.
+record counts as online when it is younger than five minutes, reports a
+healthy listener, and has room for the whole calling run: `max_capacity -
+assigned_jobs` (booting and running) must leave at least `required_slots`
+free slots, or the run's jobs would wait in the pool's queue and the router
+falls back instead. `required_slots` defaults to `1`, so a run that places
+one job routes to the pool on any free slot. The runner list is
+deliberately not consulted, because a scale set has no registered runners
+while it is idle. The fallback is written before the check, so an abort
+still yields a runnable label set.
+
+`pool-busy` means the pool is healthy and fresh but has fewer free slots
+than `required_slots`; the router's notice line names the `assigned`,
+`max`, and `required` counts so the cause is visible. A request larger than
+a published positive `max_capacity` always falls back, with a notice saying
+it exceeds the pool's capacity. A record without `max_capacity` skips the
+capacity gate, so an older dispatcher keeps routing by health alone.
+
+The contract test is the Go test in `runner-dispatcher`
+(`TestRouterReadsPublishedRecord` and `TestRouterMutationsAreKilled`), which
+run this workflow's own script against records written by the dispatcher's
+publisher.
+
+Known limit: two runs that start at the same moment can both see enough free
+slots and both route to the pool, so one of them still queues. The check
+narrows that overflow; it cannot remove it without a reservation, which the
+router does not have.
 
 Two consequences worth knowing:
 

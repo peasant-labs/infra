@@ -1,0 +1,74 @@
+# Named mutations for the router contract test
+# (TestRouterMutationsAreKilled in router_test.go). Each mutation is a
+# literal old -> new substitution applied to the runner-router.yml file
+# text; the test re-extracts the route script from the mutated text (and
+# re-reads the declaration and env), runs only the witness and the
+# controls, and requires the witness to produce wantMutated while failing
+# its pristine expectation, with every control still passing. A mutation
+# whose old text is absent from the workflow fails the test.
+#
+# killedBy: declaration means the mutation is killed by the input
+# declaration assertion, which runs first and pins the default (GitHub's
+# input defaulting never runs locally).
+mutations:
+- name: capacity-allows-one-short
+  old: ">= $required"
+  new: ">= $required - 1"
+  killedBy: four required with three free slots falls back
+  wantMutated: {pool: "true", reason: "pool-online"}
+  mustPass:
+  - fresh healthy record routes to the pool
+  - record older than the freshness window falls back
+- name: capacity-requires-one-extra
+  old: ">= $required"
+  new: "> $required"
+  killedBy: one required with one free slot routes to the pool
+  wantMutated: {pool: "false", reason: "pool-busy"}
+  mustPass:
+  - fresh healthy record routes to the pool
+  - full pool falls back to the fallback runner
+- name: required-slots-default-zero
+  old: "default: 1"
+  new: "default: 0"
+  killedBy: declaration
+- name: required-slots-env-dropped
+  old: "REQUIRED_SLOTS: ${{ inputs.required_slots }}"
+  new: ""
+  killedBy: declaration
+- name: missing-max-capacity-treated-as-full
+  old: "((.max_capacity // 0) | tonumber) <= 0"
+  new: "((.max_capacity // 0) | tonumber) < 0"
+  killedBy: four required with no capacity routes to the pool
+  wantMutated: {pool: "false", reason: "pool-busy"}
+  mustPass:
+  - four required with four free slots routes to the pool
+- name: freshness-window-widened
+  old: "| fabs) < 300)"
+  new: "| fabs) < 300000)"
+  killedBy: record older than the freshness window falls back
+  wantMutated: {pool: "true", reason: "pool-online"}
+  mustPass:
+  - fresh healthy record routes to the pool
+- name: required-slots-validation-dropped
+  old: "=~ ^[1-9][0-9]*$"
+  new: "=~ ^.*$"
+  killedBy: required_slots 0 falls back
+  wantMutated: {pool: "true", reason: "pool-online"}
+  mustPass:
+  - fresh healthy record routes to the pool
+- name: max-capacity-coalesce-dropped
+  old: "(.max_capacity // 0)"
+  new: "(.max_capacity)"
+  killedBy: four required with a record lacking max_capacity routes to the pool
+  wantMutated: {pool: "false", reason: "pool-busy"}
+  mustPass:
+  - four required with four free slots routes to the pool
+  - fresh healthy record routes to the pool
+- name: exceeds-capacity-branch-unreachable
+  old: "< $required"
+  new: "< 0"
+  killedBy: six required with four slots idle falls back as exceeding capacity
+  wantMutated: {pool: "false", reason: "pool-busy"}
+  mustPass:
+  - four required with two free slots falls back
+  - full pool falls back to the fallback runner

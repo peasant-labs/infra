@@ -9,6 +9,7 @@ on:
   push:
     paths:
       - ".github/workflows/runner-router.yml"
+      - ".github/workflows/runner-router-smoke.yml"
 
 permissions:
   contents: read
@@ -18,6 +19,14 @@ jobs:
     uses: ./.github/workflows/runner-router.yml
     with:
       fallback: '["ubuntu-24.04"]'
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+
+  route-wide:
+    uses: ./.github/workflows/runner-router.yml
+    with:
+      fallback: '["ubuntu-24.04"]'
+      required_slots: 99
     secrets:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
@@ -51,5 +60,53 @@ jobs:
             *)
               echo "unexpected reason: ${REASON}" >&2
               exit 1
+              ;;
+          esac
+
+  assert-wide:
+    needs: [route, route-wide]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert a wide demand falls back
+        env:
+          ROUTE_REASON: ${{ needs.route.outputs.reason }}
+          RUNNER: ${{ needs.route-wide.outputs.runner }}
+          POOL: ${{ needs.route-wide.outputs.pool }}
+          REASON: ${{ needs.route-wide.outputs.reason }}
+          FALLBACK: '["ubuntu-24.04"]'
+        run: |
+          set -euo pipefail
+          echo "route reason=${ROUTE_REASON}"
+          echo "runner=${RUNNER}"
+          echo "pool=${POOL}"
+          echo "reason=${REASON}"
+          # 99 slots exceed any published max_capacity below 99, so a wide
+          # demand never routes to the pool. When the narrow read saw a
+          # fresh record, the wide read must judge it too (pool-busy) or
+          # straddle the freshness window (pool-stale). A record without
+          # max_capacity routes any demand to the pool by design, so this
+          # holds while the dispatcher publishes a positive max_capacity
+          # below 99. A red run with a fresh narrow read and a wide
+          # query-failed is a transient read failure: re-run before
+          # investigating.
+          case "${REASON}" in
+            pool-online)
+              echo "a 99-slot demand must never route to the pool" >&2
+              exit 1
+              ;;
+          esac
+          [ "${POOL}" = "false" ]
+          [ "${RUNNER}" = "${FALLBACK}" ]
+          case "${ROUTE_REASON}" in
+            pool-online|pool-busy)
+              case "${REASON}" in
+                pool-busy|pool-stale)
+                  ;;
+                *)
+                  echo "wide read disagrees with a fresh narrow read: ${REASON}" >&2
+                  exit 1
+                  ;;
+              esac
               ;;
           esac
