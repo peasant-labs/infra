@@ -18,6 +18,15 @@ jobs:
     uses: ./.github/workflows/runner-router.yml
     with:
       fallback: '["ubuntu-24.04"]'
+      required_slots: 1
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+
+  route-wide:
+    uses: ./.github/workflows/runner-router.yml
+    with:
+      fallback: '["ubuntu-24.04"]'
+      required_slots: 99
     secrets:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
@@ -47,6 +56,35 @@ jobs:
             pool-busy|pool-stale|query-failed)
               [ "${POOL}" = "false" ]
               [ "${RUNNER}" = "${FALLBACK}" ]
+              ;;
+            *)
+              echo "unexpected reason: ${REASON}" >&2
+              exit 1
+              ;;
+          esac
+
+  assert-wide:
+    needs: route-wide
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert a wide demand falls back
+        env:
+          RUNNER: ${{ needs.route-wide.outputs.runner }}
+          POOL: ${{ needs.route-wide.outputs.pool }}
+          REASON: ${{ needs.route-wide.outputs.reason }}
+          FALLBACK: '["ubuntu-24.04"]'
+        run: |
+          set -euo pipefail
+          echo "runner=${RUNNER}"
+          echo "pool=${POOL}"
+          echo "reason=${REASON}"
+          # 99 slots never fit the pool, so this must fall back. The pool
+          # is either busy, stale, or unreadable; it is never online.
+          [ "${POOL}" = "false" ]
+          [ "${RUNNER}" = "${FALLBACK}" ]
+          case "${REASON}" in
+            pool-busy|pool-stale|query-failed)
               ;;
             *)
               echo "unexpected reason: ${REASON}" >&2
