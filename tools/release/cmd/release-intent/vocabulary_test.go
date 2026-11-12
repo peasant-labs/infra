@@ -102,17 +102,17 @@ func TestVocabulary_CommandFlagSets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("fixture command %q: %v", c.Name, err)
 		}
-		var want []flagUse
+		var want []intent.FlagUse
 		for _, fl := range c.Flags {
 			flag, err := intent.ParseFlag(fl.Flag)
 			if err != nil {
 				t.Fatalf("fixture command %q flag %q: %v", c.Name, fl.Flag, err)
 			}
-			want = append(want, flagUse{Flag: flag, Required: fl.Required})
+			want = append(want, intent.FlagUse{Flag: flag, Required: fl.Required})
 			used[flag] = true
 		}
-		if got := flagsOf(command); !reflect.DeepEqual(got, want) {
-			t.Fatalf("flagsOf(%s) = %v, want exactly %v", command, got, want)
+		if got := command.Flags(); !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s.Flags() = %v, want exactly %v", command, got, want)
 		}
 		if got := usageOf(command); got != c.Usage {
 			t.Fatalf("usageOf(%s) = %q, want %q", command, got, c.Usage)
