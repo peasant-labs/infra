@@ -4,6 +4,7 @@ package intent_test
 
 import (
 	_ "embed"
+	"encoding/hex"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
@@ -17,9 +18,12 @@ type generateInput struct {
 	Config        intent.Config  `yaml:"config"`
 	Pending       []intent.Title `yaml:"pending"`
 	BaseChangelog string         `yaml:"base_changelog"`
-	Version       intent.SemVer  `yaml:"version"`
-	Tag           string         `yaml:"tag"`
-	Date          string         `yaml:"date"`
+	// BaseChangelogHex carries a base changelog as hex bytes, for input
+	// that is not valid UTF-8 and so cannot be written as YAML text.
+	BaseChangelogHex string        `yaml:"base_changelog_hex"`
+	Version          intent.SemVer `yaml:"version"`
+	Tag              string        `yaml:"tag"`
+	Date             string        `yaml:"date"`
 }
 
 type generateExpected struct {
@@ -32,9 +36,17 @@ func TestGenerate(t *testing.T) {
 	corpus := loadNamedCorpus[generateInput, generateExpected](t, generateCorpusYAML)
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
+			base := c.Input.BaseChangelog
+			if c.Input.BaseChangelogHex != "" {
+				decoded, hexErr := hex.DecodeString(c.Input.BaseChangelogHex)
+				if hexErr != nil {
+					t.Fatalf("decode base_changelog_hex: %v", hexErr)
+				}
+				base = string(decoded)
+			}
 			in := intent.ContentInput{
 				Pending:       c.Input.Pending,
-				BaseChangelog: c.Input.BaseChangelog,
+				BaseChangelog: base,
 				Version:       c.Input.Version,
 				Tag:           c.Input.Tag,
 				Date:          c.Input.Date,

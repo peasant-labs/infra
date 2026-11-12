@@ -4,6 +4,7 @@ import (
 	regexp "github.com/wasilibs/go-re2"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // This file holds the release-content generator: the pure function from the
@@ -72,6 +73,17 @@ func Generate(cfg Config, in ContentInput) (Content, error) {
 			"rendering the release content",
 			"no section and no version values can be rendered without the number",
 			"pass the planner's version and tag for this pending set",
+		)
+	}
+
+	if !utf8.ValidString(in.BaseChangelog) {
+		return Content{}, inputError(
+			"the base changelog is not valid UTF-8",
+			"the heading style is read from the base text, and bytes that are not text match no heading",
+			"intent.Generate",
+			"rendering the release content",
+			"no section can be placed in a file whose headings cannot be read",
+			"store the changelog as UTF-8 text",
 		)
 	}
 
