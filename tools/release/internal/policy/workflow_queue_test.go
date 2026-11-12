@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -171,39 +170,4 @@ func TestLoadQueuePolicy_LoadCases(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestClosedSetsMatchIntent(t *testing.T) {
-	t.Parallel()
-
-	// The checker's action and gate sets are the same objects as the intent
-	// package's, not a second copy: sorted values must match exactly.
-	actions := make([]string, 0, len(intent.AllActions))
-	for _, a := range intent.AllActions {
-		actions = append(actions, a.String())
-	}
-	gotActions := make([]string, 0, len(closedActions))
-	for a := range closedActions {
-		gotActions = append(gotActions, a)
-	}
-	if !reflect.DeepEqual(sortedStrings(gotActions), sortedStrings(actions)) {
-		t.Fatalf("checker actions %v do not equal intent.AllActions %v", gotActions, actions)
-	}
-	var gateVals []string
-	for _, g := range intent.AllGates {
-		gateVals = append(gateVals, g.String())
-	}
-	if !reflect.DeepEqual(gateValues(), gateVals) {
-		t.Fatalf("checker gates %v do not equal intent.AllGates %v", gateValues(), gateVals)
-	}
-}
-
-func sortedStrings(in []string) []string {
-	out := append([]string(nil), in...)
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j-1] > out[j]; j-- {
-			out[j-1], out[j] = out[j], out[j-1]
-		}
-	}
-	return out
 }

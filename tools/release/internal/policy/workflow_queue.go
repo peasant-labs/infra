@@ -2,9 +2,9 @@ package policy
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
-	"gopkg.in/yaml.v3"
 )
 
 // QueueRule names one merge-queue workflow rule the shared checker applies to
@@ -132,12 +132,12 @@ func ParseQueueRule(name string) (QueueRule, error) {
 	return "", fmt.Errorf("parse queue rule: %q is not a merge-queue rule (%s). A rule name selects which check a diagnostic or a test case belongs to, so an unknown name selects none; write one of the listed names", name, joinMembers(AllQueueRules))
 }
 
-// UnmarshalYAML parses a rule name at the YAML boundary, so a document that
-// names a rule holds a member or fails to load.
-func (r *QueueRule) UnmarshalYAML(node *yaml.Node) error {
-	rule, err := ParseQueueRule(node.Value)
+// UnmarshalText parses a rule name at a decoding boundary, so a document
+// that names a rule holds a member or fails to load.
+func (r *QueueRule) UnmarshalText(text []byte) error {
+	rule, err := ParseQueueRule(string(text))
 	if err != nil {
-		return fmt.Errorf("line %d: %w", node.Line, err)
+		return err
 	}
 	*r = rule
 	return nil
@@ -188,20 +188,23 @@ type BotJobRule struct {
 	Kind     intent.PRKind `yaml:"kind"`
 }
 
-// botKindValid reports whether kind is a bot PR kind: every closed kind
+// botKinds lists the bot PR kinds a bot job may claim: every closed kind
 // except ordinary, which is not a bot PR, and release, which belongs to the
-// release job. A new intent kind is refused or admitted here by membership,
-// never by a restated list.
-func botKindValid(kind intent.PRKind) bool {
-	if kind == intent.PRKindOrdinary || kind == intent.PRKindRelease {
-		return false
-	}
+// release job. It is derived from the intent set, so a new kind is admitted
+// here by membership, never by a restated list.
+func botKinds() []intent.PRKind {
+	var out []intent.PRKind
 	for _, k := range intent.AllPRKinds {
-		if k == kind {
-			return true
+		if k != intent.PRKindOrdinary && k != intent.PRKindRelease {
+			out = append(out, k)
 		}
 	}
-	return false
+	return out
+}
+
+// botKindValid reports whether kind is a bot PR kind a bot job may claim.
+func botKindValid(kind intent.PRKind) bool {
+	return slices.Contains(botKinds(), kind)
 }
 
 // QueueSection is the body of a repo's merge-queue policy. Required must be
@@ -263,7 +266,7 @@ func validateQueueSection(path string, queue QueueSection) error {
 			return fmt.Errorf("%s has an empty job during merge-queue policy validation. Set 'job:' to the bot job that pushes its kind's branch", where)
 		}
 		if !botKindValid(bot.Kind) {
-			return fmt.Errorf("%s names kind %q during merge-queue policy validation. A bot job claims one of the bot PR kinds, cut-release or vendor-hash, so the checker can resolve its branch from the release config; the release kind belongs to the release job", where, bot.Kind.String())
+			return fmt.Errorf("%s names kind %q during merge-queue policy validation. A bot job claims one of the bot PR kinds (%s), so the checker can resolve its branch from the release config; the %s kind belongs to the release job", where, bot.Kind.String(), joinMembers(botKinds()), intent.PRKindRelease.String())
 		}
 	}
 	return nil

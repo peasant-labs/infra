@@ -1,12 +1,12 @@
 package policy
 
 import (
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	regexp "github.com/wasilibs/go-re2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -134,9 +134,7 @@ func envText(step *yaml.Node) string {
 
 // cutLevels are the only levels the cut-release button may offer, from the
 // intent package: a level, never a number.
-func cutLevels() []string {
-	return []string{intent.LevelPatch.String(), intent.LevelMinor.String()}
-}
+var cutLevels = []intent.Level{intent.LevelPatch, intent.LevelMinor}
 
 // checkCutRelease (cut-release-is-dispatch-only) requires the cut-release job
 // to trigger only on workflow_dispatch, to take its level from a choice of
@@ -178,7 +176,7 @@ func (c *queueChecker) checkCutRelease() {
 				continue
 			}
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"a cut-release write step has no tag-mode gate during merge-queue policy validation. Test "+quoteTagMode()+" in the step if so the button writes nothing while tag mode is off")
+				"a cut-release write step has no tag-mode gate during merge-queue policy validation. Test "+tagModeComparison+" in the step if so the button writes nothing while tag mode is off")
 		}
 	}
 }
@@ -194,28 +192,38 @@ func (c *queueChecker) checkCutLevel(workflow, job string, dispatch trigger) {
 		return mappingValue(inputs, "level")
 	}()
 	var typ string
-	var options []string
+	var options []intent.Level
+	closed := true
 	if level != nil && level.Kind == yaml.MappingNode {
 		if t := mappingValue(level, "type"); t != nil {
 			typ = t.Value
 		}
 		if o := mappingValue(level, "options"); o != nil && o.Kind == yaml.SequenceNode {
 			for _, item := range o.Content {
-				options = append(options, item.Value)
+				// An option that is not a level word is never read as one:
+				// it makes the choice wider than the closed pair.
+				option, err := intent.ParseLevel(item.Value)
+				if err != nil {
+					closed = false
+					continue
+				}
+				options = append(options, option)
 			}
 		}
 	}
-	if typ != "choice" || !sameStrings(options, cutLevels()) {
+	if typ != "choice" || !closed || !sameLevels(options, cutLevels) {
 		c.emit(QueueRuleCutRelease, workflow, job,
-			"the cut-release level input is not a choice of exactly patch and minor during merge-queue policy validation. Offer a closed level choice so the button can never cut a numbered release")
+			"the cut-release level input is not a choice of exactly "+cutLevels[0].String()+" and "+cutLevels[1].String()+" during merge-queue policy validation. Offer a closed level choice so the button can never cut a numbered release")
 	}
 }
 
-func sameStrings(a, b []string) bool {
+// sameLevels reports whether a and b hold the same levels, each the same
+// number of times, in any order.
+func sameLevels(a, b []intent.Level) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	seen := map[string]int{}
+	seen := map[intent.Level]int{}
 	for _, s := range a {
 		seen[s]++
 	}
@@ -302,7 +310,7 @@ func (c *queueChecker) checkClassify() {
 					for _, literal := range branchLiterals(field.value) {
 						if branchSet[literal] {
 							c.emit(QueueRuleClassify, name, stepID(step),
-								"a step "+field.key+" compares bot branch "+strconv.Quote(literal)+" during merge-queue policy validation. Call release-intent classify instead of comparing the branch: a literal in one workflow drifts from the release config the classifier reads")
+								"a step "+field.key+" compares bot branch "+strconv.Quote(literal)+" during merge-queue policy validation. Call "+toolName+" "+toolCmdClassify+" instead of comparing the branch: a literal in one workflow drifts from the release config the classifier reads")
 						}
 					}
 				}
@@ -319,7 +327,7 @@ func (c *queueChecker) checkClassify() {
 		}
 		if !invokesClassify(doc) {
 			c.emit(QueueRuleClassify, req.Workflow, req.Job,
-				"the guard workflow never calls release-intent classify during merge-queue policy validation. Call classify to tell the release PR apart instead of comparing its head branch, so the protected-path exception follows the one classifier")
+				"the guard workflow never calls "+toolName+" "+toolCmdClassify+" during merge-queue policy validation. Call "+toolCmdClassify+" to tell the release PR apart instead of comparing its head branch, so the protected-path exception follows the one classifier")
 		}
 	}
 }
@@ -335,7 +343,7 @@ var (
 	branchLiteralBeforeOp = regexp.MustCompile(`['"]?([A-Za-z0-9_./-]+)['"]?\s*(==|!=)`)
 
 	// classifyInvocation matches a release-intent classify call.
-	classifyInvocation = regexp.MustCompile(`release-intent\s+classify\b`)
+	classifyInvocation = regexp.MustCompile(toolCall(toolCmdClassify))
 )
 
 // branchLiterals returns every literal compared with == or != in the text,
