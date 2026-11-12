@@ -28,7 +28,7 @@ jobs:
     name: release-tool
     needs: determine-runner
     runs-on: ${{ fromJson(needs.determine-runner.outputs.runner) }}
-    timeout-minutes: 15
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/release
@@ -40,7 +40,8 @@ jobs:
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: tools/release/go.mod
-          cache-dependency-path: tools/release/go.sum
+          # Cache saves can hang on the self-hosted microVM pool.
+          cache: false
 
       - name: Formatting
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
