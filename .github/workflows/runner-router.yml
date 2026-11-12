@@ -35,8 +35,7 @@ name: Runner router
 #              'pool-busy' means the pool is healthy and fresh but has fewer
 #              free slots than 'required_slots', including a request larger
 #              than the pool's max_capacity; with the default of 1 it means
-#              every slot is taken. A record without max_capacity keeps the
-#              pre-capacity behaviour.
+#              every slot is taken.
 #              'pool-stale' means the pool-health record is older than the
 #              freshness window, unhealthy, or unparseable. 'query-failed'
 #              covers a missing token (expected on fork PRs, notice-level,
