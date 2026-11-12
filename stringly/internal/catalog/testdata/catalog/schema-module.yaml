@@ -59,6 +59,40 @@ cases:
     schema: *fixture-module
     members: *schema-members
 
+  - name: go-pin-from-replace-to-a-fork
+    # Only the fork at v0.0.1 is available from the fixture resolver.
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.9
+
+        replace example.test/schema => example.test/fork v0.0.1
+    schema:
+      module: example.test/schema
+      resolve-module: example.test/fork
+      version: v0.0.1
+      files:
+        go.mod: |
+          module example.test/fork
+        state.go: |
+          package fork
+
+          type State string
+
+          const (
+            StateOpen State = "fork-open"
+            StateClosed State = "fork-closed"
+          )
+        typescript/src/internal/generated/types.gen.ts: |
+          export type ForkEvent = 'fork-queued' | 'fork-shared';
+    members:
+      - { value: fork-open, source: schema-module, set: fork.State, name: StateOpen, module: example.test/fork@v0.0.1, file: state.go, line: 6 }
+      - { value: fork-closed, source: schema-module, set: fork.State, name: StateClosed, module: example.test/fork@v0.0.1, file: state.go, line: 7 }
+      - { value: fork-queued, source: schema-module, set: ForkEvent, module: example.test/fork@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 1 }
+      - { value: fork-shared, source: schema-module, set: ForkEvent, module: example.test/fork@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 1 }
+
   - name: go-replace-of-the-required-version-wins
     # The go command applies a replace of the required version before a
     # replace of every version.

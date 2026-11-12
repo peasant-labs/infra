@@ -22,6 +22,7 @@ required:
     - go-pin-from-go-mod
     - go-pin-single-line-require-at-the-config-root
     - go-pin-from-versioned-replace
+    - go-pin-from-replace-to-a-fork
     - go-replace-of-the-required-version-wins
     - go-directory-replace-is-refused
     - ts-pin-from-package-json

@@ -36,12 +36,14 @@ type catalogCase struct {
 
 // schemaFixture names the schema module of a case. The module tree is either
 // the committed fixture module (tree: schema-module) or inline files. The
-// fixture resolver serves exactly module@version.
+// fixture resolver serves exactly resolve-module@version, or module@version
+// if resolve-module is omitted.
 type schemaFixture struct {
-	Module  string            `yaml:"module"`
-	Version string            `yaml:"version"`
-	Tree    string            `yaml:"tree"`
-	Files   map[string]string `yaml:"files"`
+	Module        string            `yaml:"module"`
+	ResolveModule string            `yaml:"resolve-module"`
+	Version       string            `yaml:"version"`
+	Tree          string            `yaml:"tree"`
+	Files         map[string]string `yaml:"files"`
 }
 
 type memberFixture struct {
@@ -97,7 +99,11 @@ func buildFixtureCase(t *testing.T, lang rules.Lang, roots []string, files map[s
 		if err != nil {
 			t.Fatal(err)
 		}
-		deps.Modules = fixtureModules{module: schema.Module, version: schema.Version, dir: abs}
+		resolveModule := schema.ResolveModule
+		if resolveModule == "" {
+			resolveModule = schema.Module
+		}
+		deps.Modules = fixtureModules{module: resolveModule, version: schema.Version, dir: abs}
 		req.SchemaModule = schema.Module
 	}
 	c, err := catalog.NewBuilder(deps).Build(context.Background(), req)
