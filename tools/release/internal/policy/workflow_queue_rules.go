@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 	regexp "github.com/wasilibs/go-re2"
 	"gopkg.in/yaml.v3"
@@ -81,7 +82,7 @@ var guardPullRequestActions = append(slices.Clone(DefaultPullRequestActions), Pu
 // default types omit the edit, so a trigger with no list, or a list without
 // the edit, leaves a red title check red after the author fixes the title.
 func (c *queueChecker) checkGuardActivityTypes(req RequiredContext, doc *yaml.Node) {
-	want := joinMembers(guardPullRequestActions)
+	want := closedset.Join(guardPullRequestActions, ", ")
 	pr, ok := findTrigger(doc, GitHubEventPullRequest)
 	if !ok {
 		c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
@@ -91,7 +92,7 @@ func (c *queueChecker) checkGuardActivityTypes(req RequiredContext, doc *yaml.No
 	actions, listed := activityTypes(pr)
 	if !listed {
 		c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
-			"the guard workflow's "+GitHubEventPullRequest.String()+" trigger names no "+triggerKeyTypes+" during merge-queue policy validation, and GitHub's default types ("+joinMembers(DefaultPullRequestActions)+") omit "+PullRequestActionEdited.String()+". List "+triggerKeyTypes+": ["+want+"] so a retitle re-runs the check without a push")
+			"the guard workflow's "+GitHubEventPullRequest.String()+" trigger names no "+triggerKeyTypes+" during merge-queue policy validation, and GitHub's default types ("+closedset.Join(DefaultPullRequestActions, ", ")+") omit "+PullRequestActionEdited.String()+". List "+triggerKeyTypes+": ["+want+"] so a retitle re-runs the check without a push")
 		return
 	}
 	for _, action := range guardPullRequestActions {

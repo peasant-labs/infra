@@ -1,10 +1,13 @@
 package intent
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
 	regexp "github.com/wasilibs/go-re2"
+
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 )
 
 // This file owns the names the command, the policy rules and the consumer
@@ -67,11 +70,11 @@ var AllOutputKeys = []OutputKey{
 func (k OutputKey) String() string { return string(k) }
 
 // IsValid reports whether the key is one of the known members.
-func (k OutputKey) IsValid() bool { return isMember(AllOutputKeys, k) }
+func (k OutputKey) IsValid() bool { return slices.Contains(AllOutputKeys, k) }
 
 // ParseOutputKey returns the member spelled raw and refuses anything else.
 func ParseOutputKey(raw string) (OutputKey, error) {
-	return parseMember(AllOutputKeys, raw, "step-output key", "intent.ParseOutputKey")
+	return closedset.Parse(AllOutputKeys, raw, parsing("step-output key", "intent.ParseOutputKey"))
 }
 
 // outputSeparator joins a key to its value on an output line.
@@ -122,11 +125,11 @@ var AllRepoVariables = []RepoVariable{VarBatchMode, VarBatchFloor}
 func (v RepoVariable) String() string { return string(v) }
 
 // IsValid reports whether the variable is one of the known members.
-func (v RepoVariable) IsValid() bool { return isMember(AllRepoVariables, v) }
+func (v RepoVariable) IsValid() bool { return slices.Contains(AllRepoVariables, v) }
 
 // ParseRepoVariable returns the member spelled raw and refuses anything else.
 func ParseRepoVariable(raw string) (RepoVariable, error) {
-	return parseMember(AllRepoVariables, raw, "repository variable", "intent.ParseRepoVariable")
+	return closedset.Parse(AllRepoVariables, raw, parsing("repository variable", "intent.ParseRepoVariable"))
 }
 
 // GitRef is a fully qualified git ref name, such as refs/heads/main. The
@@ -300,40 +303,13 @@ func FormatTitle(t Title) string {
 	return b.String()
 }
 
-// isMember reports whether value is in the closed set all.
-func isMember[T comparable](all []T, value T) bool {
-	for _, known := range all {
-		if value == known {
-			return true
-		}
+// parsing is the context of a refusal at one of this package's exported
+// closed-set parsers: set names the closed set and where names the parser.
+func parsing(set, where string) closedset.Context {
+	return closedset.Context{
+		Set:   set,
+		Where: where,
+		When:  "parsing a " + set,
+		Means: "no decision can be made from this value",
 	}
-	return false
-}
-
-// memberList renders a closed set for an error message, in canonical order.
-func memberList[T ~string](all []T) string {
-	words := make([]string, 0, len(all))
-	for _, member := range all {
-		words = append(words, strconv.Quote(string(member)))
-	}
-	return strings.Join(words, ", ")
-}
-
-// parseMember is the one boundary rule for a string-backed closed set: it
-// returns the member spelled raw and refuses anything else, never
-// substituting a default. set names the closed set and where names the
-// exported parser, both for the error message.
-func parseMember[T ~string](all []T, raw, set, where string) (T, error) {
-	if member := T(raw); isMember(all, member) {
-		return member, nil
-	}
-	var zero T
-	return zero, inputError(
-		"unknown "+set+" "+strconv.Quote(raw),
-		"the "+set+" set is closed, and an unknown value is never read as a member",
-		where,
-		"parsing a "+set,
-		"no decision can be made from this value",
-		"use one of "+memberList(all),
-	)
 }

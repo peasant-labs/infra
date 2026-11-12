@@ -6,9 +6,9 @@ package intent_test
 
 import (
 	_ "embed"
-	"fmt"
 	"testing"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
@@ -26,15 +26,21 @@ const (
 
 var allVersionFieldOps = []versionFieldOp{opRead, opWrite}
 
+func (o versionFieldOp) String() string { return string(o) }
+
 // UnmarshalText refuses any operation outside the closed set at load time.
 func (o *versionFieldOp) UnmarshalText(text []byte) error {
-	for _, known := range allVersionFieldOps {
-		if string(text) == string(known) {
-			*o = known
-			return nil
-		}
+	op, err := closedset.Parse(allVersionFieldOps, string(text), closedset.Context{
+		Set:   "version-field op",
+		Where: "testdata/versionfield_corpus.yaml",
+		When:  "loading the version-field corpus",
+		Means: "the row drives no operation, so the corpus does not load",
+	})
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("unknown version-field op %q: want one of %v", text, allVersionFieldOps)
+	*o = op
+	return nil
 }
 
 type versionFieldInput struct {

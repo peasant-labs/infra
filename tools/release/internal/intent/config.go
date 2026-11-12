@@ -8,6 +8,8 @@ import (
 	"strconv"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 )
 
 // configInvalidError builds the typed rejection for a config file that was
@@ -139,7 +141,7 @@ func checkConfig(cfg Config, where string) error {
 		if !configBotKinds[kind] {
 			return fail("bot_branches names unknown kind "+strconv.Quote(string(kind)),
 				"the bot PR kinds are closed so every workflow compares against the same names",
-				"use one of "+memberList(botKinds)+" as the key")
+				"use one of "+closedset.Join(botKinds, ", ")+" as the key")
 		}
 		if branch == "" {
 			return fail("bot_branches entry "+strconv.Quote(string(kind))+" names an empty branch",

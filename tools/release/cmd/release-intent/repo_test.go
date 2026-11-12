@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -81,7 +82,7 @@ func loadRepoFixtures(t *testing.T) repoFixtures {
 			t.Fatalf("repos fixture: repo %q states no purpose", r.Name)
 		}
 		name := repoName(r.Name)
-		if !isMemberOf(allRepoNames, name) {
+		if !slices.Contains(allRepoNames, name) {
 			t.Fatalf("repos fixture: repo %q is not a member of the builder's config set %v", r.Name, allRepoNames)
 		}
 		if _, dup := seen[r.Name]; dup {
@@ -101,15 +102,6 @@ func loadRepoFixtures(t *testing.T) repoFixtures {
 		}
 	}
 	return out
-}
-
-func isMemberOf[T comparable](all []T, value T) bool {
-	for _, known := range all {
-		if value == known {
-			return true
-		}
-	}
-	return false
 }
 
 // repoGitVerb is the closed set of git subcommands the builder runs to write
@@ -168,7 +160,7 @@ func (r *testRepo) git(verb repoGitVerb, args ...string) string {
 
 func (r *testRepo) gitEnv(extraEnv []string, verb repoGitVerb, args ...string) string {
 	r.t.Helper()
-	if !isMemberOf(allRepoGitVerbs, verb) {
+	if !slices.Contains(allRepoGitVerbs, verb) {
 		r.t.Fatalf("test repo: git subcommand %q is not in the builder's closed set", verb)
 	}
 	cmd := exec.Command("git", append([]string{string(verb)}, args...)...)

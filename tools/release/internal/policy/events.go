@@ -1,9 +1,9 @@
 package policy
 
 import (
-	"fmt"
-	"strings"
+	"slices"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"gopkg.in/yaml.v3"
 )
 
@@ -39,22 +39,17 @@ func (e GitHubEvent) String() string { return string(e) }
 
 // IsValid reports whether the event is one of the known members. The zero
 // value is not.
-func (e GitHubEvent) IsValid() bool {
-	for _, known := range AllGitHubEvents {
-		if e == known {
-			return true
-		}
-	}
-	return false
-}
+func (e GitHubEvent) IsValid() bool { return slices.Contains(AllGitHubEvents, e) }
 
 // ParseGitHubEvent maps a workflow trigger name to its member. Any other
 // name is refused, never mapped to a nearby member.
 func ParseGitHubEvent(name string) (GitHubEvent, error) {
-	if e := GitHubEvent(name); e.IsValid() {
-		return e, nil
-	}
-	return "", fmt.Errorf("parse workflow trigger: %q is not one of the events the merge-queue rules read (%s). A caller keeps such a trigger by its written name as unknown, and it satisfies no rule; write one of the listed names if a rule was meant to see it", name, joinMembers(AllGitHubEvents))
+	return closedset.Parse(AllGitHubEvents, name, closedset.Context{
+		Set:   "workflow trigger",
+		Where: "policy.ParseGitHubEvent",
+		When:  "reading a workflow's " + workflowKeyOn + ": triggers during merge-queue policy validation",
+		Means: "the trigger is kept by its written name as unknown and satisfies no rule; write a listed event if a rule was meant to see it",
+	})
 }
 
 // PullRequestAction names one pull_request activity type the queue rules
@@ -99,32 +94,17 @@ func (a PullRequestAction) String() string { return string(a) }
 
 // IsValid reports whether the action is one of the known members. The zero
 // value is not.
-func (a PullRequestAction) IsValid() bool {
-	for _, known := range AllPullRequestActions {
-		if a == known {
-			return true
-		}
-	}
-	return false
-}
+func (a PullRequestAction) IsValid() bool { return slices.Contains(AllPullRequestActions, a) }
 
 // ParsePullRequestAction maps an activity type to its member. Any other name
 // is refused, never mapped to a nearby member.
 func ParsePullRequestAction(name string) (PullRequestAction, error) {
-	if a := PullRequestAction(name); a.IsValid() {
-		return a, nil
-	}
-	return "", fmt.Errorf("parse %s activity type: %q is not one of the activity types the merge-queue rules read (%s). A caller keeps such a type by its written name as unknown, and it stands in for no member; write one of the listed names if a rule was meant to see it", GitHubEventPullRequest, name, joinMembers(AllPullRequestActions))
-}
-
-// joinMembers renders a closed set's members for a message, in canonical
-// order.
-func joinMembers[T fmt.Stringer](members []T) string {
-	names := make([]string, 0, len(members))
-	for _, m := range members {
-		names = append(names, m.String())
-	}
-	return strings.Join(names, ", ")
+	return closedset.Parse(AllPullRequestActions, name, closedset.Context{
+		Set:   GitHubEventPullRequest.String() + " activity type",
+		Where: "policy.ParsePullRequestAction",
+		When:  "reading a " + GitHubEventPullRequest.String() + " trigger's " + triggerKeyTypes + " during merge-queue policy validation",
+		Means: "the type is kept by its written name as unknown and stands in for no member; write a listed type if a rule was meant to see it",
+	})
 }
 
 // trigger is one entry of a workflow's 'on:' parsed at the YAML boundary.

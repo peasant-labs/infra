@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -66,7 +67,7 @@ func runBinary(t *testing.T, dir string, argv []string, stdin string, extraEnv [
 		}
 		status = exitStatus(ee.ExitCode())
 	}
-	if !isMemberOf(allExitStatuses, status) {
+	if !slices.Contains(allExitStatuses, status) {
 		t.Fatalf("run binary %v: exit status %d is outside the closed set %v\nstderr: %s", argv, status, allExitStatuses, stderr.String())
 	}
 	return processResult{Exit: status, Stdout: stdout.String(), Stderr: stderr.String()}
@@ -203,7 +204,7 @@ func loadCLIFixtures(t *testing.T) []cliCase {
 		}
 		for _, word := range c.Input.Argv {
 			for _, token := range placeholderPattern.FindAllString(word, -1) {
-				if !isMemberOf(allPlaceholders, placeholder(token)) {
+				if !slices.Contains(allPlaceholders, placeholder(token)) {
 					t.Fatalf("cli-exit fixtures: %q uses unknown placeholder %q", c.Name, token)
 				}
 			}

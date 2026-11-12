@@ -12,12 +12,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		exitWith("", usageErr("usage: %s <%s> ...", intent.ProgramName, joinCommands("|")))
+		exitWith("", usageErr("usage: %s <%s> ...", intent.ProgramName, closedset.Join(intent.AllCommands, "|")))
 	}
 	command, err := parseCommand(os.Args[1])
 	if err != nil {
