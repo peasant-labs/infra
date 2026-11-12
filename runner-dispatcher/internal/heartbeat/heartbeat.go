@@ -14,10 +14,10 @@ type Record struct {
 	AssignedJobs    int       `json:"assigned_jobs"`
 	RunningJobs     int       `json:"running_jobs"`
 	LiveRunners     int       `json:"live_runners"`
-	// MaxCapacity is the scale set's slot count. The router falls back when it
-	// leaves fewer than the caller's required_slots free: AssignedJobs
-	// (booting and running) counts against it, and jobs beyond it would wait
-	// in the queue instead of starting.
+	// MaxCapacity is the scale set's slot count. The router routes only
+	// when MaxCapacity - AssignedJobs (booting and running) leaves at
+	// least the caller's required_slots free; a zero MaxCapacity skips
+	// the gate.
 	MaxCapacity int `json:"max_capacity"`
 }
 

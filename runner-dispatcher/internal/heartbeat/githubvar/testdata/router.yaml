@@ -5,8 +5,11 @@
 #              negative means the dispatcher's clock runs ahead.
 # healthy      the record's listener_healthy flag.
 # assignedJobs the record's assigned job count (booting and running).
-# maxCapacity  the record's slot count; 0 or omitted means the record carries
-#              no capacity and the router skips the capacity gate.
+# maxCapacity  the record's slot count; 0 means the record carries no
+#              capacity and the router skips the capacity gate. omitFields
+#              deletes keys from the publisher's JSON after Publish (keeping
+#              the real publisher and its fresh timestamp) for cases where
+#              the key must be truly absent rather than zero.
 # rawValue     replaces the published record with literal text.
 # queryFails   the variable read fails (missing variable, auth, network).
 # token        RUNNER_STATUS_TOKEN; omitted means a token is present.
@@ -14,8 +17,11 @@
 # requiredSlots
 #              the router's required_slots input, as a string so invalid
 #              values can be expressed; omitted means the workflow default.
-# wantNotice   a substring the router script must print; asserted against
-#              the script's output.
+# wantNoticeLine
+#              the exact notice line the router script must print;
+#              asserted against the script's output. It names the
+#              assigned, max, and required counts, so the numbers are pinned
+#              too, not just the wording.
 # wantRunner   explicit expected output when the case asserts an exact label set.
 - name: idle healthy pool uses the workflow microvm default
   ageSeconds: 10
@@ -54,7 +60,7 @@
   maxCapacity: 4
   wantPool: "false"
   wantReason: pool-busy
-  wantNotice: "fewer free slots than required"
+  wantNoticeLine: "::notice::pool has fewer free slots than required (assigned=4 max=4 required=1)"
 
 - name: four required with two free slots falls back
   ageSeconds: 10
@@ -64,7 +70,7 @@
   requiredSlots: "4"
   wantPool: "false"
   wantReason: pool-busy
-  wantNotice: "fewer free slots than required"
+  wantNoticeLine: "::notice::pool has fewer free slots than required (assigned=2 max=4 required=4)"
 
 - name: four required with three free slots falls back
   ageSeconds: 10
@@ -74,7 +80,7 @@
   requiredSlots: "4"
   wantPool: "false"
   wantReason: pool-busy
-  wantNotice: "fewer free slots than required"
+  wantNoticeLine: "::notice::pool has fewer free slots than required (assigned=1 max=4 required=4)"
 
 - name: four required with four free slots routes to the pool
   ageSeconds: 10
@@ -91,12 +97,21 @@
   requiredSlots: "6"
   wantPool: "false"
   wantReason: pool-busy
-  wantNotice: "exceeds the pool capacity"
+  wantNoticeLine: "::notice::request for 6 slots exceeds the pool capacity (assigned=0 max=4 required=6)"
 
 - name: four required with no capacity routes to the pool
   ageSeconds: 10
   healthy: true
   assignedJobs: 3
+  requiredSlots: "4"
+  wantPool: "true"
+  wantReason: pool-online
+
+- name: four required with a record lacking max_capacity routes to the pool
+  ageSeconds: 10
+  healthy: true
+  assignedJobs: 3
+  omitFields: [max_capacity]
   requiredSlots: "4"
   wantPool: "true"
   wantReason: pool-online

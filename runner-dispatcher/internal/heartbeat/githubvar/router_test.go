@@ -26,20 +26,21 @@ var routerWorkflow = filepath.Join("..", "..", "..", "..", ".github", "workflows
 const routerFallback = `["ubuntu-24.04"]`
 
 type routerCase struct {
-	Name          string  `yaml:"name"`
-	AgeSeconds    int     `yaml:"ageSeconds"`
-	Healthy       bool    `yaml:"healthy"`
-	AssignedJobs  int     `yaml:"assignedJobs"`
-	MaxCapacity   int     `yaml:"maxCapacity"`
-	RequiredSlots *string `yaml:"requiredSlots"`
-	RawValue      *string `yaml:"rawValue"`
-	QueryFails    bool    `yaml:"queryFails"`
-	Token         *string `yaml:"token"`
-	Labels        *string `yaml:"labels"`
-	WantPool      string  `yaml:"wantPool"`
-	WantReason    string  `yaml:"wantReason"`
-	WantRunner    string  `yaml:"wantRunner"`
-	WantNotice    *string `yaml:"wantNotice"`
+	Name           string   `yaml:"name"`
+	AgeSeconds     int      `yaml:"ageSeconds"`
+	Healthy        bool     `yaml:"healthy"`
+	AssignedJobs   int      `yaml:"assignedJobs"`
+	MaxCapacity    int      `yaml:"maxCapacity"`
+	OmitFields     []string `yaml:"omitFields"`
+	RequiredSlots  *string  `yaml:"requiredSlots"`
+	RawValue       *string  `yaml:"rawValue"`
+	QueryFails     bool     `yaml:"queryFails"`
+	Token          *string  `yaml:"token"`
+	Labels         *string  `yaml:"labels"`
+	WantPool       string   `yaml:"wantPool"`
+	WantReason     string   `yaml:"wantReason"`
+	WantRunner     string   `yaml:"wantRunner"`
+	WantNoticeLine *string  `yaml:"wantNoticeLine"`
 }
 
 // The branches every router change must keep covered.
@@ -54,12 +55,14 @@ var requiredRouterCases = []string{
 	"four required with four free slots routes to the pool",
 	"six required with four slots idle falls back as exceeding capacity",
 	"four required with no capacity routes to the pool",
+	"four required with a record lacking max_capacity routes to the pool",
 	"one required with one free slot routes to the pool",
 	"required_slots 0 falls back",
 	"required_slots -1 falls back",
 	"required_slots 4.5 falls back",
 	"required_slots 04 falls back",
 	"record older than the freshness window falls back",
+	"record from a clock far ahead falls back",
 	"fresh record with an unhealthy listener falls back",
 	"failed variable read falls back",
 	"missing token falls back",
@@ -67,11 +70,48 @@ var requiredRouterCases = []string{
 	"unparseable record falls back",
 }
 
+// The named mutations every router change must keep killing.
+var requiredRouterMutations = []string{
+	"capacity-allows-one-short",
+	"capacity-requires-one-extra",
+	"required-slots-default-zero",
+	"required-slots-env-dropped",
+	"missing-max-capacity-treated-as-full",
+	"freshness-window-widened",
+	"required-slots-validation-dropped",
+	"max-capacity-coalesce-dropped",
+	"exceeds-capacity-branch-unreachable",
+}
+
 // TestRouterReadsPublishedRecord runs the router's real "Pick a runner" script
 // against records written by this package's publisher, so the writer's format
 // and the reader's freshness and health rules cannot drift apart.
 func TestRouterReadsPublishedRecord(t *testing.T) {
-	script, defaultLabels, requiredDefault := routerScript(t)
+	h := setupRouterHarness(t)
+	for _, tc := range h.cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			combined, failure := runAndCheck(h.script, h.defaultLabels, h.requiredDefault, tc)
+			if failure != "" {
+				t.Fatalf("%s\n%s", failure, combined)
+			}
+		})
+	}
+}
+
+// routerHarness is the shared setup for both router tests: the workflow
+// text, the real script, the declaration it depends on, and the cases. One
+// helper so a missing tool or a broken declaration fails both tests the same
+// way instead of letting the mutation test pass vacuously.
+type routerHarness struct {
+	text            string
+	script          string
+	defaultLabels   string
+	requiredDefault string
+	cases           []routerCase
+}
+
+func setupRouterHarness(t *testing.T) routerHarness {
+	t.Helper()
 	for _, tool := range []string{"bash", "jq", "timeout"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			if os.Getenv("CI") != "" {
@@ -80,15 +120,25 @@ func TestRouterReadsPublishedRecord(t *testing.T) {
 			t.Skipf("%s not installed; the router script cannot run here", tool)
 		}
 	}
-
-	cases := loadRouterCases(t)
-	for _, tc := range cases {
-		t.Run(tc.Name, func(t *testing.T) {
-			combined, failure := runAndCheck(script, defaultLabels, requiredDefault, tc)
-			if failure != "" {
-				t.Fatalf("%s\n%s", failure, combined)
-			}
-		})
+	data, err := os.ReadFile(routerWorkflow)
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("router workflow not in this source tree")
+		}
+		t.Fatalf("read workflow: %v", err)
+	}
+	decl := loadRouterDecl(t, string(data))
+	if err := checkRouterDecl(decl); err != nil {
+		t.Fatalf("router declaration: %v", err)
+	}
+	// checkRouterDecl pinned requiredSlotsDefault to the number 1.
+	required, _ := decl.requiredSlotsDefault.(int)
+	return routerHarness{
+		text:            string(data),
+		script:          decl.script,
+		defaultLabels:   decl.defaultLabels,
+		requiredDefault: fmt.Sprintf("%d", required),
+		cases:           loadRouterCases(t),
 	}
 }
 
@@ -107,13 +157,22 @@ func runAndCheck(script, defaultLabels, requiredDefault string, tc routerCase) (
 	if err != nil {
 		return combined, err.Error()
 	}
-	if err := checkRouterOutputs(tc, labels, outputs); err != nil {
-		return combined, err.Error()
-	}
-	if tc.WantNotice != nil && !strings.Contains(combined, *tc.WantNotice) {
-		return combined, fmt.Sprintf("output lacks notice %q", *tc.WantNotice)
+	if failure := checkCaseExpectation(tc, labels, outputs, combined); failure != "" {
+		return combined, failure
 	}
 	return combined, ""
+}
+
+// checkCaseExpectation compares parsed outputs and the script log against a
+// case's wants. It returns "" when the case passes.
+func checkCaseExpectation(tc routerCase, labels string, outputs map[string]string, combined string) string {
+	if err := checkRouterOutputs(tc, labels, outputs); err != nil {
+		return err.Error()
+	}
+	if tc.WantNoticeLine != nil && !strings.Contains(combined, *tc.WantNoticeLine) {
+		return fmt.Sprintf("output lacks notice line %q", *tc.WantNoticeLine)
+	}
+	return ""
 }
 
 // checkRouterOutputs compares parsed GITHUB_OUTPUT against a case's wants.
@@ -226,30 +285,11 @@ func loadRouterCases(t *testing.T) []routerCase {
 // routerDecl is the router workflow's contract surface: the extracted
 // script plus the input declaration the script depends on.
 type routerDecl struct {
-	text                 string
 	script               string
 	defaultLabels        string
 	requiredSlotsType    string
-	requiredSlotsDefault string
+	requiredSlotsDefault any
 	routeEnv             map[string]string
-}
-
-// routerScript extracts the production script text from the workflow and
-// asserts the input declaration the script depends on.
-func routerScript(t *testing.T) (script, defaultLabels, requiredDefault string) {
-	t.Helper()
-	data, err := os.ReadFile(routerWorkflow)
-	if err != nil {
-		if os.IsNotExist(err) {
-			t.Skip("router workflow not in this source tree")
-		}
-		t.Fatalf("read workflow: %v", err)
-	}
-	decl := loadRouterDecl(t, string(data))
-	if err := checkRouterDecl(decl); err != nil {
-		t.Fatalf("router declaration: %v", err)
-	}
-	return decl.script, decl.defaultLabels, decl.requiredSlotsDefault
 }
 
 // loadRouterDecl parses workflow text and extracts the "Pick a runner"
@@ -283,18 +323,13 @@ func loadRouterDecl(t *testing.T, text string) routerDecl {
 		t.Fatalf("parse workflow: %v", err)
 	}
 	in := wf.On.WorkflowCall.Inputs
-	def, ok := in.RequiredSlots.Default.(int)
-	if !ok {
-		t.Fatalf("workflow required_slots default is %v, want the number 1", in.RequiredSlots.Default)
-	}
 	for _, step := range wf.Jobs["pick"].Steps {
 		if step.Name == "Pick a runner" {
 			return routerDecl{
-				text:                 text,
 				script:               step.Run,
 				defaultLabels:        in.Labels.Default,
 				requiredSlotsType:    in.RequiredSlots.Type,
-				requiredSlotsDefault: fmt.Sprintf("%d", def),
+				requiredSlotsDefault: in.RequiredSlots.Default,
 				routeEnv:             step.Env,
 			}
 		}
@@ -303,10 +338,13 @@ func loadRouterDecl(t *testing.T, text string) routerDecl {
 	return routerDecl{}
 }
 
-// checkRouterDecl asserts the input declaration the route script depends
-// on: required_slots is a number defaulting to 1, and the route step maps
-// REQUIRED_SLOTS to exactly "${{ inputs.required_slots }}". Without that
-// mapping every caller would fall back with reason query-failed.
+// checkRouterDecl asserts every part of the input declaration the route
+// script depends on: required_slots is a number defaulting to 1, and the
+// route step maps REQUIRED_SLOTS to exactly "${{ inputs.required_slots }}".
+// The default stays raw (a number, not a string) so a mutation like
+// default: "1" fails here, as killed by the declaration, instead of in
+// setup. Without that mapping every caller would fall back with reason
+// query-failed.
 func checkRouterDecl(d routerDecl) error {
 	if d.defaultLabels == "" {
 		return fmt.Errorf("workflow labels default is missing")
@@ -314,8 +352,9 @@ func checkRouterDecl(d routerDecl) error {
 	if d.requiredSlotsType != "number" {
 		return fmt.Errorf("required_slots type is %q, want number", d.requiredSlotsType)
 	}
-	if d.requiredSlotsDefault != "1" {
-		return fmt.Errorf("required_slots default is %q, want 1", d.requiredSlotsDefault)
+	n, ok := d.requiredSlotsDefault.(int)
+	if !ok || n != 1 {
+		return fmt.Errorf("required_slots default is %v, want the number 1", d.requiredSlotsDefault)
 	}
 	if got := d.routeEnv["REQUIRED_SLOTS"]; got != "${{ inputs.required_slots }}" {
 		return fmt.Errorf("route step REQUIRED_SLOTS env is %q, want ${{ inputs.required_slots }}", got)
@@ -355,7 +394,25 @@ func publishedValue(tc routerCase) (string, error) {
 	if pubErr != nil {
 		return "", pubErr
 	}
-	return sent.Value, nil
+	value := sent.Value
+	if len(tc.OmitFields) > 0 {
+		if tc.RawValue != nil {
+			return "", fmt.Errorf("omitFields needs the published record, not rawValue")
+		}
+		var fields map[string]any
+		if err := json.Unmarshal([]byte(value), &fields); err != nil {
+			return "", fmt.Errorf("decode published record: %w", err)
+		}
+		for _, k := range tc.OmitFields {
+			delete(fields, k)
+		}
+		raw, err := json.Marshal(fields)
+		if err != nil {
+			return "", fmt.Errorf("encode trimmed record: %w", err)
+		}
+		value = string(raw)
+	}
+	return value, nil
 }
 
 // readGitHubOutput parses a GITHUB_OUTPUT file: key=value lines and
@@ -384,67 +441,103 @@ func readGitHubOutput(path string) (map[string]string, error) {
 }
 
 // routerMutation is one named sabotage of the workflow file text. killedBy
-// names the router.yaml case that must fail under the mutation, or the
-// special value "declaration" when the mutation is killed by the input
-// declaration assertion instead of by a case.
+// names the router.yaml witness case that must fail under the mutation, or
+// the special value "declaration" when the mutation is killed by the input
+// declaration assertion instead of by a case. wantMutated pins the exact
+// faulty outcome the witness must produce; mustPass names control cases the
+// mutation must not disturb.
 type routerMutation struct {
-	Name     string `yaml:"name"`
-	Old      string `yaml:"old"`
-	New      string `yaml:"new"`
-	KilledBy string `yaml:"killedBy"`
+	Name        string `yaml:"name"`
+	Old         string `yaml:"old"`
+	New         string `yaml:"new"`
+	KilledBy    string `yaml:"killedBy"`
+	WantMutated *struct {
+		Pool   string `yaml:"pool"`
+		Reason string `yaml:"reason"`
+	} `yaml:"wantMutated"`
+	MustPass []string `yaml:"mustPass"`
 }
 
 // TestRouterMutationsAreKilled applies each named mutation in
 // testdata/router-mutations.yaml to the workflow file text, re-extracts
 // the route script from the mutated text (and re-reads the declaration and
-// env), runs every case, and requires the mutation's witness to fail.
+// env), and requires the mutation's witness to fail exactly as specified:
+// on the mutated script only the witness and the controls run, the witness
+// must produce wantMutated while failing its pristine expectation, and
+// every control must still pass. A script crash fails the subtest instead
+// of counting as a kill.
 func TestRouterMutationsAreKilled(t *testing.T) {
-	data, err := os.ReadFile(routerWorkflow)
-	if err != nil {
-		if os.IsNotExist(err) {
-			t.Skip("router workflow not in this source tree")
-		}
-		t.Fatalf("read workflow: %v", err)
-	}
-	text := string(data)
+	h := setupRouterHarness(t)
 
 	mutData, err := os.ReadFile("testdata/router-mutations.yaml")
 	if err != nil {
 		t.Fatalf("read mutations fixture: %v", err)
 	}
 	var mutDoc struct {
-		Mutations             []routerMutation `yaml:"mutations"`
-		ExpectedMutationNames []string         `yaml:"expectedMutationNames"`
+		Mutations []routerMutation `yaml:"mutations"`
 	}
 	if err := yaml.Unmarshal(mutData, &mutDoc); err != nil {
 		t.Fatalf("parse mutations fixture: %v", err)
 	}
-	names := map[string]bool{}
+	// The manifest lives in Go: every fixture mutation must be required
+	// exactly once, and every required mutation must exist in the fixture.
+	seen := map[string]int{}
 	for _, m := range mutDoc.Mutations {
-		names[m.Name] = true
+		seen[m.Name]++
 	}
-	for _, name := range mutDoc.ExpectedMutationNames {
-		if !names[name] {
-			t.Fatalf("fixture lost required mutation %q", name)
+	for name, n := range seen {
+		if n > 1 {
+			t.Fatalf("duplicate mutation %q in fixture", name)
 		}
 	}
-	if len(mutDoc.Mutations) != len(mutDoc.ExpectedMutationNames) {
-		t.Fatalf("got %d mutations, manifest names %d",
-			len(mutDoc.Mutations), len(mutDoc.ExpectedMutationNames))
+	for _, name := range requiredRouterMutations {
+		if seen[name] != 1 {
+			t.Fatalf("required mutation %q missing from fixture", name)
+		}
+	}
+	for name := range seen {
+		found := false
+		for _, want := range requiredRouterMutations {
+			if want == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("fixture mutation %q not in requiredRouterMutations", name)
+		}
 	}
 
-	cases := loadRouterCases(t)
-	pristine := loadRouterDecl(t, text)
-	if err := checkRouterDecl(pristine); err != nil {
-		t.Fatalf("router declaration: %v", err)
+	byName := map[string]routerCase{}
+	for _, tc := range h.cases {
+		byName[tc.Name] = tc
+	}
+	// Unknown witness and control names fail before anything is mutated.
+	for _, m := range mutDoc.Mutations {
+		if m.KilledBy != "declaration" {
+			if _, ok := byName[m.KilledBy]; !ok {
+				t.Fatalf("mutation %q names unknown case %q", m.Name, m.KilledBy)
+			}
+			if m.WantMutated == nil {
+				t.Fatalf("mutation %q needs wantMutated", m.Name)
+			}
+			if len(m.MustPass) == 0 {
+				t.Fatalf("mutation %q needs at least one mustPass control", m.Name)
+			}
+		}
+		for _, c := range m.MustPass {
+			if _, ok := byName[c]; !ok {
+				t.Fatalf("mutation %q names unknown control %q", m.Name, c)
+			}
+		}
 	}
 
 	for _, m := range mutDoc.Mutations {
 		t.Run(m.Name, func(t *testing.T) {
-			if n := strings.Count(text, m.Old); n != 1 {
-				t.Fatalf("mutation pattern found %d times, want exactly 1: %q", n, m.Old)
+			if strings.Count(h.text, m.Old) == 0 {
+				t.Fatalf("mutation pattern absent from workflow: %q", m.Old)
 			}
-			decl := loadRouterDecl(t, strings.Replace(text, m.Old, m.New, 1))
+			decl := loadRouterDecl(t, strings.ReplaceAll(h.text, m.Old, m.New))
 			if m.KilledBy == "declaration" {
 				if err := checkRouterDecl(decl); err == nil {
 					t.Fatalf("mutation survived: declaration still valid")
@@ -456,22 +549,43 @@ func TestRouterMutationsAreKilled(t *testing.T) {
 			if err := checkRouterDecl(decl); err != nil {
 				t.Fatalf("mutation broke the declaration instead of %q: %v", m.KilledBy, err)
 			}
-			found := false
-			for _, tc := range cases {
-				if tc.Name == m.KilledBy {
-					found = true
-				}
-				_, failure := runAndCheck(decl.script, decl.defaultLabels, decl.requiredSlotsDefault, tc)
-				if tc.Name == m.KilledBy {
-					if failure == "" {
-						t.Fatalf("mutation survived: %q passed", m.KilledBy)
-					}
-					t.Logf("killed by %q: %s", m.KilledBy, failure)
+			// checkRouterDecl pinned the default to the number 1.
+			required, _ := decl.requiredSlotsDefault.(int)
+			reqDef := fmt.Sprintf("%d", required)
+			witness := byName[m.KilledBy]
+			// The witness passes on the pristine script: otherwise the
+			// mutation proves nothing.
+			if _, failure := runAndCheck(h.script, h.defaultLabels, h.requiredDefault, witness); failure != "" {
+				t.Fatalf("witness %q fails on the pristine script: %s", m.KilledBy, failure)
+			}
+			wLabels := decl.defaultLabels
+			if witness.Labels != nil {
+				wLabels = *witness.Labels
+			}
+			wRequired := reqDef
+			if witness.RequiredSlots != nil {
+				wRequired = *witness.RequiredSlots
+			}
+			outputs, combined, err := execRouterCase(decl.script, wLabels, wRequired, witness)
+			if err != nil {
+				t.Fatalf("mutation broke execution instead of killing %q: %v\n%s", m.KilledBy, err, combined)
+			}
+			if outputs["pool"] != m.WantMutated.Pool || outputs["reason"] != m.WantMutated.Reason {
+				t.Fatalf("mutation did not produce the faulty outcome: pool=%q reason=%q, want pool=%q reason=%q\n%s",
+					outputs["pool"], outputs["reason"], m.WantMutated.Pool, m.WantMutated.Reason, combined)
+			}
+			if failure := checkCaseExpectation(witness, wLabels, outputs, combined); failure == "" {
+				t.Fatalf("mutation survived: witness %q still passes", m.KilledBy)
+			} else {
+				t.Logf("killed by %q (pool=%q reason=%q): %s",
+					m.KilledBy, outputs["pool"], outputs["reason"], failure)
+			}
+			for _, c := range m.MustPass {
+				if _, failure := runAndCheck(decl.script, decl.defaultLabels, reqDef, byName[c]); failure != "" {
+					t.Fatalf("mutation broke control %q: %s", c, failure)
 				}
 			}
-			if !found {
-				t.Fatalf("mutation names unknown case %q", m.KilledBy)
-			}
+			t.Logf("controls still pass: %q", m.MustPass)
 		})
 	}
 }
