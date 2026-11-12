@@ -14,6 +14,11 @@ cases:
           | 'shared'
           | 'failed';
     hits: {src/lib/status.ts: [2]}
+  - name: flags-member-holding-the-other-quote
+    files:
+      src/lib/phrase.ts: |
+        export type Phrase = "don't" | 'say "hi"';
+    hits: {src/lib/phrase.ts: [1]}
   - name: passes-non-exported-alias
     files:
       src/lib/tone.ts: |

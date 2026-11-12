@@ -19,4 +19,6 @@ rule:
   has:
     field: value
     kind: union_type
-    regex: '^\|?\s*(["''][^"'']*["'']\s*\|\s*)+["''][^"'']*["'']$'
+    # Each member is a double- or single-quoted literal, matched per quote
+    # style so a member may hold the other quote ("don't").
+    regex: '^\|?\s*((?:"[^"]*"|''[^'']*'')\s*\|\s*)+(?:"[^"]*"|''[^'']*'')$'

@@ -92,6 +92,7 @@ required:
   exported-literal-union:
     - flags-exported-union
     - flags-multi-line-leading-bar
+    - flags-member-holding-the-other-quote
     - passes-non-exported-alias
     - passes-inline-union
     - passes-derived-type
