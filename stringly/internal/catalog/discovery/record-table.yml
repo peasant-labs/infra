@@ -1,7 +1,9 @@
 # A key of a module-level frozen record table: `const X = Object.freeze({…})`
 # typed Record<K, …> or Readonly<Record<K, …>> with K a set type, by a TS
 # annotation, by a JSDoc @type comment directly above the declaration, or by a
-# JSDoc cast inside freeze(…). SET is the constant's name.
+# JSDoc cast inside freeze(…). SET is the constant's name. K is open, and the
+# table is not a source, when K is string, number, symbol or PropertyKey or a
+# union with one of them as a member (Record<string | Kind, …>).
 id: stringly-discover-record-table
 language: tsx
 severity: hint
@@ -10,12 +12,12 @@ utils:
   set-record-annotation:
     all:
       - regex: '^:\s*(Readonly<\s*)?Record<'
-      - not: { regex: '^:\s*(Readonly<\s*)?Record<\s*(string|number|symbol|PropertyKey)\s*,' }
+      - not: { regex: '^:\s*(Readonly<\s*)?Record<\s*([^,<>|]*\|\s*)*(string|number|symbol|PropertyKey)\s*(\|[^,<>]*)?,' }
   set-record-comment:
     kind: comment
     all:
       - regex: '@type\s*\{\s*(Readonly<\s*)?Record<'
-      - not: { regex: '@type\s*\{\s*(Readonly<\s*)?Record<\s*(string|number|symbol|PropertyKey)\s*,' }
+      - not: { regex: '@type\s*\{\s*(Readonly<\s*)?Record<\s*([^,<>|]*\|\s*)*(string|number|symbol|PropertyKey)\s*(\|[^,<>]*)?,' }
   module-const-declarator:
     kind: variable_declarator
     has: { field: name, kind: identifier, pattern: $SET }

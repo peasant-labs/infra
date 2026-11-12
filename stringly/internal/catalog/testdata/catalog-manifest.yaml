@@ -17,6 +17,7 @@ required:
     - jsdoc-type-above-the-declaration
     - jsdoc-cast-inside-freeze
     - not-sources
+    - not-sources-key-union-with-an-open-member
   schema-module:
     - go-pin-from-go-mod
     - go-pin-single-line-require-at-the-config-root

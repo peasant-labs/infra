@@ -59,3 +59,19 @@ cases:
         const Nested: Record<Status, { inner: string }> = Object.freeze({ outer: { inner: "x" } });
     members:
       - { value: outer, source: record-table, set: Nested, file: tables.ts, line: 10 }
+
+  - name: not-sources-key-union-with-an-open-member
+    # A key union that holds string, number, symbol or PropertyKey accepts any
+    # key, so the table is open; a union of set types stays a source.
+    lang: ts
+    files:
+      tables.ts: |
+        const A: Record<string | Kind, number> = Object.freeze({ a1: 1 });
+        const B: Readonly<Record<Kind | number, string>> = Object.freeze({ b1: "b" });
+        const C: Record<Tone | symbol | Mode, number> = Object.freeze({ c1: 1 });
+        /** @type {Readonly<Record<Kind | PropertyKey, number>>} */
+        const D = Object.freeze({ d1: 1 });
+        const E = Object.freeze(/** @type {Record<|string|Kind, number>} */ ({ e1: 1 }));
+        const Both: Record<Tone | Mode, number> = Object.freeze({ both: 1 });
+    members:
+      - { value: both, source: record-table, set: Both, file: tables.ts, line: 7 }
