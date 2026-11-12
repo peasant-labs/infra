@@ -61,6 +61,19 @@ func TestClosedSets(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllPRKinds = %v, want %v", got, want)
 	}
+	if got, want := intent.AllOutputKeys, []intent.OutputKey{
+		intent.OutputAction, intent.OutputRangeBase, intent.OutputVersionBase, intent.OutputCandidate,
+		intent.OutputCandidateFresh, intent.OutputLevel, intent.OutputBreaking, intent.OutputVersion,
+		intent.OutputTag, intent.OutputError, intent.OutputPR, intent.OutputGate, intent.OutputFresh,
+		intent.OutputPush, intent.OutputKind, intent.OutputOK,
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("AllOutputKeys = %v, want %v", got, want)
+	}
+	if got, want := intent.AllRepoVariables, []intent.RepoVariable{
+		intent.VarBatchMode, intent.VarBatchFloor,
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("AllRepoVariables = %v, want %v", got, want)
+	}
 	if got, want := intent.AllErrorCodes, []intent.ErrorCode{
 		intent.ErrMalformed,
 		intent.ErrUnknownType,

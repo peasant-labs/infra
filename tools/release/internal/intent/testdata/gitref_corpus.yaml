@@ -1,0 +1,173 @@
+# Git ref corpus: rows of intent.ParseGitRef with what the parsed ref names.
+# An accept row lists the branch or tag the ref names (neither when it names
+# neither) and its merge-group parts when it is a merge-group ref. A reject
+# row carries text that is no fully qualified ref.
+required_names:
+  - branch-ref
+  - branch-ref-with-slashes
+  - tag-ref
+  - pull-ref-is-neither
+  - merge-group-ref
+  - merge-group-ref-base-with-slashes
+  - merge-group-ref-pr-zero
+  - merge-group-ref-non-hex-sha
+  - merge-group-ref-no-base
+  - short-name
+  - empty
+  - root-only
+  - namespace-only
+  - empty-part
+  - double-dot
+  - space
+  - glob
+  - refspec-colon
+  - control-character
+  - lock-suffix
+  - leading-dot-part
+  - reflog-syntax
+cases:
+  - name: branch-ref
+    input: {raw: "refs/heads/main"}
+    expected: {branch: "main"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "git refs: a branch ref names its branch"}
+    mutation: {description: "a plain branch ref"}
+  - name: branch-ref-with-slashes
+    input: {raw: "refs/heads/automation/release"}
+    expected: {branch: "automation/release"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "git refs: a branch name may hold slashes"}
+    mutation: {description: "a branch under a folder"}
+  - name: tag-ref
+    input: {raw: "refs/tags/v0.1.0"}
+    expected: {tag: "v0.1.0"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "git refs: a tag ref names its tag"}
+    mutation: {description: "a release tag ref"}
+  - name: pull-ref-is-neither
+    input: {raw: "refs/pull/12/merge"}
+    expected: {}
+    classification: must-pass
+    provenance: {source: boundary, ref: "git refs: a ref outside heads and tags names no branch and no tag"}
+    mutation: {description: "a pull ref"}
+  - name: merge-group-ref
+    input: {raw: "refs/heads/gh-readonly-queue/main/pr-12-abc123"}
+    expected: {branch: "gh-readonly-queue/main/pr-12-abc123", group: {base: "main", pr: 12, sha: "abc123"}}
+    classification: must-pass
+    provenance: {source: requirement, ref: "git refs: a merge-group ref names its base, PR and commit"}
+    mutation: {description: "a merge-group ref on main"}
+  - name: merge-group-ref-base-with-slashes
+    input: {raw: "refs/heads/gh-readonly-queue/release/1.x/pr-7-0123456789abcdefABCDEF"}
+    expected: {branch: "gh-readonly-queue/release/1.x/pr-7-0123456789abcdefABCDEF", group: {base: "release/1.x", pr: 7, sha: "0123456789abcdefABCDEF"}}
+    classification: must-pass
+    provenance: {source: boundary, ref: "git refs: the base branch of a merge group may hold slashes"}
+    mutation: {description: "a merge group on a branch under a folder"}
+  - name: merge-group-ref-pr-zero
+    input: {raw: "refs/heads/gh-readonly-queue/main/pr-0-abc123"}
+    expected: {branch: "gh-readonly-queue/main/pr-0-abc123"}
+    classification: must-pass
+    provenance: {source: boundary, ref: "git refs: a group ref with PR number 0 is an ordinary branch ref, not a merge group"}
+    mutation: {description: "zeroed the PR number"}
+  - name: merge-group-ref-non-hex-sha
+    input: {raw: "refs/heads/gh-readonly-queue/main/pr-12-xyz"}
+    expected: {branch: "gh-readonly-queue/main/pr-12-xyz"}
+    classification: must-pass
+    provenance: {source: boundary, ref: "git refs: a group ref whose commit is not hex is an ordinary branch ref"}
+    mutation: {description: "wrote a commit that is not hex"}
+  - name: merge-group-ref-no-base
+    input: {raw: "refs/heads/gh-readonly-queue/pr-12-abc123"}
+    expected: {branch: "gh-readonly-queue/pr-12-abc123"}
+    classification: must-pass
+    provenance: {source: boundary, ref: "git refs: a group ref with no base branch is an ordinary branch ref"}
+    mutation: {description: "dropped the base branch"}
+  - name: short-name
+    input: {raw: "main"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a short name is not a fully qualified ref"}
+    mutation: {description: "dropped the refs/heads/ prefix"}
+  - name: empty
+    input: {raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: the empty string is no ref"}
+    mutation: {description: "emptied the ref"}
+  - name: root-only
+    input: {raw: "refs/heads/"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a prefix with no name is no ref"}
+    mutation: {description: "dropped the branch name"}
+  - name: namespace-only
+    input: {raw: "refs/heads"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a namespace with no name is no ref"}
+    mutation: {description: "dropped the branch name and its slash"}
+  - name: empty-part
+    input: {raw: "refs/heads//main"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: an empty path part is refused"}
+    mutation: {description: "doubled a slash"}
+  - name: double-dot
+    input: {raw: "refs/heads/main..develop"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a range sequence is refused"}
+    mutation: {description: "joined two branches with a range"}
+  - name: space
+    input: {raw: "refs/heads/main --force"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a space is refused, so no option rides in on a ref"}
+    mutation: {description: "appended an option after a space"}
+  - name: glob
+    input: {raw: "refs/tags/v*"}
+    expected: {}
+    classification: must-fail
+    sibling: tag-ref
+    provenance: {source: boundary, ref: "git refs: a wildcard is refused"}
+    mutation: {description: "replaced the version with a wildcard"}
+  - name: refspec-colon
+    input: {raw: "refs/heads/main:refs/heads/other"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a refspec is not a ref"}
+    mutation: {description: "joined two refs with a colon"}
+  - name: control-character
+    input: {raw: "refs/heads/ma\nin"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a control character is refused"}
+    mutation: {description: "put a newline in the branch name"}
+  - name: lock-suffix
+    input: {raw: "refs/heads/main.lock"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a lock-file name is refused"}
+    mutation: {description: "added the lock suffix"}
+  - name: leading-dot-part
+    input: {raw: "refs/heads/.hidden"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: a path part that starts with a dot is refused"}
+    mutation: {description: "started the branch name with a dot"}
+  - name: reflog-syntax
+    input: {raw: "refs/heads/main@{1}"}
+    expected: {}
+    classification: must-fail
+    sibling: branch-ref
+    provenance: {source: boundary, ref: "git refs: reflog syntax is refused"}
+    mutation: {description: "appended a reflog selector"}

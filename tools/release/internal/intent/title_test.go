@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
@@ -75,6 +76,10 @@ func TestParseTitle(t *testing.T) {
 			}
 			if got.PR != c.Expected.PR {
 				t.Errorf("PR = %d, want %d", got.PR, c.Expected.PR)
+			}
+			// The formatter is the parser's inverse on every accepted title.
+			if text := intent.FormatTitle(got); text != strings.TrimSpace(raw) {
+				t.Errorf("FormatTitle(ParseTitle(%q)) = %q", raw, text)
 			}
 		})
 	}
