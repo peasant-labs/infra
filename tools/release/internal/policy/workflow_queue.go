@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"gopkg.in/yaml.v3"
 )
 
 // QueueRule names one merge-queue workflow rule the shared checker applies to
@@ -120,6 +121,26 @@ func (r QueueRule) IsValid() bool {
 		}
 	}
 	return false
+}
+
+// ParseQueueRule maps a rule name to its member. Any other name is refused,
+// never mapped to a nearby rule.
+func ParseQueueRule(name string) (QueueRule, error) {
+	if r := QueueRule(name); r.IsValid() {
+		return r, nil
+	}
+	return "", fmt.Errorf("parse queue rule: %q is not a merge-queue rule (%s). A rule name selects which check a diagnostic or a test case belongs to, so an unknown name selects none; write one of the listed names", name, joinMembers(AllQueueRules))
+}
+
+// UnmarshalYAML parses a rule name at the YAML boundary, so a document that
+// names a rule holds a member or fails to load.
+func (r *QueueRule) UnmarshalYAML(node *yaml.Node) error {
+	rule, err := ParseQueueRule(node.Value)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", node.Line, err)
+	}
+	*r = rule
+	return nil
 }
 
 // Diagnostic is one merge-queue policy violation. Rule names the closed rule

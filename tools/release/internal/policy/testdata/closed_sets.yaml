@@ -1,0 +1,45 @@
+# The policy package's closed sets in their wire spelling. Each set lists its
+# exact members in canonical order and the names its parser must refuse: the
+# empty name, a name outside the set, and a member in the wrong case. The
+# refused names are the only raw invalid values; they exist to test the
+# boundary.
+#
+# required_names is the manifest: every set must be listed and every listed
+# set must exist.
+required_names:
+  - queue-rule
+  - github-event
+  - pull-request-action
+  - default-pull-request-actions
+sets:
+  - name: queue-rule
+    members:
+      - required-contexts
+      - merge-group-on-required-workflows
+      - required-workflows-concurrency-per-ref
+      - release-actions-gated
+      - title-guard-no-early-success
+      - range-readers-take-the-floor
+      - no-default-branch-push-from-workflows
+      - token-mint-ref-check
+      - required-workflows-unfiltered
+      - merge-gate-always-reports
+      - titles-never-interpolated
+      - cut-release-is-dispatch-only
+      - tool-pin-is-a-sha
+      - bot-branch-via-classify
+    refused: ["", "no-such-rule", "Required-Contexts"]
+
+  - name: github-event
+    members: [pull_request, merge_group, push, workflow_dispatch]
+    refused: ["", "schedule", "pull_request_target", "Push"]
+
+  - name: pull-request-action
+    members: [opened, synchronize, reopened, edited]
+    refused: ["", "labeled", "Opened"]
+
+  # The activity types GitHub runs on when a trigger names none: a subset of
+  # pull-request-action with no parser of its own.
+  - name: default-pull-request-actions
+    members: [opened, synchronize, reopened]
+    refused: []

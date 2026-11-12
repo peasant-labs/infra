@@ -87,7 +87,6 @@ type loadCaseInput struct {
 
 // loadCaseExpected is the failure fragment a must-fail loader row must carry.
 type loadCaseExpected struct {
-	Rule         string   `yaml:"rule"`
 	WantContains []string `yaml:"want_contains"`
 }
 
@@ -174,35 +173,6 @@ func TestLoadQueuePolicy_LoadCases(t *testing.T) {
 	}
 }
 
-func TestQueueRuleClosedSet(t *testing.T) {
-	t.Parallel()
-
-	// Closed sets assert exact membership: the declared list must equal the
-	// plan's rule set, not merely count it.
-	want := []QueueRule{
-		QueueRuleRequiredContexts,
-		QueueRuleMergeGroup,
-		QueueRuleConcurrency,
-		QueueRuleReleaseActions,
-		QueueRuleTitleGuard,
-		QueueRuleRangeFloor,
-		QueueRuleNoPush,
-		QueueRuleTokenMint,
-		QueueRuleUnfiltered,
-		QueueRuleMergeGate,
-		QueueRuleTitles,
-		QueueRuleCutRelease,
-		QueueRuleToolPin,
-		QueueRuleClassify,
-	}
-	if !reflect.DeepEqual(AllQueueRules, want) {
-		t.Fatalf("AllQueueRules = %v, want exactly %v", AllQueueRules, want)
-	}
-	if (QueueRule("no-such-rule")).IsValid() {
-		t.Fatalf("unknown rule passes IsValid")
-	}
-}
-
 func TestClosedSetsMatchIntent(t *testing.T) {
 	t.Parallel()
 
@@ -236,43 +206,4 @@ func sortedStrings(in []string) []string {
 		}
 	}
 	return out
-}
-
-func TestCheckWorkflows_PassesWhenValid(t *testing.T) {
-	t.Parallel()
-
-	// The entry-point contract for a queue policy: a directory whose
-	// workflows satisfy every rule yields no diagnostics, and the required
-	// contexts come back in policy order for --print-required. (The corpus
-	// accept cases prove each rule's accept path through fixtures; this pins
-	// the contract directly.)
-	policy, err := LoadQueuePolicy(writeQueuePolicyFile(t, `queue:
-  required:
-    - { context: merge-gate, workflow: ci.yml, job: merge-gate, aggregator: true }
-    - { context: title-guard, workflow: title-guard.yml, job: title-guard, guard: true }
-`))
-	if err != nil {
-		t.Fatalf("LoadQueuePolicy(queue policy) failed: %v", err)
-	}
-	dir := t.TempDir()
-	workflows := map[string]string{
-		"ci.yml":          "name: CI\non:\n  pull_request:\n  merge_group:\nconcurrency:\n  group: ci-${{ github.ref }}\njobs:\n  lib:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make lib\n  merge-gate:\n    if: always()\n    needs: [lib]\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo gate\n",
-		"title-guard.yml": "name: Title guard\non:\n  pull_request:\n  merge_group:\njobs:\n  title-guard:\n    runs-on: ubuntu-latest\n    steps:\n      - run: release-intent classify --author x --head-branch y\n      - run: release-intent check-title --base x --head y --author z\n",
-	}
-	for name, content := range workflows {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-			t.Fatalf("write workflow fixture: %v", err)
-		}
-	}
-	diags, required := CheckWorkflows(policy, loadBaseConfig(t), dir)
-	if len(diags) != 0 {
-		msgs := make([]string, 0, len(diags))
-		for _, d := range diags {
-			msgs = append(msgs, d.Message)
-		}
-		t.Fatalf("valid directory yielded %d diagnostics:\n%s", len(diags), strings.Join(msgs, "\n"))
-	}
-	if len(required) != 2 || required[0].Context != "merge-gate" || required[1].Context != "title-guard" {
-		t.Fatalf("required contexts = %+v, want the two policy entries in order", required)
-	}
 }

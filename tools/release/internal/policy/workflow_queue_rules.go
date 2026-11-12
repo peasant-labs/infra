@@ -75,7 +75,7 @@ func (c *queueChecker) checkTitleGuard() {
 // concurrency subtree are the two allowed scopes.
 func eventNameMisuse(doc *yaml.Node) []string {
 	var out []string
-	for _, scalar := range docScalarsExcept(doc, "jobs", "concurrency", "on") {
+	for _, scalar := range docScalarsExcept(doc, "jobs", "concurrency", workflowKeyOn) {
 		if strings.Contains(scalar, "github.event_name") {
 			out = append(out, "the workflow header")
 			break
@@ -696,16 +696,15 @@ var refOrPRWrite = regexp.MustCompile(`\bgit\s+push\b|refs/tags/|\bgit\s+tag\b|\
 // tagOnlyTriggerFault says why the workflow's on: is not exactly push: tags:
 // with every pattern under the tag prefix, or "" when it is.
 func tagOnlyTriggerFault(doc *yaml.Node, prefix string) string {
-	on := mappingValue(doc, "on")
-	if on == nil || on.Kind != yaml.MappingNode || len(on.Content) != 2 || on.Content[0].Value != "push" {
-		return "the workflow's only trigger is not push: tags:"
+	push, only := soleTrigger(doc, GitHubEventPush)
+	if !only {
+		return "the workflow's only trigger is not " + GitHubEventPush.String() + ": " + triggerKeyTags + ":"
 	}
-	push := on.Content[1]
-	if push.Kind != yaml.MappingNode || len(push.Content) != 2 || push.Content[0].Value != "tags" {
-		return "the workflow's push trigger is not limited to tags: alone"
+	if push.Config == nil || len(push.Config.Content) != 2 || push.Config.Content[0].Value != triggerKeyTags {
+		return "the workflow's " + GitHubEventPush.String() + " trigger is not limited to " + triggerKeyTags + ": alone"
 	}
 	var patterns []string
-	switch tags := push.Content[1]; tags.Kind {
+	switch tags := push.Config.Content[1]; tags.Kind {
 	case yaml.ScalarNode:
 		patterns = []string{tags.Value}
 	case yaml.SequenceNode:
@@ -714,7 +713,7 @@ func tagOnlyTriggerFault(doc *yaml.Node, prefix string) string {
 		}
 	}
 	if len(patterns) == 0 {
-		return "the workflow's push: tags: names no pattern"
+		return "the workflow's " + GitHubEventPush.String() + ": " + triggerKeyTags + ": names no pattern"
 	}
 	if prefix == "" {
 		return "the release config sets no tag_prefix to hold the tag patterns to"

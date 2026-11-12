@@ -2,6 +2,7 @@ package policy
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -25,19 +26,28 @@ func (c *queueChecker) checkUnfiltered() {
 		if doc == nil {
 			continue
 		}
-		on := mappingValue(doc, "on")
-		if on == nil || on.Kind != yaml.MappingNode {
-			continue
-		}
-		for _, event := range []string{"pull_request", "merge_group"} {
-			trigger := mappingValue(on, event)
-			if trigger == nil || trigger.Kind != yaml.MappingNode {
+		for _, event := range []GitHubEvent{GitHubEventPullRequest, GitHubEventMergeGroup} {
+			trigger, ok := findTrigger(doc, event)
+			if !ok {
 				continue
 			}
-			for _, key := range []string{"paths", "paths-ignore", "branches-ignore"} {
-				if mappingValue(trigger, key) != nil {
+			for _, key := range triggerFilterKeys {
+				if mappingValue(trigger.Config, key) != nil {
 					c.emit(QueueRuleUnfiltered, req.Workflow, req.Job,
-						"the "+event+" trigger filters with "+key+" during merge-queue policy validation, but the workflow owns required context "+req.Context+". Run on every event with no path filter, or a change that skips the check leaves the queue waiting forever")
+						"the "+event.String()+" trigger filters with "+key+" during merge-queue policy validation, but the workflow owns required context "+req.Context+". Run on every event with no path filter, or a change that skips the check leaves the queue waiting forever")
+				}
+			}
+			if event != GitHubEventPullRequest {
+				continue
+			}
+			actions, listed := activityTypes(trigger)
+			if !listed {
+				continue
+			}
+			for _, want := range DefaultPullRequestActions {
+				if !slices.Contains(actions, want) {
+					c.emit(QueueRuleUnfiltered, req.Workflow, req.Job,
+						"the "+event.String()+" trigger names "+triggerKeyTypes+" without "+want.String()+" during merge-queue policy validation, but the workflow owns required context "+req.Context+". Keep every default activity type ("+joinMembers(DefaultPullRequestActions)+") in the list, or drop the list: a head change that skips the check leaves the queue waiting forever")
 				}
 			}
 		}
@@ -142,17 +152,18 @@ func (c *queueChecker) checkCutRelease() {
 		if doc == nil {
 			continue
 		}
-		on := mappingValue(doc, "on")
-		if on == nil {
+		if len(workflowTriggers(doc)) == 0 {
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"the cut-release workflow has no trigger during merge-queue policy validation. Trigger only on workflow_dispatch so a push can never cut a release")
+				"the cut-release workflow has no trigger during merge-queue policy validation. Trigger only on "+GitHubEventWorkflowDispatch.String()+" so a push can never cut a release")
 			continue
 		}
-		if !isDispatchOnly(on) {
+		dispatch, only := soleTrigger(doc, GitHubEventWorkflowDispatch)
+		if !only {
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"the cut-release workflow triggers on more than workflow_dispatch during merge-queue policy validation. Trigger only on workflow_dispatch so a push can never cut a release")
+				"the cut-release workflow triggers on more than "+GitHubEventWorkflowDispatch.String()+" during merge-queue policy validation. Trigger only on "+GitHubEventWorkflowDispatch.String()+" so a push can never cut a release")
+			dispatch, _ = findTrigger(doc, GitHubEventWorkflowDispatch)
 		}
-		c.checkCutLevel(bot.Workflow, bot.Job, on)
+		c.checkCutLevel(bot.Workflow, bot.Job, dispatch)
 		job := jobNode(doc, bot.Job)
 		if job == nil {
 			continue
@@ -172,34 +183,10 @@ func (c *queueChecker) checkCutRelease() {
 	}
 }
 
-// isDispatchOnly reports whether the on: trigger is exactly workflow_dispatch.
-func isDispatchOnly(on *yaml.Node) bool {
-	switch on.Kind {
-	case yaml.ScalarNode:
-		return on.Value == "workflow_dispatch"
-	case yaml.MappingNode:
-		if len(on.Content) != 2 {
-			return false
-		}
-		return on.Content[0].Value == "workflow_dispatch"
-	default:
-		return false
-	}
-}
-
 // checkCutLevel requires the cut-release level input to be a choice of exactly
 // patch and minor.
-func (c *queueChecker) checkCutLevel(workflow, job string, on *yaml.Node) {
-	inputs := func() *yaml.Node {
-		if on.Kind != yaml.MappingNode {
-			return nil
-		}
-		dispatch := mappingValue(on, "workflow_dispatch")
-		if dispatch == nil || dispatch.Kind != yaml.MappingNode {
-			return nil
-		}
-		return mappingValue(dispatch, "inputs")
-	}()
+func (c *queueChecker) checkCutLevel(workflow, job string, dispatch trigger) {
+	inputs := mappingValue(dispatch.Config, "inputs")
 	level := func() *yaml.Node {
 		if inputs == nil || inputs.Kind != yaml.MappingNode {
 			return nil

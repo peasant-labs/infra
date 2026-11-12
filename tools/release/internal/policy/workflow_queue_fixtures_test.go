@@ -22,6 +22,15 @@ import (
 //go:embed testdata/workflow_queue
 var workflowQueueFixtureFS embed.FS
 
+// The layout of one materialized fixture repository. These are the fixture
+// tree's own file names, chosen by this corpus, not the conventional paths a
+// real repository uses.
+const (
+	fixturePolicyFile   = "policy.yml"
+	fixtureConfigFile   = "release-intent.yaml"
+	fixtureWorkflowsDir = "workflows"
+)
+
 // queueCaseInput names the case overlay directory under
 // testdata/workflow_queue/overlays. Empty means the base tree as-is.
 type queueCaseInput struct {
@@ -70,12 +79,12 @@ func checkSiblings(t *testing.T, rows []siblingCased) {
 }
 
 // queueCaseExpected states the rule a reject case must trip (and only that
-// rule) with the message fragments its diagnostics must carry. An accept case
+// rule, parsed into its QueueRule member when the corpus loads) with the message fragments its diagnostics must carry. An accept case
 // carries its sampled rule and no fragments; the run must yield no diagnostics
 // at all.
 type queueCaseExpected struct {
-	Rule         string   `yaml:"rule"`
-	WantContains []string `yaml:"want_contains"`
+	Rule         QueueRule `yaml:"rule"`
+	WantContains []string  `yaml:"want_contains"`
 }
 
 // queueCaseRow is one corpus row: the standard case fields plus the accept
@@ -138,8 +147,10 @@ func loadQueueWorkflowFixtures(t *testing.T) queueWorkflowFixtures {
 		if row.Classification != testcase.MustFail && row.Sibling != "" {
 			t.Fatalf("accept case %q must not name a sibling", row.Name)
 		}
-		if row.Expected.Rule == "" || !QueueRule(row.Expected.Rule).IsValid() {
-			t.Fatalf("case %q names unknown rule %q (must be a closed QueueRule member)", row.Name, row.Expected.Rule)
+		// The decoder already parsed the rule into a member; a row that
+		// omits the key is the only way to reach the zero value here.
+		if !row.Expected.Rule.IsValid() {
+			t.Fatalf("case %q names no rule (every row samples one closed QueueRule member)", row.Name)
 		}
 		rows = append(rows, row)
 	}
@@ -206,7 +217,7 @@ func copyEmbeddedDir(t *testing.T, src, dst string) {
 // the bot branches the checker resolves.
 func loadBaseConfig(t *testing.T) intent.Config {
 	t.Helper()
-	data, err := workflowQueueFixtureFS.ReadFile("testdata/workflow_queue/base/release-intent.yaml")
+	data, err := workflowQueueFixtureFS.ReadFile("testdata/workflow_queue/base/" + fixtureConfigFile)
 	if err != nil {
 		t.Fatalf("read base release config: %v", err)
 	}
