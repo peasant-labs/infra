@@ -1,0 +1,61 @@
+# Frozen record tables: a module-level const Object.freeze({…}) typed
+# Record<K, …> or Readonly<Record<K, …>> with K a set type. The keys are the
+# members; the set is the constant.
+cases:
+  - name: ts-annotation
+    lang: ts
+    files:
+      labels.ts: |
+        export const ToneLabel: Readonly<Record<Tone, string>> = Object.freeze({
+          wait: "waiting",
+          "ok-now": "done",
+        });
+        const Plain: Record<Status, number> = Object.freeze({ fresh: 1 });
+    members:
+      - { value: wait, source: record-table, set: ToneLabel, file: labels.ts, line: 2 }
+      - { value: ok-now, source: record-table, set: ToneLabel, file: labels.ts, line: 3 }
+      - { value: fresh, source: record-table, set: Plain, file: labels.ts, line: 5 }
+
+  - name: jsdoc-type-above-the-declaration
+    lang: ts
+    files:
+      labels.js: |
+        /** @type {Readonly<Record<ViewMode, string>>} */
+        export const VIEW_LABELS = Object.freeze({
+          list: "list",
+          graph: "graph",
+        });
+    members:
+      - { value: list, source: record-table, set: VIEW_LABELS, file: labels.js, line: 3 }
+      - { value: graph, source: record-table, set: VIEW_LABELS, file: labels.js, line: 4 }
+
+  - name: jsdoc-cast-inside-freeze
+    lang: ts
+    files:
+      labels.js: |
+        export const MODE = Object.freeze(/** @type {Record<Mode, number>} */ ({
+          fast: 1,
+          slow: 2,
+        }));
+    members:
+      - { value: fast, source: record-table, set: MODE, file: labels.js, line: 2 }
+      - { value: slow, source: record-table, set: MODE, file: labels.js, line: 3 }
+
+  - name: not-sources
+    # String, number, symbol and PropertyKey keys; an untyped freeze; a
+    # function-local table; nested object keys belong to the values.
+    lang: ts
+    files:
+      tables.ts: |
+        const S: Record<string, number> = Object.freeze({ s1: 1 });
+        const N: Readonly<Record<number, string>> = Object.freeze({ 1: "n" });
+        const P: Record<PropertyKey, number> = Object.freeze({ p1: 1 });
+        const Untyped = Object.freeze({ u1: 1 });
+        /** @type {Record<string, number>} */
+        const J = Object.freeze({ j1: 1 });
+        function local() {
+          const L: Record<Status, number> = Object.freeze({ l1: 1 });
+        }
+        const Nested: Record<Status, { inner: string }> = Object.freeze({ outer: { inner: "x" } });
+    members:
+      - { value: outer, source: record-table, set: Nested, file: tables.ts, line: 10 }

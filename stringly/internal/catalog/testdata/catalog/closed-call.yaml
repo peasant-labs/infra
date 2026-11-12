@@ -1,0 +1,44 @@
+# closed('<wire>', …) calls: the first argument is the member. The set is the
+# nearest enclosing variable; the name is the property holding the call.
+cases:
+  - name: members-of-a-frozen-closed-set
+    lang: ts
+    roots: [src]
+    files:
+      src/view.ts: |
+        import { closed } from "./closed";
+        export const GroupBy = Object.freeze({
+          Project: closed("project", "project"),
+          Agent: closed('agent', "agent"),
+          Plain: closed(`plain`, "plain"),
+        } as const);
+    members:
+      - { value: project, source: closed-call, set: GroupBy, name: Project, file: src/view.ts, line: 3 }
+      - { value: agent, source: closed-call, set: GroupBy, name: Agent, file: src/view.ts, line: 4 }
+      - { value: plain, source: closed-call, set: GroupBy, name: Plain, file: src/view.ts, line: 5 }
+
+  - name: javascript-and-loose-calls
+    lang: ts
+    roots: [lib]
+    files:
+      lib/size.mjs: |
+        export const one = closed(25, "25");
+        const Small = closed("small", "small");
+        register(closed("bare", "bare"));
+        const Empty = closed("", "none");
+        const Dynamic = closed(`row-${id}`, "row");
+        const Other = notClosed("other", "other");
+    members:
+      - { value: small, source: closed-call, set: Small, file: lib/size.mjs, line: 2 }
+      - { value: bare, source: closed-call, file: lib/size.mjs, line: 3 }
+
+  - name: only-the-roots-are-read
+    lang: ts
+    roots: [src]
+    files:
+      src/a.ts: |
+        export const A = { On: closed("on", "on") };
+      scripts/b.ts: |
+        export const B = { Off: closed("off", "off") };
+    members:
+      - { value: on, source: closed-call, set: A, name: On, file: src/a.ts, line: 1 }

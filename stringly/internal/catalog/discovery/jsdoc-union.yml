@@ -1,0 +1,11 @@
+# A JSDoc comment that may hold a string-literal union: a quoted string
+# followed by `|` inside braces. The members are parsed from the comment text.
+id: stringly-discover-jsdoc-union
+language: tsx
+severity: hint
+message: JSDoc comment with a string-literal union
+rule:
+  kind: comment
+  all:
+    - regex: '^/\*\*'
+    - regex: '\{[^{}]*[''"][^''"\n]*[''"]\s*\|'

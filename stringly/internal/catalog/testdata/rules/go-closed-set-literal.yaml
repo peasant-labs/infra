@@ -1,0 +1,266 @@
+# go-closed-set-literal: a catalog member written as a literal operand of == or
+# !=, as an expression-switch case, or as a key of a map literal whose key type
+# is a set's type. Flat: the other operand's name is never read. Each case is a
+# tree and the exact hit lines after the definition-site exemption and the
+# per-line dedupe. Every exclusion case uses a literal that is a catalog member.
+rule: go-closed-set-literal
+
+cases:
+  - name: flags-member-in-comparison
+    files:
+      status/status.go: &status |
+        package status
+
+        type Status string
+
+        const (
+        	Open   Status = "open"
+        	Closed Status = "closed"
+        )
+      app/app.go: |
+        package app
+
+        func a(x string) bool { return x == "open" }
+        func b(y string) bool { return "closed" != y }
+        func c(z string) bool { return z == `open` }
+    hits:
+      app/app.go: [3, 4, 5]
+
+  - name: flags-switch-case
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        func label(v string) int {
+        	switch v {
+        	case "open", "closed":
+        		return 1
+        	case "other":
+        		return 2
+        	}
+        	return 0
+        }
+    hits:
+      app/app.go: [5]
+
+  - name: flags-map-literal-keyed-by-the-set-type
+    files:
+      status/status.go: *status
+      status/labels.go: |
+        package status
+
+        var labels = map[Status]string{
+        	"open":   "open now",
+        	"closed": "closed now",
+        }
+      app/app.go: |
+        package app
+
+        import "example.test/status"
+
+        var other = map[status.Status]int{"open": 1}
+    hits:
+      status/labels.go: [4, 5]
+      app/app.go: [5]
+
+  - name: flags-member-from-schema-module
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.1
+      app/app.go: |
+        package app
+
+        func check(want string) bool {
+        	switch want {
+        	case "public":
+        		return true
+        	}
+        	return want != "private"
+        }
+    schema: { module: example.test/schema, version: v0.0.1, tree: schema-module }
+    hits:
+      app/app.go: [5, 8]
+
+  - name: flags-map-literal-keyed-by-a-schema-type
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.1
+      app/app.go: |
+        package app
+
+        import "example.test/schema"
+
+        var roles = map[schema.RepositoryRole]bool{"owner": true}
+    schema: { module: example.test/schema, version: v0.0.1, tree: schema-module }
+    hits:
+      app/app.go: [5]
+
+  - name: flags-comparison-in-a-test-file-of-the-declaring-package
+    files:
+      status/status.go: *status
+      status/status_test.go: |
+        package status
+
+        func isOpen(s Status) bool { return s == "open" }
+    hits:
+      status/status_test.go: [3]
+
+  - name: passes-in-the-declaring-file
+    files:
+      status/status.go: |
+        package status
+
+        type Status string
+
+        const (
+        	Open   Status = "open"
+        	Closed Status = "closed"
+        )
+
+        func Parse(raw string) (Status, bool) {
+        	switch raw {
+        	case "open":
+        		return Open, true
+        	}
+        	return "", raw == "closed"
+        }
+    hits: {}
+
+  - name: passes-test-file-constants-are-not-a-set
+    files:
+      app/app_test.go: |
+        package app
+
+        type mode string
+
+        const (
+        	modeFast mode = "fast"
+        	modeSlow mode = "slow"
+        )
+      app/app.go: |
+        package app
+
+        func fast(m string) bool { return m == "fast" }
+    hits: {}
+
+  - name: passes-single-constant-type-is-not-a-set
+    files:
+      app/app.go: |
+        package app
+
+        type Lone string
+
+        const OnlyLone Lone = "lonely"
+      app/use.go: |
+        package app
+
+        func lone(x string) bool { return x == "lonely" }
+    hits: {}
+
+  - name: passes-key-in-a-string-keyed-map
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        var body = map[string]any{"open": true}
+        var names = map[string]string{"closed": "x"}
+    hits: {}
+
+  - name: passes-member-outside-comparison
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        var v = "open"
+
+        func f() { send("open") }
+        func g(x string) bool { return x < "open" }
+    hits: {}
+
+  - name: passes-excluded-go-runtime-goos-comparison
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        import "runtime"
+
+        var onOpen = runtime.GOOS == "open"
+    hits: {}
+
+  - name: passes-excluded-go-runtime-goos-switch
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        import "runtime"
+
+        func f() {
+        	switch runtime.GOOS {
+        	case "open":
+        	}
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-go-runtime-goos
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        import "runtime"
+
+        var a = cfg.GOOS == "open"
+        var b = runtime.Version() == "open"
+    hits:
+      app/app.go: [5, 6]
+
+  - name: passes-excluded-go-runtime-goarch-comparison
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        import "runtime"
+
+        var onOpen = runtime.GOARCH != "open"
+    hits: {}
+
+  - name: passes-excluded-go-runtime-goarch-switch
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        import "runtime"
+
+        func f() {
+        	switch runtime.GOARCH {
+        	case "open":
+        	}
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-go-runtime-goarch
+    files:
+      status/status.go: *status
+      app/app.go: |
+        package app
+
+        var a = cfg.GOARCH == "open"
+
+        func f() {
+        	switch cfg.GOARCH {
+        	case "closed":
+        	}
+        }
+    hits:
+      app/app.go: [3, 7]
