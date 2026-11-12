@@ -15,7 +15,6 @@ required_names:
   - accept-release-actions
   - accept-title-guard
   - accept-range-floor
-  - accept-no-default-branch-push
   - accept-token-mint
   - accept-unfiltered
   - accept-merge-gate-reports
@@ -23,10 +22,6 @@ required_names:
   - accept-cut-release
   - accept-tool-pin
   - accept-classify
-  - accept-no-release-job
-  - accept-cut-release-arm
-  - accept-vendor-hash-arm-close
-  - accept-tag-publish
   - reject-required-contexts-missing-file
   - reject-required-contexts-missing-job
   - reject-merge-group-missing
@@ -51,15 +46,6 @@ required_names:
   - reject-title-guard-no-edited
   - reject-range-floor-missing
   - reject-range-floor-unquoted
-  - reject-no-push-cross-push
-  - reject-no-push-cross-branch
-  - reject-no-push-dup-kind
-  - reject-no-push-unknown-kind
-  - reject-no-push-tag-outside
-  - reject-tag-publish-no-verify-tag
-  - reject-tag-publish-branch-push
-  - reject-tag-publish-extra-trigger
-  - reject-tag-publish-other-tag
   - reject-cut-release-trigger
   - reject-cut-release-level
   - reject-cut-release-no-tagmode
@@ -75,13 +61,42 @@ required_names:
   - reject-merge-gate-always
   - reject-titles-interpolated
   - accept-tool-calls
-  - accept-no-push-release-tag-env
   - reject-tool-calls-missing-required
   - reject-tool-calls-unknown-flag
   - reject-tool-calls-foreign-flag
-  - reject-no-push-unlisted-job
-  - reject-no-push-release-default-branch
-  - reject-no-push-release-tag-unproven
+  - accept-token-read-only
+  - accept-credential-scope
+  - accept-credential-actions
+  - accept-credential-templates
+  - accept-no-release-job
+  - accept-cut-release-arm
+  - accept-vendor-hash-arm-close
+  - accept-tag-publish
+  - accept-templates-release-tag-env
+  - accept-credential-general-steps
+  - reject-token-read-only-missing
+  - reject-token-read-only-write
+  - reject-token-read-only-write-all
+  - reject-token-read-only-persist
+  - reject-token-read-only-contents-write
+  - reject-tag-publish-extra-trigger
+  - reject-credential-scope-unlisted-job
+  - reject-credential-scope-job-env
+  - reject-credential-scope-output
+  - reject-credential-scope-inherit
+  - reject-credential-scope-run-text
+  - reject-credential-actions-github-script
+  - reject-credential-actions-unpinned
+  - reject-credential-actions-container
+  - reject-templates-cross-push
+  - reject-templates-cross-branch
+  - reject-templates-dup-kind
+  - reject-templates-unknown-kind
+  - reject-templates-release-default-branch
+  - reject-templates-release-tag-unproven
+  - reject-tag-publish-no-verify-tag
+  - reject-tag-publish-branch-push
+  - reject-tag-publish-other-tag
 cases:
   - name: accept-required-contexts
     input: { overlay: "" }
@@ -130,14 +145,6 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy range-readers-take-the-floor" }
     mutation: { description: "adds a release-pr range reader that passes the floor through env" }
-
-  - name: accept-no-default-branch-push
-    input: { overlay: "" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: [] }
-    sibling: ""
-    classification: must-pass
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "base repo: every push is a listed job pushing its own branch" }
 
   - name: accept-token-mint
     input: { overlay: "" }
@@ -194,38 +201,6 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy bot-branch-via-classify" }
     mutation: { description: "base repo: guard calls classify and compares no branch literal" }
-
-  - name: accept-no-release-job
-    input: { overlay: "accept-no-release-job" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: [] }
-    sibling: ""
-    classification: must-pass
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "no release job: bot pushes resolve without it and the retired workflow is inert" }
-
-  - name: accept-cut-release-arm
-    input: { overlay: "accept-cut-release-arm" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: [] }
-    sibling: ""
-    classification: must-pass
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "cut-release arms its own PR with a tag-mode-gated merge" }
-
-  - name: accept-vendor-hash-arm-close
-    input: { overlay: "accept-vendor-hash-arm-close" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: [] }
-    sibling: ""
-    classification: must-pass
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "vendor-hash arms and closes its own PR" }
-
-  - name: accept-tag-publish
-    input: { overlay: "accept-tag-publish" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: [] }
-    sibling: ""
-    classification: must-pass
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "add a publish workflow that runs only on a pushed release tag, writes no ref, and creates the Release with --verify-tag" }
 
   - name: reject-required-contexts-missing-file
     input: { overlay: "reject-required-contexts-missing-file" }
@@ -419,78 +394,6 @@ cases:
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy range-readers-take-the-floor" }
     mutation: { description: "pass the floor unquoted so an unset variable eats the flag" }
 
-  - name: reject-no-push-cross-push
-    input: { overlay: "reject-no-push-cross-push" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["may push only its own bot branch"] }
-    sibling: accept-no-default-branch-push
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "push the release branch from the cut-release job" }
-
-  - name: reject-no-push-cross-branch
-    input: { overlay: "reject-no-push-cross-branch" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["only its own branch"] }
-    sibling: accept-cut-release-arm
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "merge another kind's branch from the cut-release job" }
-
-  - name: reject-no-push-dup-kind
-    input: { overlay: "reject-no-push-dup-kind" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["exactly one writer"] }
-    sibling: accept-no-default-branch-push
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "claim the cut-release kind from two bot jobs" }
-
-  - name: reject-no-push-unknown-kind
-    input: { overlay: "reject-no-push-unknown-kind" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["names no branch for that kind"] }
-    sibling: accept-no-default-branch-push
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "drop the cut-release branch from the release config" }
-
-  - name: reject-no-push-tag-outside
-    input: { overlay: "reject-no-push-tag-outside" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["outside the release job's tag step"] }
-    sibling: accept-no-default-branch-push
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "create a release from a branch-triggered workflow outside the release job" }
-
-  - name: reject-tag-publish-no-verify-tag
-    input: { overlay: "reject-tag-publish-no-verify-tag" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["outside the release job's tag step", "does not pass --verify-tag"] }
-    sibling: accept-tag-publish
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "drop --verify-tag from the tag-triggered create, so it could create a missing tag" }
-
-  - name: reject-tag-publish-branch-push
-    input: { overlay: "reject-tag-publish-branch-push" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["outside the release job's tag step", "also pushes a ref or writes a PR"] }
-    sibling: accept-tag-publish
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "push the default branch from the tag-triggered publish workflow" }
-
-  - name: reject-tag-publish-extra-trigger
-    input: { overlay: "reject-tag-publish-extra-trigger" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["outside the release job's tag step", "only trigger is not push: tags:"] }
-    sibling: accept-tag-publish
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "trigger the publish workflow on workflow_dispatch as well as on tags" }
-
-  - name: reject-tag-publish-other-tag
-    input: { overlay: "reject-tag-publish-other-tag" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["outside the release job's tag step", "is not the triggering tag"] }
-    sibling: accept-tag-publish
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "create the Release for a variable that is not mapped from the triggering tag" }
-
   - name: reject-cut-release-trigger
     input: { overlay: "reject-cut-release-trigger" }
     expected: { rule: "cut-release-is-dispatch-only", want_contains: ["only on workflow_dispatch"] }
@@ -611,14 +514,6 @@ cases:
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tool-calls-match-the-cli" }
     mutation: { description: "base repo: every release-intent call names a command and passes exactly its required flags" }
 
-  - name: accept-no-push-release-tag-env
-    input: { overlay: "accept-no-push-release-tag-env" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: [] }
-    sibling: ""
-    classification: must-pass
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "the release tag step pushes refs/tags/$TAG through git -c, with TAG mapped from the planner's tag output" }
-
   - name: reject-tool-calls-missing-required
     input: { overlay: "reject-tool-calls-missing-required" }
     expected: { rule: "tool-calls-match-the-cli", want_contains: ["missing required flag \"--rev\"", "classify takes --author, --head-branch, --rev and requires --author, --head-branch, --rev"] }
@@ -643,26 +538,266 @@ cases:
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tool-calls-match-the-cli" }
     mutation: { description: "pass classify's --rev to group-pr" }
 
-  - name: reject-no-push-unlisted-job
-    input: { overlay: "reject-no-push-unlisted-job" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["job \"sync\" pushes branch \"automation/release\"", "lists no push for this job"] }
-    sibling: "accept-no-default-branch-push"
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "push the release branch through git -c from a job the policy does not list" }
+  - name: accept-token-read-only
+    input: { overlay: "" }
+    expected: { rule: "default-token-read-only", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy default-token-read-only" }
+    mutation: { description: "base repo: every workflow and job declares read permissions and every checkout keeps no credential" }
 
-  - name: reject-no-push-release-default-branch
-    input: { overlay: "reject-no-push-release-default-branch" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["job \"release\" pushes branch \"main\"", "may push only its own bot branch \"automation/release\""] }
-    sibling: "accept-no-default-branch-push"
-    classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "point the release job's git -c push at the default branch, the shape that passed before" }
+  - name: accept-credential-scope
+    input: { overlay: "" }
+    expected: { rule: "credentials-stay-in-listed-jobs", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credentials-stay-in-listed-jobs" }
+    mutation: { description: "base repo: the App token is minted and read only in the release job and the listed bot jobs, through step env carriers" }
 
-  - name: reject-no-push-release-tag-unproven
-    input: { overlay: "reject-no-push-release-tag-unproven" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["variable TAG is not mapped from the planner's tag output"] }
-    sibling: "accept-no-push-release-tag-env"
+  - name: accept-credential-actions
+    input: { overlay: "" }
+    expected: { rule: "credential-jobs-use-pinned-actions", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-use-pinned-actions" }
+    mutation: { description: "base repo: the jobs that may hold a credential use only allowed actions pinned to a commit" }
+
+  - name: accept-credential-templates
+    input: { overlay: "" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "base repo: every credential step runs one template on the job's own bot branch" }
+
+  - name: accept-no-release-job
+    input: { overlay: "accept-no-release-job" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "no release job: bot pushes resolve without it and the retired workflow is inert" }
+
+  - name: accept-cut-release-arm
+    input: { overlay: "accept-cut-release-arm" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "cut-release arms its own PR with a tag-mode-gated merge" }
+
+  - name: accept-vendor-hash-arm-close
+    input: { overlay: "accept-vendor-hash-arm-close" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "vendor-hash arms and closes its own PR" }
+
+  - name: accept-tag-publish
+    input: { overlay: "accept-tag-publish" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "a publish workflow that runs only on a pushed release tag, with contents write in its publish job, views, creates with --verify-tag, and edits the triggering tag's Release" }
+
+  - name: accept-templates-release-tag-env
+    input: { overlay: "accept-templates-release-tag-env" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "the release tag step pushes refs/tags/${TAG} through the authorization header, with TAG mapped from the planner's tag output and the annotated tag made in a step without the credential" }
+
+  - name: accept-credential-general-steps
+    input: { overlay: "accept-credential-general-steps" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "steps without a credential in the release job run interpreters, repository scripts, a variable command word and a pipe into bash" }
+
+  - name: reject-token-read-only-missing
+    input: { overlay: "reject-token-read-only-missing" }
+    expected: { rule: "default-token-read-only", want_contains: ["jobs.release declares no permissions"] }
+    sibling: "accept-token-read-only"
     classification: must-fail
-    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
-    mutation: { description: "push refs/tags/$TAG with TAG mapped from nothing" }
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy default-token-read-only" }
+    mutation: { description: "drop the release job's permissions so the repository default applies" }
+
+  - name: reject-token-read-only-write
+    input: { overlay: "reject-token-read-only-write" }
+    expected: { rule: "default-token-read-only", also: ["credential-steps-run-one-template"], want_contains: ["jobs.release grants pull-requests: write", "receives a credential but its run block is not one command"] }
+    sibling: "accept-token-read-only"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy default-token-read-only" }
+    mutation: { description: "grant the release job pull-requests write, which turns its default token into a credential the general PR lookup step then holds" }
+
+  - name: reject-token-read-only-write-all
+    input: { overlay: "reject-token-read-only-write-all" }
+    expected: { rule: "default-token-read-only", want_contains: ["the workflow sets permissions write-all"] }
+    sibling: "accept-token-read-only"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy default-token-read-only" }
+    mutation: { description: "grant every scope write at the workflow level" }
+
+  - name: reject-token-read-only-persist
+    input: { overlay: "reject-token-read-only-persist" }
+    expected: { rule: "default-token-read-only", want_contains: ["without persist-credentials: false"] }
+    sibling: "accept-token-read-only"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy default-token-read-only" }
+    mutation: { description: "check out the repository in the release job with the token persisted in the git config" }
+
+  - name: reject-token-read-only-contents-write
+    input: { overlay: "reject-token-read-only-contents-write" }
+    expected: { rule: "default-token-read-only", also: ["credentials-stay-in-listed-jobs"], want_contains: ["grants contents: write in a workflow that does not run only on a pushed release tag", "reads github.token in a job that may hold no credential"] }
+    sibling: "accept-token-read-only"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy default-token-read-only" }
+    mutation: { description: "create a release from a branch-triggered workflow whose default token may write contents" }
+
+  - name: reject-tag-publish-extra-trigger
+    input: { overlay: "reject-tag-publish-extra-trigger" }
+    expected: { rule: "default-token-read-only", also: ["credentials-stay-in-listed-jobs"], want_contains: ["grants contents: write in a workflow that does not run only on a pushed release tag"] }
+    sibling: "accept-tag-publish"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy default-token-read-only" }
+    mutation: { description: "trigger the publish workflow on workflow_dispatch as well as on tags, so its contents write no longer belongs to a tag-only workflow" }
+
+  - name: reject-credential-scope-unlisted-job
+    input: { overlay: "reject-credential-scope-unlisted-job" }
+    expected: { rule: "credentials-stay-in-listed-jobs", want_contains: ["mints the App token outside the release job and the listed bot jobs", "reads steps.mint (the minted App token) in a job that may hold no credential"] }
+    sibling: "accept-credential-scope"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credentials-stay-in-listed-jobs" }
+    mutation: { description: "mint the App token and push the release branch from a job the policy does not list" }
+
+  - name: reject-credential-scope-job-env
+    input: { overlay: "reject-credential-scope-job-env" }
+    expected: { rule: "credentials-stay-in-listed-jobs", also: ["credential-steps-run-one-template", "release-actions-gated"], want_contains: ["jobs.release.env reads secrets.RELEASER_APP_KEY"] }
+    sibling: "accept-credential-scope"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credentials-stay-in-listed-jobs" }
+    mutation: { description: "put the App key in the release job env, which every step inherits" }
+
+  - name: reject-credential-scope-output
+    input: { overlay: "reject-credential-scope-output" }
+    expected: { rule: "credentials-stay-in-listed-jobs", want_contains: ["jobs.release.outputs reads steps.mint (the minted App token)"] }
+    sibling: "accept-credential-scope"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credentials-stay-in-listed-jobs" }
+    mutation: { description: "expose the minted token as a job output" }
+
+  - name: reject-credential-scope-inherit
+    input: { overlay: "reject-credential-scope-inherit" }
+    expected: { rule: "credentials-stay-in-listed-jobs", want_contains: ["passes secrets: inherit"] }
+    sibling: "accept-credential-scope"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credentials-stay-in-listed-jobs" }
+    mutation: { description: "call a reusable workflow with every secret, the App key included" }
+
+  - name: reject-credential-scope-run-text
+    input: { overlay: "reject-credential-scope-run-text" }
+    expected: { rule: "credentials-stay-in-listed-jobs", also: ["credential-steps-run-one-template"], want_contains: ["reads steps.mint (the minted App token) in run", "is not the authorization header"] }
+    sibling: "accept-credential-scope"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credentials-stay-in-listed-jobs" }
+    mutation: { description: "interpolate the minted token into the push step's run text instead of its env" }
+
+  - name: reject-credential-actions-github-script
+    input: { overlay: "reject-credential-actions-github-script" }
+    expected: { rule: "credential-jobs-use-pinned-actions", want_contains: ["uses \"actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea\", which is not an allowed action"] }
+    sibling: "accept-credential-actions"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-use-pinned-actions" }
+    mutation: { description: "add an actions/github-script step that calls git.updateRef to the release job" }
+
+  - name: reject-credential-actions-unpinned
+    input: { overlay: "reject-credential-actions-unpinned" }
+    expected: { rule: "credential-jobs-use-pinned-actions", want_contains: ["pinned to \"v5\" instead of a 40-hex commit"] }
+    sibling: "accept-credential-actions"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-use-pinned-actions" }
+    mutation: { description: "pin the release job's checkout to a moving tag" }
+
+  - name: reject-credential-actions-container
+    input: { overlay: "reject-credential-actions-container" }
+    expected: { rule: "credential-jobs-use-pinned-actions", want_contains: ["jobs.release runs in a container"] }
+    sibling: "accept-credential-actions"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-use-pinned-actions" }
+    mutation: { description: "run the release job in a container image whose git the checker cannot read" }
+
+  - name: reject-templates-cross-push
+    input: { overlay: "reject-templates-cross-push" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["is not the job's own bot branch \"automation/cut-release\""] }
+    sibling: "accept-credential-templates"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "push the release branch from the cut-release job" }
+
+  - name: reject-templates-cross-branch
+    input: { overlay: "reject-templates-cross-branch" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["is neither the job's own bot branch"] }
+    sibling: "accept-cut-release-arm"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "merge another kind's branch from the cut-release job" }
+
+  - name: reject-templates-dup-kind
+    input: { overlay: "reject-templates-dup-kind" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["exactly one writer"] }
+    sibling: "accept-credential-templates"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "claim the cut-release kind from two bot jobs" }
+
+  - name: reject-templates-unknown-kind
+    input: { overlay: "reject-templates-unknown-kind" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["names no branch for that kind", "owns no branch and no PR"] }
+    sibling: "accept-credential-templates"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "drop the cut-release branch from the release config" }
+
+  - name: reject-templates-release-default-branch
+    input: { overlay: "reject-templates-release-default-branch" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["the refspec \"main\" is not the job's own bot branch \"automation/release\""] }
+    sibling: "accept-credential-templates"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "point the release job's push at the default branch" }
+
+  - name: reject-templates-release-tag-unproven
+    input: { overlay: "reject-templates-release-tag-unproven" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["is not steps.<plan>.outputs.tag"] }
+    sibling: "accept-templates-release-tag-env"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "push refs/tags/${TAG} with TAG mapped from an output that is not the planner's tag" }
+
+  - name: reject-tag-publish-no-verify-tag
+    input: { overlay: "reject-tag-publish-no-verify-tag" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["does not pass --verify-tag"] }
+    sibling: "accept-tag-publish"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "drop --verify-tag from the tag-triggered create, so it could create a missing tag" }
+
+  - name: reject-tag-publish-branch-push
+    input: { overlay: "reject-tag-publish-branch-push" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["may not run the push-own-branch template"] }
+    sibling: "accept-tag-publish"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "push the default branch from the tag-triggered publish job" }
+
+  - name: reject-tag-publish-other-tag
+    input: { overlay: "reject-tag-publish-other-tag" }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["is not the triggering tag"] }
+    sibling: "accept-tag-publish"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
+    mutation: { description: "create the Release for TAG mapped from an output that is not the triggering tag" }

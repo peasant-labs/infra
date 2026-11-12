@@ -168,7 +168,7 @@ func (c *queueChecker) checkCutRelease() {
 			continue
 		}
 		for _, step := range stepsOf(job) {
-			if !isWriteStep(step) || isMintStep(step) {
+			if !c.isWriteStep(bot.Workflow, bot.Job, step) || isMintStep(step) {
 				continue
 			}
 			// The write step itself tests tag mode: a job-level gate can be

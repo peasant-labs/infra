@@ -12,12 +12,13 @@ import (
 )
 
 // This file is the merge-queue half of the workflow policy checker. It reads
-// every workflow file in a directory and applies the eight closed queue rules
-// from the policy's queue section: required contexts resolve, required
-// workflows trigger on merge_group with per-ref concurrency, the release job's
-// write steps are gated on the planner's action in the canonical verdict form,
-// the title guard cannot pass early, range readers take the floor, each bot
-// branch has one writer, and token-minting jobs check the ref first.
+// every workflow file in a directory and applies the closed queue rules from
+// the policy's queue section (AllQueueRules): required contexts resolve,
+// required workflows trigger on merge_group with per-ref concurrency, the
+// release job's write steps are gated on the planner's action in the
+// canonical verdict form, the title guard cannot pass early, range readers
+// take the floor, every credential stays in the listed jobs and runs only
+// closed templates there, and token-minting jobs check the ref first.
 //
 // A repo with no release job skips the release-job clauses. Every diagnostic is actionable:
 // it names the file, the job, and the rule, says why the shape matters, and
@@ -40,6 +41,9 @@ func CheckWorkflows(policy QueuePolicy, cfg intent.Config, dir string) ([]Diagno
 			Message:  "check workflows: " + dir + ": rule " + QueueRuleRequiredContexts.String() + ": cannot list the workflows directory during merge-queue policy validation: " + err.Error() + ". Fix the " + intent.FlagDir.String() + " path or run from the repository root",
 		}}, append([]RequiredContext(nil), policy.Queue.Required...)
 	}
+	c.pushes = c.resolvePushes(QueueRuleCredentialTemplates)
+	c.creds = c.credentialJobs(c.pushes)
+	c.secrets = c.mintSecrets()
 	c.checkRequiredContexts()
 	c.checkMergeGroup()
 	c.checkConcurrency()
@@ -49,7 +53,10 @@ func CheckWorkflows(policy QueuePolicy, cfg intent.Config, dir string) ([]Diagno
 	c.checkReleaseActions()
 	c.checkTitleGuard()
 	c.checkRangeFloor()
-	c.checkNoPush()
+	c.checkTokenReadOnly()
+	c.checkCredentialScope()
+	c.checkCredentialActions()
+	c.checkCredentialTemplates()
 	c.checkTokenMint()
 	c.checkCutRelease()
 	c.checkToolPin()
@@ -68,6 +75,12 @@ type queueChecker struct {
 	dir         string
 	files       map[string]*queueFile
 	diagnostics []Diagnostic
+	// pushes, creds and secrets are the credential model, built once after
+	// the files load: each listed job's bot branch, every job's place in
+	// the model, and the secret names the mint steps read.
+	pushes  []allowedPush
+	creds   map[string]map[string]credentialJob
+	secrets map[string]bool
 }
 
 // queueFile is one parsed workflow file, or the fault that kept it from

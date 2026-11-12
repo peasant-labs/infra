@@ -41,14 +41,6 @@ var (
 	rangeReader = regexp.MustCompile(toolCall(intent.CommandPlan, intent.CommandReleasePR))
 	// preTagRunner matches any implemented subcommand of the release tool.
 	preTagRunner = regexp.MustCompile(toolCall(intent.AllCommands...))
-	// prWrite matches a run line that opens, edits, closes, merges, or
-	// releases a PR. Ref writes are read by stepRefWrites.
-	prWrite = regexp.MustCompile(`\bgh\s+pr\s+(create|edit|close|merge)\b|\bgh\s+release\s+create\b`)
-	// tagPush matches a run line that pushes a tag: a tag refspec, an
-	// explicit tag, or a release creation.
-	tagPush = regexp.MustCompile(regexp.QuoteMeta(intent.TagRefPrefix) + `|\bgit\s+tag\b|\bgh\s+release\s+create\b`)
-	// prOpenEdit matches a run line that opens or edits the release PR.
-	prOpenEdit = regexp.MustCompile(`\bgh\s+pr\s+(create|edit)\b`)
 )
 
 // gateAlternatives renders the planner's closed gate set as a regex
@@ -68,10 +60,6 @@ func gatedAction(literal string) (intent.Action, bool) {
 	action, err := intent.ParseAction(literal)
 	return action, err == nil
 }
-
-// appTokenOutput is the output a GitHub App token step exposes; a step that
-// reads it holds the App token.
-const appTokenOutput = "outputs.token"
 
 // appTokenAction is the action that mints a GitHub App token.
 const appTokenAction = "create-github-app-token"
@@ -97,7 +85,7 @@ func (c *queueChecker) checkReleaseActions() {
 			"jobs."+rel.Job+" is missing during merge-queue policy validation, but the policy names it as the release job. Add the job that carries out the planner's action")
 		return
 	}
-	r := &releaseChecker{c: c, workflow: rel.Workflow, doc: doc, job: job, preTag: rel.PreTagSteps}
+	r := &releaseChecker{c: c, workflow: rel.Workflow, jobName: rel.Job, doc: doc, job: job, preTag: rel.PreTagSteps}
 	r.collectSteps()
 	r.checkVerdictForm()
 	r.checkWriteStepsGated()
@@ -114,6 +102,7 @@ func (c *queueChecker) checkReleaseActions() {
 type releaseChecker struct {
 	c        *queueChecker
 	workflow string
+	jobName  string
 	doc      *yaml.Node
 	job      *yaml.Node
 	preTag   []string
@@ -183,20 +172,6 @@ func isMintStep(step *yaml.Node) bool {
 	return strings.Contains(stepUsesText(step), appTokenAction)
 }
 
-// isWriteStep reports whether the step can write: it mints the App token, it
-// consumes a minted token output, its run writes a ref, or it writes a PR.
-func isWriteStep(step *yaml.Node) bool {
-	if isMintStep(step) {
-		return true
-	}
-	for _, s := range stepScalars(step) {
-		if strings.Contains(s, appTokenOutput) {
-			return true
-		}
-	}
-	return prWrite.MatchString(stepRunText(step)) || hasRefWrite(step)
-}
-
 // isArmHoldStep reports whether the step is gated on the queue gate output
 // rather than on the planner's action; those steps belong to clause (8) and
 // are exempt from the action-gate clauses.
@@ -204,20 +179,22 @@ func isArmHoldStep(step *yaml.Node) bool {
 	return gateTest.MatchString(stepIfText(step))
 }
 
-// isTagStep reports whether the step pushes a tag.
-func isTagStep(step *yaml.Node) bool {
-	return tagPush.MatchString(stepRunText(step))
+// isTagStep reports whether a release-workflow step pushes a tag: it
+// receives a credential and runs the tag push template.
+func (r *releaseChecker) isTagStep(jobName string, step *yaml.Node) bool {
+	return r.c.isTemplateStep(r.workflow, jobName, step, TemplatePushReleaseTag)
 }
 
-// isBranchPushStep reports whether the step writes a ref that is not a tag:
-// a branch push, or a write the reader cannot prove.
-func isBranchPushStep(step *yaml.Node) bool {
-	return hasBranchOrUnprovenWrite(step) && !isTagStep(step)
+// isBranchPushStep reports whether a release-job step pushes the release
+// branch.
+func (r *releaseChecker) isBranchPushStep(step *yaml.Node) bool {
+	return r.c.isTemplateStep(r.workflow, r.jobName, step, TemplatePushOwnBranch)
 }
 
-// isPROpenEditStep reports whether the step opens or edits the release PR.
-func isPROpenEditStep(step *yaml.Node) bool {
-	return prOpenEdit.MatchString(stepRunText(step))
+// isPROpenEditStep reports whether a release-job step opens or edits the
+// release PR.
+func (r *releaseChecker) isPROpenEditStep(step *yaml.Node) bool {
+	return r.c.isTemplateStep(r.workflow, r.jobName, step, TemplatePRCreate, TemplatePREdit)
 }
 
 // isQueueReadStep reports whether the step reads the merge queue or runs the
@@ -290,7 +267,7 @@ func (r *releaseChecker) checkVerdictForm() {
 // run that needs a token.
 func (r *releaseChecker) checkWriteStepsGated() {
 	for i, step := range r.steps {
-		if !isWriteStep(step) || isArmHoldStep(step) {
+		if !r.c.isWriteStep(r.workflow, r.jobName, step) || isArmHoldStep(step) {
 			continue
 		}
 		r.flagged[i] = true
@@ -339,7 +316,7 @@ func (r *releaseChecker) checkTagPush() {
 	for _, jobName := range jobNames(r.doc) {
 		job := jobNode(r.doc, jobName)
 		for _, step := range stepsOf(job) {
-			if !isTagStep(step) {
+			if !r.isTagStep(jobName, step) {
 				continue
 			}
 			r.flagged[r.stepIndex(step)] = true
@@ -364,7 +341,7 @@ func (r *releaseChecker) checkTagPush() {
 	tagCount := 0
 	for _, jobName := range jobNames(r.doc) {
 		for _, step := range stepsOf(jobNode(r.doc, jobName)) {
-			if isTagStep(step) {
+			if r.isTagStep(jobName, step) {
 				tagCount++
 			}
 		}
@@ -473,7 +450,7 @@ func (r *releaseChecker) checkPushOutputs() {
 		}
 	}
 	for i, step := range r.steps {
-		if !isBranchPushStep(step) && !isPROpenEditStep(step) && !isQueueReadStep(step) {
+		if !r.isBranchPushStep(step) && !r.isPROpenEditStep(step) && !isQueueReadStep(step) {
 			continue
 		}
 		r.flagged[i] = true

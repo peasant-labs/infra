@@ -1,0 +1,48 @@
+name: Cut release
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: Release level
+        type: choice
+        options: [patch, minor]
+concurrency:
+  group: cut-release-${{ github.ref }}
+permissions:
+  contents: read
+jobs:
+  cut:
+    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - id: mint
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          app-id: ${{ vars.RELEASER_APP_ID }}
+          private-key: ${{ secrets.RELEASER_APP_KEY }}
+      - id: commit
+        if: vars.RELEASE_BATCH_MODE == 'tag'
+        run: |
+          git checkout -B automation/cut-release
+          git commit --allow-empty -m "release[patch]: cut a release"
+      - id: push
+        if: vars.RELEASE_BATCH_MODE == 'tag'
+        env:
+          APP_TOKEN: ${{ steps.mint.outputs.token }}
+        run: |
+          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push origin HEAD:automation/cut-release
+      - id: open
+        if: vars.RELEASE_BATCH_MODE == 'tag'
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+        run: gh pr create --head automation/cut-release --base develop --title "cut" --body "bot"
+      - id: arm
+        if: vars.RELEASE_BATCH_MODE == 'tag'
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+        run: gh pr merge automation/release --auto --squash

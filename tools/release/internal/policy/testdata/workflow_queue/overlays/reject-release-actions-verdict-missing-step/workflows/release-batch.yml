@@ -10,17 +10,26 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
+  pull-requests: read
 jobs:
   release:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/develop'
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: peasant-labs/infra
           ref: 71e687cef7eede9a63659be98ce9adac3c563398
           path: infra-tool
-      - uses: actions/setup-go@v6
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version-file: infra-tool/tools/release/go.mod
       - name: Build release-intent
@@ -32,7 +41,7 @@ jobs:
         run: release-intent plan --branch develop --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
       - id: mint
         if: vars.RELEASE_BATCH_MODE == 'tag'
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
         with:
           app-id: ${{ vars.RELEASER_APP_ID }}
           private-key: ${{ secrets.RELEASER_APP_KEY }}
@@ -48,31 +57,44 @@ jobs:
       - id: tag
         if: "!cancelled() && steps.verdict.outputs.action == 'tag'"
         env:
-          GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: git push origin "${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}"
+          APP_TOKEN: ${{ steps.mint.outputs.token }}
+        run: |
+          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push origin "${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}"
       - id: decide
         if: "!cancelled()"
         run: release-intent plan --branch develop --verdict ${{ (steps.verify-config.outcome == 'success' && steps.verify-workflows.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
       - id: write
         if: "!cancelled() && steps.decide.outputs.action == 'open-pr'"
-        env:
-          GH_TOKEN: ${{ steps.mint.outputs.token }}
         run: release-intent release-pr --branch develop --current automation/release --write --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
       - id: push
         if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push == 'true'"
         env:
-          GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: git push --force-with-lease origin automation/release
-      - id: open
+          APP_TOKEN: ${{ steps.mint.outputs.token }}
+        run: |
+          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push --force-with-lease origin automation/release
+      - id: find
         if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push"
         env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "number=$(gh pr list --head automation/release --state open --json number --jq '.[0].number // empty')" >> "$GITHUB_OUTPUT"
+      - id: open
+        if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push && steps.find.outputs.number == ''"
+        env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: 'gh pr create --head automation/release --base develop --title "release[minor]: v0.2.0" --body "bot" || gh pr edit automation/release --title "release[minor]: v0.2.0" --body "bot"'
+          TITLE: "release[minor]: v0.2.0"
+        run: gh pr create --head automation/release --base develop --title "${TITLE}" --body "bot"
+      - id: edit
+        if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push && steps.find.outputs.number != ''"
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+          PR_NUMBER: ${{ steps.find.outputs.number }}
+          TITLE: "release[minor]: v0.2.0"
+        run: gh pr edit "${PR_NUMBER}" --title "${TITLE}" --body "bot"
       - id: queue
         if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push"
         env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: gh api graphql -f query='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){totalCount nodes{position pullRequest{number title}}}}}}}' -f owner=peasant-labs -f repo=schema -f branch=develop > queue.json
+        run: gh api graphql -F owner='{owner}' -F repo='{repo}' -F branch=develop -f query='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){totalCount nodes{position pullRequest{number title}}}}}}}' > queue.json
       - id: gate
         if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push"
         run: release-intent queue-gate --queue queue.json --release-pr 7
@@ -90,4 +112,4 @@ jobs:
         if: "!cancelled() && steps.decide.outputs.action == 'close-pr'"
         env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: gh pr close 7
+        run: gh pr close automation/release

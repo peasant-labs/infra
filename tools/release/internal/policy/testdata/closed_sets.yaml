@@ -11,6 +11,13 @@ required_names:
   - github-event
   - pull-request-action
   - default-pull-request-actions
+  - permission-level
+  - permission-shorthand
+  - writable-scope
+  - allowed-action
+  - template-env
+  - credential-template
+  - credential-job-class
 sets:
   - name: queue-rule
     members:
@@ -20,7 +27,10 @@ sets:
       - release-actions-gated
       - title-guard-no-early-success
       - range-readers-take-the-floor
-      - no-default-branch-push-from-workflows
+      - default-token-read-only
+      - credentials-stay-in-listed-jobs
+      - credential-jobs-use-pinned-actions
+      - credential-steps-run-one-template
       - token-mint-ref-check
       - required-workflows-unfiltered
       - merge-gate-always-reports
@@ -43,4 +53,57 @@ sets:
   # pull-request-action with no parser of its own.
   - name: default-pull-request-actions
     members: [opened, synchronize, reopened]
+    refused: []
+
+  - name: permission-level
+    members: [read, write, none]
+    refused: ["", "admin", "Read"]
+
+  - name: permission-shorthand
+    members: [read-all, write-all]
+    refused: ["", "none-all", "Read-All"]
+
+  # The scopes that may ever be write: id-token anywhere (OIDC publishing),
+  # contents only in the workflow that runs on a pushed release tag.
+  - name: writable-scope
+    members: [id-token, contents]
+    refused: ["", "pull-requests", "actions", "Contents"]
+
+  # The actions a job that may hold a credential may use, each pinned to a
+  # commit. actions/github-script is refused: it runs code the checker
+  # cannot read with the credential in reach.
+  - name: allowed-action
+    members:
+      - actions/checkout
+      - actions/setup-go
+      - actions/setup-node
+      - actions/create-github-app-token
+      - actions/upload-artifact
+      - pnpm/action-setup
+      - cachix/install-nix-action
+    refused: ["", "actions/github-script", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
+
+  # The env names a credential step may carry: three credential carriers and
+  # the values the templates' typed parts read.
+  - name: template-env
+    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, CANDIDATE, PR_NUMBER, TITLE, BODY, PRERELEASE, LATEST]
+    refused: ["", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "gh_token"]
+
+  - name: credential-template
+    members:
+      - push-own-branch
+      - push-release-tag
+      - pr-create
+      - pr-edit
+      - pr-close
+      - pr-merge
+      - merge-queue-read
+      - release-view
+      - release-edit
+      - release-create
+    refused: ["", "push", "gh-api", "Push-Own-Branch"]
+
+  # Why a job may hold a credential; it has no parser of its own.
+  - name: credential-job-class
+    members: [release job, bot job, tag-triggered publish job]
     refused: []

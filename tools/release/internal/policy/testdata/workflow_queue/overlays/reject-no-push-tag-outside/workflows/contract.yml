@@ -1,9 +1,0 @@
-name: Contract
-on:
-  push:
-    branches: [develop]
-jobs:
-  contract:
-    runs-on: ubuntu-latest
-    steps:
-      - run: gh release create v0.1.0 --verify-tag generated/*

@@ -20,18 +20,17 @@ import (
 // toolCalls returns the release tool invocations in a run block: every
 // simple command, including those in substitutions, whose command word is
 // the tool. A build or a copy that names the binary as an argument is not an
-// invocation. complete is false when the block does not lex completely.
-func toolCalls(run string) ([]shellCommand, bool) {
-	cmds, complete := shellCommands(run)
+// invocation.
+func toolCalls(run string) []shellCommand {
 	var out []shellCommand
-	for _, cmd := range cmds {
+	for _, cmd := range scanCommands(run) {
 		at := commandWord(cmd)
 		if at < 0 || path.Base(cmd[at].bare) != intent.ProgramName {
 			continue
 		}
 		out = append(out, cmd[at:])
 	}
-	return out, complete
+	return out
 }
 
 // toolCallProblems checks one invocation (its first word is the tool) against
@@ -82,7 +81,7 @@ func (c *queueChecker) checkToolCalls() {
 				if shell := effectiveShell(step, job, doc); shell != "" && !posixShell(shell) {
 					continue
 				}
-				calls, _ := toolCalls(stepRunText(step))
+				calls := toolCalls(stepRunText(step))
 				for _, call := range calls {
 					for _, problem := range toolCallProblems(call) {
 						c.emit(QueueRuleToolCalls, name, stepID(step),
@@ -111,6 +110,13 @@ func toolCallFix(call shellCommand) string {
 	fix := command.String() + " takes " + joinOrNone(accepted)
 	fix += " and requires " + joinOrNone(command.RequiredFlags())
 	return fix + ", each flag and its value as separate words; the tool refuses the call at run time otherwise"
+}
+
+// posixShell reports whether a shell setting runs bash or sh, whose run
+// blocks the scanner reads.
+func posixShell(shell string) bool {
+	fields := strings.Fields(shell)
+	return len(fields) > 0 && (path.Base(fields[0]) == "bash" || path.Base(fields[0]) == "sh")
 }
 
 func joinOrNone(flags []intent.Flag) string {

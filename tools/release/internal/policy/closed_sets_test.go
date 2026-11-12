@@ -58,6 +58,13 @@ func closedSetsUnderTest() map[string]closedSetUnderTest {
 		"github-event":                 {memberNames(AllGitHubEvents), parserOf(ParseGitHubEvent)},
 		"pull-request-action":          {memberNames(AllPullRequestActions), parserOf(ParsePullRequestAction)},
 		"default-pull-request-actions": {memberNames(DefaultPullRequestActions), nil},
+		"permission-level":             {memberNames(AllPermissionLevels), parserOf(ParsePermissionLevel)},
+		"permission-shorthand":         {memberNames(AllPermissionShorthands), parserOf(ParsePermissionShorthand)},
+		"writable-scope":               {memberNames(AllWritableScopes), parserOf(ParseWritableScope)},
+		"allowed-action":               {memberNames(AllAllowedActions), parserOf(ParseAllowedAction)},
+		"template-env":                 {memberNames(AllTemplateEnvs), parserOf(ParseTemplateEnv)},
+		"credential-template":          {memberNames(AllCredentialTemplates), parserOf(ParseCredentialTemplate)},
+		"credential-job-class":         {memberNames(allCredentialJobClasses), nil},
 	}
 }
 
