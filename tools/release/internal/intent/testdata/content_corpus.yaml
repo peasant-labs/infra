@@ -17,7 +17,7 @@ cases:
         changelog: "# Changelog\n\n## [v0.2.0] - 2026-11-12\n\n- one (#11)\n"
         section: "## [v0.2.0] - 2026-11-12\n\n- one (#11)\n"
         versions: {"package.json": "0.2.0"}
-    expected: {code: ""}
+    expected: {}
     classification: must-pass
     provenance: {source: requirement, ref: "content: equal content compares equal"}
     mutation: {description: "a release PR matching the generator byte for byte"}

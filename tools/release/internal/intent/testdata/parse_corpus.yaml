@@ -1,0 +1,333 @@
+# Closed-set boundary corpus: rows of every Parse function that reads a
+# closed-set value from outside text. An accept row names the member the
+# text selects; a reject row carries text that selects no member and must be
+# refused, never read as a default.
+required_names:
+  - mode-tag
+  - mode-plan-only
+  - mode-unset-plans
+  - mode-misspelled
+  - mode-wrong-case
+  - mode-padded
+  - mode-truthy-word
+  - type-feat
+  - type-unknown
+  - type-empty
+  - type-wrong-case
+  - level-none
+  - level-major
+  - level-empty
+  - level-unknown
+  - class-may-release
+  - class-unknown
+  - class-empty
+  - action-open-pr
+  - action-unknown
+  - action-empty
+  - verdict-taggable
+  - verdict-none
+  - verdict-unknown
+  - gate-hold
+  - gate-unknown
+  - gate-empty
+  - freshness-stale
+  - freshness-unknown-member
+  - freshness-misspelled
+  - freshness-empty
+  - pr-kind-vendor-hash
+  - pr-kind-unknown
+  - pr-kind-empty
+  - error-code-protected-path
+  - error-code-unknown
+  - error-code-empty
+  - output-key-candidate-fresh
+  - output-key-unknown
+  - output-key-empty
+  - repo-variable-floor
+  - repo-variable-unknown
+  - repo-variable-wrong-case
+cases:
+  - name: mode-tag
+    input: {set: mode, raw: "tag"}
+    expected: {member: "tag"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "mode: the member's own spelling arms the release job"}
+    mutation: {description: "the arming value"}
+  - name: mode-plan-only
+    input: {set: mode, raw: "plan-only"}
+    expected: {member: "plan-only"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "mode: the member's own spelling plans without writing"}
+    mutation: {description: "the deliberate plan-only value"}
+  - name: mode-unset-plans
+    input: {set: mode, raw: ""}
+    expected: {member: "plan-only"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "mode: an unset repository variable plans without writing"}
+    mutation: {description: "left the repository variable unset"}
+  - name: mode-misspelled
+    input: {set: mode, raw: "tags"}
+    expected: {}
+    classification: must-fail
+    sibling: mode-tag
+    provenance: {source: boundary, ref: "mode: a misspelled value is refused, never read as plan-only"}
+    mutation: {description: "added a letter to the arming value"}
+  - name: mode-wrong-case
+    input: {set: mode, raw: "Tag"}
+    expected: {}
+    classification: must-fail
+    sibling: mode-tag
+    provenance: {source: boundary, ref: "mode: spelling is exact"}
+    mutation: {description: "capitalised the arming value"}
+  - name: mode-padded
+    input: {set: mode, raw: " tag"}
+    expected: {}
+    classification: must-fail
+    sibling: mode-tag
+    provenance: {source: boundary, ref: "mode: surrounding space is not trimmed into a member"}
+    mutation: {description: "put a space before the arming value"}
+  - name: mode-truthy-word
+    input: {set: mode, raw: "true"}
+    expected: {}
+    classification: must-fail
+    sibling: mode-tag
+    provenance: {source: boundary, ref: "mode: a truthy word is not the arming value"}
+    mutation: {description: "wrote a boolean word for the mode"}
+  - name: type-feat
+    input: {set: type, raw: "feat"}
+    expected: {member: "feat"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "a known title type"}
+  - name: type-unknown
+    input: {set: type, raw: "feature"}
+    expected: {}
+    classification: must-fail
+    sibling: type-feat
+    provenance: {source: boundary, ref: "type: a word outside the closed set is refused"}
+    mutation: {description: "spelled the type out in full"}
+  - name: type-empty
+    input: {set: type, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: type-feat
+    provenance: {source: boundary, ref: "type: the empty string is no type"}
+    mutation: {description: "emptied the type"}
+  - name: type-wrong-case
+    input: {set: type, raw: "Feat"}
+    expected: {}
+    classification: must-fail
+    sibling: type-feat
+    provenance: {source: boundary, ref: "type: spelling is exact"}
+    mutation: {description: "capitalised the type"}
+  - name: level-none
+    input: {set: level, raw: "none"}
+    expected: {member: "none"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllLevels"}
+    mutation: {description: "the no-release level by its own word"}
+  - name: level-major
+    input: {set: level, raw: "major"}
+    expected: {member: "major"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllLevels"}
+    mutation: {description: "the highest level"}
+  - name: level-empty
+    input: {set: level, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: level-none
+    provenance: {source: boundary, ref: "level: the empty string is not read as no release"}
+    mutation: {description: "emptied the level"}
+  - name: level-unknown
+    input: {set: level, raw: "micro"}
+    expected: {}
+    classification: must-fail
+    sibling: level-major
+    provenance: {source: boundary, ref: "level: a word outside the closed set is refused"}
+    mutation: {description: "used a level word no member holds"}
+  - name: class-may-release
+    input: {set: class, raw: "may-release"}
+    expected: {member: "may-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllClasses"}
+    mutation: {description: "a known class"}
+  - name: class-unknown
+    input: {set: class, raw: "sometimes-release"}
+    expected: {}
+    classification: must-fail
+    sibling: class-may-release
+    provenance: {source: boundary, ref: "class: a word outside the closed set is refused"}
+    mutation: {description: "used a class word no member holds"}
+  - name: class-empty
+    input: {set: class, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: class-may-release
+    provenance: {source: boundary, ref: "class: the empty string is no class"}
+    mutation: {description: "emptied the class"}
+  - name: action-open-pr
+    input: {set: action, raw: "open-pr"}
+    expected: {member: "open-pr"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllActions"}
+    mutation: {description: "a known action"}
+  - name: action-unknown
+    input: {set: action, raw: "open_pr"}
+    expected: {}
+    classification: must-fail
+    sibling: action-open-pr
+    provenance: {source: boundary, ref: "action: a word outside the closed set is refused"}
+    mutation: {description: "swapped the hyphen for an underscore"}
+  - name: action-empty
+    input: {set: action, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: action-open-pr
+    provenance: {source: boundary, ref: "action: the empty string is not read as the none action"}
+    mutation: {description: "emptied the action"}
+  - name: verdict-taggable
+    input: {set: verdict, raw: "taggable"}
+    expected: {member: "taggable"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllVerdicts"}
+    mutation: {description: "the passing report"}
+  - name: verdict-none
+    input: {set: verdict, raw: ""}
+    expected: {member: ""}
+    classification: must-pass
+    provenance: {source: requirement, ref: "verdict: no report is the member spelled as the empty string"}
+    mutation: {description: "gave no report"}
+  - name: verdict-unknown
+    input: {set: verdict, raw: "passed"}
+    expected: {}
+    classification: must-fail
+    sibling: verdict-taggable
+    provenance: {source: boundary, ref: "verdict: a word outside the closed set proves nothing"}
+    mutation: {description: "used a verdict word no member holds"}
+  - name: gate-hold
+    input: {set: gate, raw: "hold"}
+    expected: {member: "hold"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllGates"}
+    mutation: {description: "a known gate"}
+  - name: gate-unknown
+    input: {set: gate, raw: "open"}
+    expected: {}
+    classification: must-fail
+    sibling: gate-hold
+    provenance: {source: boundary, ref: "gate: a word outside the closed set is refused, never read as arm"}
+    mutation: {description: "used a gate word no member holds"}
+  - name: gate-empty
+    input: {set: gate, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: gate-hold
+    provenance: {source: boundary, ref: "gate: the empty string is no gate"}
+    mutation: {description: "emptied the gate"}
+  - name: freshness-stale
+    input: {set: freshness, raw: "stale"}
+    expected: {member: "stale"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllFreshness"}
+    mutation: {description: "a known freshness"}
+  - name: freshness-unknown-member
+    input: {set: freshness, raw: "unknown"}
+    expected: {member: "unknown"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllFreshness"}
+    mutation: {description: "the member that marks no candidate"}
+  - name: freshness-misspelled
+    input: {set: freshness, raw: "freshh"}
+    expected: {}
+    classification: must-fail
+    sibling: freshness-stale
+    provenance: {source: boundary, ref: "freshness: a word outside the closed set is refused, never read as fresh"}
+    mutation: {description: "misspelled the fresh value"}
+  - name: freshness-empty
+    input: {set: freshness, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: freshness-unknown-member
+    provenance: {source: boundary, ref: "freshness: the empty string is not the unknown member"}
+    mutation: {description: "emptied the freshness"}
+  - name: pr-kind-vendor-hash
+    input: {set: pr-kind, raw: "vendor-hash"}
+    expected: {member: "vendor-hash"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllPRKinds"}
+    mutation: {description: "a known bot PR kind"}
+  - name: pr-kind-unknown
+    input: {set: pr-kind, raw: "hotfix"}
+    expected: {}
+    classification: must-fail
+    sibling: pr-kind-vendor-hash
+    provenance: {source: boundary, ref: "PR kind: a word outside the closed set is refused, never read as ordinary"}
+    mutation: {description: "used a kind word no member holds"}
+  - name: pr-kind-empty
+    input: {set: pr-kind, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: pr-kind-vendor-hash
+    provenance: {source: boundary, ref: "PR kind: the empty string is not read as ordinary"}
+    mutation: {description: "emptied the kind"}
+  - name: error-code-protected-path
+    input: {set: error-code, raw: "protected-path"}
+    expected: {member: "protected-path"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllErrorCodes"}
+    mutation: {description: "a known error code"}
+  - name: error-code-unknown
+    input: {set: error-code, raw: "protected_path"}
+    expected: {}
+    classification: must-fail
+    sibling: error-code-protected-path
+    provenance: {source: boundary, ref: "error code: a word outside the closed set is refused"}
+    mutation: {description: "swapped the hyphen for an underscore"}
+  - name: error-code-empty
+    input: {set: error-code, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: error-code-protected-path
+    provenance: {source: boundary, ref: "error code: the empty string is no code"}
+    mutation: {description: "emptied the code"}
+  - name: output-key-candidate-fresh
+    input: {set: output-key, raw: "candidate_fresh"}
+    expected: {member: "candidate_fresh"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllOutputKeys"}
+    mutation: {description: "a known step-output key"}
+  - name: output-key-unknown
+    input: {set: output-key, raw: "candidate-fresh"}
+    expected: {}
+    classification: must-fail
+    sibling: output-key-candidate-fresh
+    provenance: {source: boundary, ref: "output key: a word outside the closed set is refused"}
+    mutation: {description: "swapped the underscore for a hyphen"}
+  - name: output-key-empty
+    input: {set: output-key, raw: ""}
+    expected: {}
+    classification: must-fail
+    sibling: output-key-candidate-fresh
+    provenance: {source: boundary, ref: "output key: the empty string is no key"}
+    mutation: {description: "emptied the key"}
+  - name: repo-variable-floor
+    input: {set: repo-variable, raw: "RELEASE_BATCH_FLOOR"}
+    expected: {member: "RELEASE_BATCH_FLOOR"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllRepoVariables"}
+    mutation: {description: "a known repository variable"}
+  - name: repo-variable-unknown
+    input: {set: repo-variable, raw: "RELEASE_FLOOR"}
+    expected: {}
+    classification: must-fail
+    sibling: repo-variable-floor
+    provenance: {source: boundary, ref: "repository variable: a name outside the closed set is refused"}
+    mutation: {description: "shortened the variable name"}
+  - name: repo-variable-wrong-case
+    input: {set: repo-variable, raw: "release_batch_floor"}
+    expected: {}
+    classification: must-fail
+    sibling: repo-variable-floor
+    provenance: {source: boundary, ref: "repository variable: spelling is exact"}
+    mutation: {description: "lowercased the variable name"}

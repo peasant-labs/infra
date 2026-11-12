@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/config_corpus.yaml
@@ -23,14 +24,14 @@ type configInput struct {
 
 type configExpected struct {
 	intent.Config `yaml:",inline"`
-	Code          string `yaml:"code"`
+	Code          intent.ErrorCode `yaml:"code"`
 }
 
 func TestLoadConfig(t *testing.T) {
 	corpus := loadNamedCorpus[configInput, configExpected](t, configCorpusYAML)
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "release-intent.yaml")
+			path := filepath.Join(t.TempDir(), filepath.Base(intent.DefaultConfigPath))
 			if err := os.WriteFile(path, []byte(c.Input.Document), 0o600); err != nil {
 				t.Fatalf("write temp config: %v", err)
 			}
@@ -42,7 +43,7 @@ func TestLoadConfig(t *testing.T) {
 			if (err == nil) != (parseErr == nil) {
 				t.Fatalf("LoadConfig error = %v, ParseConfig error = %v: entry points disagree", err, parseErr)
 			}
-			if c.Classification == "must-fail" {
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("LoadConfig: expected an error, got %+v", got)
 				}

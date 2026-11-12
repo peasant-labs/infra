@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/plan_corpus.yaml
@@ -17,23 +18,28 @@ var planCorpusYAML []byte
 type planInput struct {
 	Config intent.Config `yaml:"config"`
 	Facts  intent.Facts  `yaml:"facts"`
+	// RawMode and RawVerdict carry a value outside the closed set straight
+	// into the facts, for the rows that prove Plan refuses one. A value the
+	// loader can parse belongs in facts instead.
+	RawMode    string `yaml:"raw_mode"`
+	RawVerdict string `yaml:"raw_verdict"`
 }
 
 type planExpected struct {
-	Action         string            `yaml:"action"`
+	Action         intent.Action     `yaml:"action"`
 	RangeBase      string            `yaml:"range_base"`
 	VersionBase    string            `yaml:"version_base"`
 	Candidate      string            `yaml:"candidate"`
-	CandidateFresh string            `yaml:"candidate_fresh"`
+	CandidateFresh intent.Freshness  `yaml:"candidate_fresh"`
 	Pending        []intent.Title    `yaml:"pending"`
 	Level          intent.Level      `yaml:"level"`
 	Breaking       bool              `yaml:"breaking"`
-	Version        string            `yaml:"version"`
+	Version        intent.SemVer     `yaml:"version"`
 	Tag            string            `yaml:"tag"`
 	Before         intent.PendingSet `yaml:"before"`
 	Full           intent.PendingSet `yaml:"full"`
 	Date           string            `yaml:"date"`
-	Code           string            `yaml:"code"`
+	Code           intent.ErrorCode  `yaml:"code"`
 	FixContains    string            `yaml:"fix_contains"`
 }
 
@@ -41,10 +47,22 @@ func TestPlan(t *testing.T) {
 	corpus := loadNamedCorpus[planInput, planExpected](t, planCorpusYAML)
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
-			got, err := intent.Plan(c.Input.Config, c.Input.Facts)
-			if c.Classification == "must-fail" {
+			facts := c.Input.Facts
+			if c.Input.RawMode != "" {
+				facts.Mode = intent.Mode(c.Input.RawMode)
+			}
+			if c.Input.RawVerdict != "" {
+				facts.Verdict = intent.Verdict(c.Input.RawVerdict)
+			}
+			got, err := intent.Plan(c.Input.Config, facts)
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("Plan: expected an error, got %+v", got)
+				}
+				if c.Expected.Code == "" {
+					// A caller fault, not a typed rejection.
+					requireSixLabels(t, err)
+					return
 				}
 				requireSixParts(t, err, c.Expected.Code)
 				if c.Expected.FixContains != "" && !strings.Contains(err.Error(), c.Expected.FixContains) {
@@ -55,7 +73,7 @@ func TestPlan(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Plan: unexpected error: %v", err)
 			}
-			if string(got.Action) != c.Expected.Action {
+			if got.Action != c.Expected.Action {
 				t.Errorf("Action = %q, want %q", got.Action, c.Expected.Action)
 			}
 			if got.RangeBase != c.Expected.RangeBase {
@@ -67,7 +85,7 @@ func TestPlan(t *testing.T) {
 			if got.Candidate != c.Expected.Candidate {
 				t.Errorf("Candidate = %q, want %q", got.Candidate, c.Expected.Candidate)
 			}
-			if string(got.CandidateFresh) != c.Expected.CandidateFresh {
+			if got.CandidateFresh != c.Expected.CandidateFresh {
 				t.Errorf("CandidateFresh = %q, want %q", got.CandidateFresh, c.Expected.CandidateFresh)
 			}
 			if len(got.Pending) != len(c.Expected.Pending) {
@@ -85,13 +103,13 @@ func TestPlan(t *testing.T) {
 			if got.Breaking != c.Expected.Breaking {
 				t.Errorf("Breaking = %v, want %v", got.Breaking, c.Expected.Breaking)
 			}
-			if string(got.Version) != c.Expected.Version {
+			if got.Version != c.Expected.Version {
 				t.Errorf("Version = %q, want %q", got.Version, c.Expected.Version)
 			}
 			if got.Tag != c.Expected.Tag {
 				t.Errorf("Tag = %q, want %q", got.Tag, c.Expected.Tag)
 			}
-			if string(got.Date) != c.Expected.Date {
+			if got.Date != c.Expected.Date {
 				t.Errorf("Date = %q, want %q", got.Date, c.Expected.Date)
 			}
 			compareRangeSet(t, "Before", got.Before, c.Expected.Before)
@@ -110,13 +128,13 @@ func compareRangeSet(t *testing.T, what string, got, want intent.PendingSet) {
 			t.Errorf("%s.Pending[%d] = %+v, want %+v", what, i, got.Pending[i], want.Pending[i])
 		}
 	}
-	if string(got.Version) != string(want.Version) {
+	if got.Version != want.Version {
 		t.Errorf("%s.Version = %q, want %q", what, got.Version, want.Version)
 	}
 	if got.Tag != want.Tag {
 		t.Errorf("%s.Tag = %q, want %q", what, got.Tag, want.Tag)
 	}
-	if string(got.Date) != string(want.Date) {
+	if got.Date != want.Date {
 		t.Errorf("%s.Date = %q, want %q", what, got.Date, want.Date)
 	}
 }

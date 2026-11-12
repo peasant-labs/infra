@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 	"gopkg.in/yaml.v3"
 )
 
@@ -60,6 +61,19 @@ func TestClosedSets(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllPRKinds = %v, want %v", got, want)
 	}
+	if got, want := intent.AllOutputKeys, []intent.OutputKey{
+		intent.OutputAction, intent.OutputRangeBase, intent.OutputVersionBase, intent.OutputCandidate,
+		intent.OutputCandidateFresh, intent.OutputLevel, intent.OutputBreaking, intent.OutputVersion,
+		intent.OutputTag, intent.OutputError, intent.OutputPR, intent.OutputGate, intent.OutputFresh,
+		intent.OutputPush, intent.OutputKind, intent.OutputOK,
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("AllOutputKeys = %v, want %v", got, want)
+	}
+	if got, want := intent.AllRepoVariables, []intent.RepoVariable{
+		intent.VarBatchMode, intent.VarBatchFloor,
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("AllRepoVariables = %v, want %v", got, want)
+	}
 	if got, want := intent.AllErrorCodes, []intent.ErrorCode{
 		intent.ErrMalformed,
 		intent.ErrUnknownType,
@@ -88,7 +102,7 @@ func TestClosedSets(t *testing.T) {
 // here, including the content comparison and the config and policy codes:
 // no code is delegated to a command-level fixture.
 func TestErrorCodeCoverage(t *testing.T) {
-	seen := map[string]bool{}
+	seen := map[intent.ErrorCode]bool{}
 	for _, data := range [][]byte{
 		titleCorpusYAML, arithmeticCorpusYAML, semverCorpusYAML,
 		classifierCorpusYAML, configCorpusYAML, protectedCorpusYAML,
@@ -99,18 +113,18 @@ func TestErrorCodeCoverage(t *testing.T) {
 	} {
 		var doc struct {
 			Cases []struct {
-				Classification string         `yaml:"classification"`
-				Expected       map[string]any `yaml:"expected"`
+				Classification testcase.Classification `yaml:"classification"`
+				Expected       struct {
+					Code intent.ErrorCode `yaml:"code"`
+				} `yaml:"expected"`
 			} `yaml:"cases"`
 		}
 		if err := yaml.Unmarshal(data, &doc); err != nil {
 			t.Fatalf("scan corpus for codes: %v", err)
 		}
 		for _, c := range doc.Cases {
-			if c.Classification == "must-fail" {
-				if code, ok := c.Expected["code"].(string); ok && code != "" {
-					seen[code] = true
-				}
+			if c.Classification == testcase.MustFail && c.Expected.Code != "" {
+				seen[c.Expected.Code] = true
 			}
 		}
 	}
@@ -119,7 +133,7 @@ func TestErrorCodeCoverage(t *testing.T) {
 	// are core rules, so their codes are proven here, not at the command
 	// level.
 	for _, code := range intent.AllErrorCodes {
-		if !seen[string(code)] {
+		if !seen[code] {
 			t.Errorf("error code %q has no reject fixture in the intent corpora", code)
 		}
 	}

@@ -11,6 +11,7 @@ required_names:
   - minor-batch-step
   - major-below-1-never-mints-1
   - bad-base-is-an-error
+  - level-outside-the-set-is-an-error
 cases:
   - name: patch-below-1
     input: {base: "0.0.66", level: "patch", breaking: false}
@@ -79,3 +80,10 @@ cases:
     sibling: patch-below-1
     provenance: {source: boundary, ref: "arithmetic: the base is a bare X.Y.Z value"}
     mutation: {description: "shortened the base version"}
+  - name: level-outside-the-set-is-an-error
+    input: {base: "0.0.66", raw_level: 99, breaking: false}
+    expected: {}
+    classification: must-fail
+    sibling: patch-below-1
+    provenance: {source: boundary, ref: "arithmetic: a level outside the closed set is refused, never read as no release"}
+    mutation: {description: "passed a level number no member holds"}

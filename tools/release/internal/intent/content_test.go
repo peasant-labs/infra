@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/content_corpus.yaml
@@ -20,7 +21,7 @@ type contentInput struct {
 }
 
 type contentExpected struct {
-	Code string `yaml:"code"`
+	Code intent.ErrorCode `yaml:"code"`
 }
 
 func TestCompareContent(t *testing.T) {
@@ -28,7 +29,7 @@ func TestCompareContent(t *testing.T) {
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			err := intent.CompareContent(c.Input.Want, c.Input.Got)
-			if c.Classification == "must-fail" {
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("CompareContent: expected an error, got nil")
 				}

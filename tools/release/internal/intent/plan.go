@@ -71,6 +71,26 @@ func planError(code ErrorCode, what, why, means, fix string) *Error {
 // back to open-pr or close-pr, and freshness reports unknown when no entry
 // was recorded for the candidate.
 func Plan(cfg Config, facts Facts) (Decision, error) {
+	if !facts.Mode.IsValid() {
+		return Decision{}, inputError(
+			"invalid mode "+strconv.Quote(facts.Mode.String()),
+			"the mode set is closed, and an unknown mode neither arms the release job nor counts as a plan-only run",
+			"intent.Plan",
+			"planning the release action for the branch tip",
+			"no release action can be planned",
+			"build the facts with a mode from intent.ParseMode",
+		)
+	}
+	if !facts.Verdict.IsValid() {
+		return Decision{}, inputError(
+			"invalid verdict "+strconv.Quote(facts.Verdict.String()),
+			"the verdict set is closed, and an unknown verdict proves nothing about the pre-tag steps",
+			"intent.Plan",
+			"planning the release action for the branch tip",
+			"no release action can be planned",
+			"build the facts with a verdict from intent.ParseVerdict",
+		)
+	}
 	tagsBySHA := map[string][]SemVer{}
 	for tag, sha := range facts.Tags {
 		v, ok := splitReleaseTag(cfg.TagPrefix, tag)
@@ -265,7 +285,7 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 			action = ActionTag
 		case VerdictRejected:
 			action = ActionOpenPR
-		default:
+		case VerdictNone:
 			pending, level, breaking, version, tag, date = beforePending, beforeLevel, beforeBreaking, beforeVersion, beforeTag, beforeDate
 			action = ActionVerify
 		}
@@ -311,6 +331,6 @@ func landedError(commit Commit, branch string, err error) error {
 		Where: where,
 		When:  "planning the release action",
 		Means: "no release PR and no tag until the subject leaves the range",
-		Fix:   "set the repository variable RELEASE_BATCH_FLOOR to " + strconv.Quote(commit.SHA) + " and leave it set",
+		Fix:   "set the repository variable " + VarBatchFloor.String() + " to " + strconv.Quote(commit.SHA) + " and leave it set",
 	}
 }
