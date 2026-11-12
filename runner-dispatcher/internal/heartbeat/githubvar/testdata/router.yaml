@@ -11,6 +11,11 @@
 # queryFails   the variable read fails (missing variable, auth, network).
 # token        RUNNER_STATUS_TOKEN; omitted means a token is present.
 # labels       the router's labels input; omitted means the workflow default.
+# requiredSlots
+#              the router's required_slots input, as a string so invalid
+#              values can be expressed; omitted means the workflow default.
+# wantNotice   a substring the router script must print; asserted against
+#              the script's output.
 # wantRunner   explicit expected output when the case asserts an exact label set.
 - name: idle healthy pool uses the workflow microvm default
   ageSeconds: 10
@@ -49,6 +54,93 @@
   maxCapacity: 4
   wantPool: "false"
   wantReason: pool-busy
+  wantNotice: "fewer free slots than required"
+
+- name: four required with two free slots falls back
+  ageSeconds: 10
+  healthy: true
+  assignedJobs: 2
+  maxCapacity: 4
+  requiredSlots: "4"
+  wantPool: "false"
+  wantReason: pool-busy
+  wantNotice: "fewer free slots than required"
+
+- name: four required with three free slots falls back
+  ageSeconds: 10
+  healthy: true
+  assignedJobs: 1
+  maxCapacity: 4
+  requiredSlots: "4"
+  wantPool: "false"
+  wantReason: pool-busy
+  wantNotice: "fewer free slots than required"
+
+- name: four required with four free slots routes to the pool
+  ageSeconds: 10
+  healthy: true
+  maxCapacity: 4
+  requiredSlots: "4"
+  wantPool: "true"
+  wantReason: pool-online
+
+- name: six required with four slots idle falls back as exceeding capacity
+  ageSeconds: 10
+  healthy: true
+  maxCapacity: 4
+  requiredSlots: "6"
+  wantPool: "false"
+  wantReason: pool-busy
+  wantNotice: "exceeds the pool capacity"
+
+- name: four required with no capacity routes to the pool
+  ageSeconds: 10
+  healthy: true
+  assignedJobs: 3
+  requiredSlots: "4"
+  wantPool: "true"
+  wantReason: pool-online
+
+- name: one required with one free slot routes to the pool
+  ageSeconds: 10
+  healthy: true
+  assignedJobs: 3
+  maxCapacity: 4
+  requiredSlots: "1"
+  wantPool: "true"
+  wantReason: pool-online
+
+- name: required_slots 0 falls back
+  ageSeconds: 10
+  healthy: true
+  maxCapacity: 4
+  requiredSlots: "0"
+  wantPool: "false"
+  wantReason: query-failed
+
+- name: required_slots -1 falls back
+  ageSeconds: 10
+  healthy: true
+  maxCapacity: 4
+  requiredSlots: "-1"
+  wantPool: "false"
+  wantReason: query-failed
+
+- name: required_slots 4.5 falls back
+  ageSeconds: 10
+  healthy: true
+  maxCapacity: 4
+  requiredSlots: "4.5"
+  wantPool: "false"
+  wantReason: query-failed
+
+- name: required_slots 04 falls back
+  ageSeconds: 10
+  healthy: true
+  maxCapacity: 4
+  requiredSlots: "04"
+  wantPool: "false"
+  wantReason: query-failed
 
 - name: record older than the freshness window falls back
   ageSeconds: 301
