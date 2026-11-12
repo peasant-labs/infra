@@ -9,7 +9,7 @@
 #
 # The rows cover the default branch in every refspec form against each job
 # class that may hold a credential, the push options and refspecs that name
-# no single branch, every form a reviewer pushed the default branch past the
+# no single branch, every form that pushed the default branch past the
 # earlier reader with (a variable command word, a substitution, a pipe or a
 # here-document into bash, python, node and perl, a repository script, an
 # actions/github-script step), the environment and shell a credential step

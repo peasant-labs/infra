@@ -59,7 +59,7 @@ type pushMutation struct {
 // production loaders and checker. A rejected change must fire exactly its
 // listed rules, carrying the listed fragments; an accepted change must fire
 // none. The rows cover each push form against each job class that may hold
-// a credential, every way a reviewer pushed the default branch past the
+// a credential, every form that pushed the default branch past the
 // earlier reader, and the general steps a credential job may still run.
 func TestPushTargetMutations(t *testing.T) {
 	t.Parallel()
