@@ -472,6 +472,12 @@ func (k *PRKind) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// BotBranchPrefix opens every bot branch a release config may name. The
+// checker does not know a repository's default branch, so the prefix is what
+// keeps a bot branch, and with it every push the workflow checker allows a
+// bot job, off the default branch and every other ordinary branch.
+const BotBranchPrefix = "automation/"
+
 // botKinds lists the bot PR kinds in canonical order, derived once from
 // AllPRKinds so the closed set has one home.
 var botKinds = func() []PRKind {

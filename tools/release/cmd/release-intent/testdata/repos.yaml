@@ -41,7 +41,7 @@ repos:
         vendor-hash: automation/vendor-hash
         cut-release: automation/cut-release
   - name: release-on-work-branch
-    purpose: A head-side edit that maps the release kind onto an ordinary work branch.
+    purpose: A head-side edit that maps the release kind onto another branch under the bot prefix.
     config: |
       releases: true
       tag_prefix: v
@@ -51,7 +51,7 @@ repos:
         - {path: package.json, field: version}
       protected_paths: []
       bot_branches:
-        release: feature/work
+        release: automation/work
   - name: unprotected
     purpose: A head-side edit that drops the version-file protection.
     config: |
