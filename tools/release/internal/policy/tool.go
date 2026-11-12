@@ -7,43 +7,17 @@ import (
 	regexp "github.com/wasilibs/go-re2"
 )
 
-// This file names what the rules look for in a workflow's text: the tool's
-// command line, the step outputs it prints, the repository variables it is
-// passed, and the GitHub expressions that read them. Every pattern and every
-// message builds its spelling from here, so a rule and the message that
-// explains it cannot disagree.
-
-// toolName is the command a consumer workflow runs after building it from
-// its infra checkout.
-const toolName = "release-intent"
-
-// The subcommands and flags of the tool that the rules read in a run line.
-// The command package owns the full sets as its Command and Flag types; it is
-// package main and cannot be imported, so the spellings the rules read are
-// named here once and nowhere else in this package.
-const (
-	toolCmdPlan          = "plan"
-	toolCmdReleasePR     = "release-pr"
-	toolCmdFreezePlan    = "freeze-plan"
-	toolCmdCheckContract = "check-contract"
-	toolCmdQueueGate     = "queue-gate"
-	toolCmdClassify      = "classify"
-
-	toolFlagVerdict = "--verdict"
-	toolFlagFloor   = "--floor"
-	toolFlagMode    = "--mode"
-	toolFlagWrite   = "--write"
-	toolFlagUntil   = "--until"
-)
+// These helpers build workflow patterns and messages from the shared tool
+// vocabulary in intent, so the policy cannot restate command or flag names.
 
 // toolCall renders a regex that matches the tool run with one of the given
 // subcommands, e.g. release-intent plan.
-func toolCall(commands ...string) string {
+func toolCall(commands ...intent.Command) string {
 	quoted := make([]string, 0, len(commands))
 	for _, c := range commands {
-		quoted = append(quoted, regexp.QuoteMeta(c))
+		quoted = append(quoted, regexp.QuoteMeta(c.String()))
 	}
-	return regexp.QuoteMeta(toolName) + `\s+(` + strings.Join(quoted, "|") + `)\b`
+	return regexp.QuoteMeta(intent.ProgramName) + `\s+(` + strings.Join(quoted, "|") + `)(?:\s|$|[;&|])`
 }
 
 // stepIDPattern matches a step id inside an expression.

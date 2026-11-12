@@ -37,7 +37,7 @@ func CheckWorkflows(policy QueuePolicy, cfg intent.Config, dir string) ([]Diagno
 		return []Diagnostic{{
 			Rule:     QueueRuleRequiredContexts,
 			Workflow: dir,
-			Message:  "check workflows: " + dir + ": rule " + QueueRuleRequiredContexts.String() + ": cannot list the workflows directory during merge-queue policy validation: " + err.Error() + ". Fix the --dir path or run from the repository root",
+			Message:  "check workflows: " + dir + ": rule " + QueueRuleRequiredContexts.String() + ": cannot list the workflows directory during merge-queue policy validation: " + err.Error() + ". Fix the " + intent.FlagDir.String() + " path or run from the repository root",
 		}}, append([]RequiredContext(nil), policy.Queue.Required...)
 	}
 	c.checkRequiredContexts()

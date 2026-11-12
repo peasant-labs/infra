@@ -35,13 +35,14 @@ var (
 	pushTest = regexp.MustCompile(stepOutputPattern(intent.OutputPush) + `\b`)
 	// verdictArg extracts the --verdict argument: the canonical ${{ }} form
 	// or the bare taggable literal for a repo with no pre-tag steps.
-	verdictArg = regexp.MustCompile(regexp.QuoteMeta(toolFlagVerdict) + `\s+(\$\{\{.*?\}\}|\S+)`)
+	verdictArg = regexp.MustCompile(regexp.QuoteMeta(intent.FlagVerdict.String()) + `\s+(\$\{\{.*?\}\}|\S+)`)
 	// planRunner matches a step that runs the planner, e.g.
 	// release-intent plan --branch develop.
-	planRunner = regexp.MustCompile(toolCall(toolCmdPlan))
-	// rangeReader matches a step that reads a commit range: plan, release-pr,
-	// or freeze-plan.
-	rangeReader = regexp.MustCompile(toolCall(toolCmdPlan, toolCmdReleasePR, toolCmdFreezePlan))
+	planRunner = regexp.MustCompile(toolCall(intent.CommandPlan))
+	// rangeReader matches a step that reads a commit range.
+	rangeReader = regexp.MustCompile(toolCall(intent.CommandPlan, intent.CommandReleasePR))
+	// preTagRunner matches any implemented subcommand of the release tool.
+	preTagRunner = regexp.MustCompile(toolCall(intent.AllCommands...))
 	// prWrite matches a run line that opens, edits, closes, merges, or
 	// releases a PR, or pushes a ref.
 	prWrite = regexp.MustCompile(`git\s+push\b|\bgh\s+pr\s+(create|edit|close|merge)\b|\bgh\s+release\s+create\b`)
@@ -226,7 +227,7 @@ func isPROpenEditStep(step *yaml.Node) bool {
 // queue gate.
 func isQueueReadStep(step *yaml.Node) bool {
 	run := stepRunText(step)
-	return strings.Contains(run, "mergeQueue") || strings.Contains(run, toolCmdQueueGate)
+	return strings.Contains(run, "mergeQueue") || strings.Contains(run, intent.CommandQueueGate.String())
 }
 
 // canonicalVerdict builds the exact verdict expression the policy's pre-tag
@@ -268,7 +269,7 @@ func hasDisjunction(cond string) bool {
 func (r *releaseChecker) checkVerdictForm() {
 	want := canonicalVerdict(r.preTag)
 	for i, step := range r.steps {
-		if !strings.Contains(stepRunText(step), toolFlagVerdict) {
+		if !strings.Contains(stepRunText(step), intent.FlagVerdict.String()) {
 			continue
 		}
 		r.flagged[i] = true
@@ -278,7 +279,7 @@ func (r *releaseChecker) checkVerdictForm() {
 		}
 		if got != want {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
-				"the "+toolFlagVerdict+" argument is "+strconv.Quote(got)+" during merge-queue policy validation, want the canonical "+strconv.Quote(want)+". A verdict that leaves out a pre-tag step or reads conclusion instead of outcome can tag a commit its checks rejected; pass the exact expression the policy's pre_tag_steps build")
+				"the "+intent.FlagVerdict.String()+" argument is "+strconv.Quote(got)+" during merge-queue policy validation, want the canonical "+strconv.Quote(want)+". A verdict that leaves out a pre-tag step or reads conclusion instead of outcome can tag a commit its checks rejected; pass the exact expression the policy's pre_tag_steps build")
 		}
 	}
 }
@@ -357,9 +358,9 @@ func (r *releaseChecker) checkTagPush() {
 			if ok {
 				planRun = stepRunText(r.steps[idx])
 			}
-			if !ok || !strings.Contains(planRun, toolFlagVerdict) {
+			if !ok || !strings.Contains(planRun, intent.FlagVerdict.String()) {
 				r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
-					"the tag step is gated on steps."+m[1]+" during merge-queue policy validation, which is not a plan step that passes "+toolFlagVerdict+". Gate the tag on the verdict's tag action so a stale candidate is never tagged")
+					"the tag step is gated on steps."+m[1]+" during merge-queue policy validation, which is not a plan step that passes "+intent.FlagVerdict.String()+". Gate the tag on the verdict's tag action so a stale candidate is never tagged")
 			}
 		}
 	}
@@ -421,10 +422,10 @@ func (r *releaseChecker) checkPreTagSteps() {
 				"pre-tag step "+strconv.Quote(name)+" has a multi-line run during merge-queue policy validation. Run exactly one command so the step's exit status is the check's verdict and nothing else can mask it")
 		case mappingValue(step, "shell") != nil:
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
-				"pre-tag step "+strconv.Quote(name)+" overrides the shell during merge-queue policy validation. Drop the shell override so the step runs the one planner command with the default failure semantics")
-		case !strings.Contains(run, toolName) && !strings.Contains(run, contractToolName):
+				"pre-tag step "+strconv.Quote(name)+" overrides the shell during merge-queue policy validation. Drop the shell override so the step runs the one tool command with the default failure semantics")
+		case !preTagRunner.MatchString(run):
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
-				"pre-tag step "+strconv.Quote(name)+" runs "+strconv.Quote(firstLine(run))+" during merge-queue policy validation instead of a "+toolName+" or "+contractToolName+" subcommand. Run the check itself here; a wrapper script that exits zero on a break would tag a rejected commit")
+				"pre-tag step "+strconv.Quote(name)+" runs "+strconv.Quote(firstLine(run))+" during merge-queue policy validation instead of an implemented "+intent.ProgramName+" subcommand. Run the check itself here; a wrapper script that exits zero on a break would tag a rejected commit")
 		case strings.Contains(run, "||") || strings.Contains(run, "&&") || strings.Contains(run, ";") || strings.Contains(run, "|") || strings.Contains(run, "set +e"):
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
 				"pre-tag step "+strconv.Quote(name)+" chains commands during merge-queue policy validation. Run exactly one command with no ||, &&, ;, pipe, or set +e so the step's exit status is the check's verdict")
@@ -469,7 +470,7 @@ func (r *releaseChecker) checkStatusFunctions() {
 func (r *releaseChecker) checkPushOutputs() {
 	write := -1
 	for i, step := range r.steps {
-		if strings.Contains(stepRunText(step), toolCmdReleasePR) && strings.Contains(stepRunText(step), toolFlagWrite) {
+		if strings.Contains(stepRunText(step), intent.CommandReleasePR.String()) && strings.Contains(stepRunText(step), intent.FlagWrite.String()) {
 			write = i
 			break
 		}
@@ -481,7 +482,7 @@ func (r *releaseChecker) checkPushOutputs() {
 		r.flagged[i] = true
 		if write == -1 {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
-				"a push, PR, or queue-read step has no "+toolCmdReleasePR+" "+toolFlagWrite+" step in this run during merge-queue policy validation. Write the release content first so these steps can test the push it printed")
+				"a push, PR, or queue-read step has no "+intent.CommandReleasePR.String()+" "+intent.FlagWrite.String()+" step in this run during merge-queue policy validation. Write the release content first so these steps can test the push it printed")
 			continue
 		}
 		m := pushTest.FindStringSubmatch(stepIfText(step))
@@ -530,9 +531,9 @@ func (r *releaseChecker) checkArmHold() {
 		if ok {
 			gateRun = stepRunText(r.steps[idx])
 		}
-		if !ok || !strings.Contains(gateRun, toolCmdQueueGate) {
+		if !ok || !strings.Contains(gateRun, intent.CommandQueueGate.String()) {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
-				"the arm/hold step tests steps."+m[1]+" during merge-queue policy validation, which is not the queue-gate output of this run. Test the gate the queue-gate command printed so arming follows the hold rule")
+				"the arm/hold step tests steps."+m[1]+" during merge-queue policy validation, which is not the "+intent.CommandQueueGate.String()+" output of this run. Test the gate the "+intent.CommandQueueGate.String()+" command printed so arming follows the hold rule")
 		}
 	}
 	for _, want := range intent.AllGates {
@@ -572,10 +573,6 @@ func gatesOn(literal string, want intent.Action) bool {
 	action, ok := gatedAction(literal)
 	return ok && action == want
 }
-
-// contractToolName is the consumer's own generator, the one command besides
-// the tool that a pre-tag step may run.
-const contractToolName = "schema-gen"
 
 func firstLine(s string) string {
 	if i := strings.Index(s, "\n"); i >= 0 {

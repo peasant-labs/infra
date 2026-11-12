@@ -51,7 +51,7 @@ const (
 	// change the head commit.
 	QueueRuleTitleGuard QueueRule = "title-guard-no-early-success"
 	// QueueRuleRangeFloor requires every workflow step that reads a commit
-	// range (plan, release-pr, freeze-plan, check-contract --until) to pass
+	// range (plan and release-pr) to pass
 	// --floor from the RELEASE_BATCH_FLOOR repository variable, so a subject
 	// the tool cannot parse leaves parsing everywhere at once.
 	QueueRuleRangeFloor QueueRule = "range-readers-take-the-floor"

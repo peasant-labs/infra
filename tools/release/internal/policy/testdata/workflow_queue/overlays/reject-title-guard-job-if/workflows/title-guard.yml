@@ -27,10 +27,10 @@ jobs:
           go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - id: kind
-        run: release-intent classify --author ${{ github.event.pull_request.user.login }} --head-branch ${{ github.event.pull_request.head.ref }}
+        run: release-intent classify --author ${{ github.event.pull_request.user.login }} --head-branch ${{ github.event.pull_request.head.ref }} --rev ${{ github.sha }}
       - id: group
         if: github.event_name == 'merge_group'
         run: release-intent group-pr --ref ${{ github.ref }}
       - name: Check title
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-        run: release-intent check-title --base ${{ github.event.pull_request.base.sha }} --head ${{ github.event.pull_request.head.sha }} --author ${{ github.event.pull_request.user.login }}
+        run: release-intent check-title --base ${{ github.event.pull_request.base.sha }} --head ${{ github.event.pull_request.head.sha }} --author ${{ github.event.pull_request.user.login }} --head-branch ${{ github.event.pull_request.head.ref }}

@@ -310,7 +310,7 @@ func (c *queueChecker) checkClassify() {
 					for _, literal := range branchLiterals(field.value) {
 						if branchSet[literal] {
 							c.emit(QueueRuleClassify, name, stepID(step),
-								"a step "+field.key+" compares bot branch "+strconv.Quote(literal)+" during merge-queue policy validation. Call "+toolName+" "+toolCmdClassify+" instead of comparing the branch: a literal in one workflow drifts from the release config the classifier reads")
+								"a step "+field.key+" compares bot branch "+strconv.Quote(literal)+" during merge-queue policy validation. Call "+intent.ProgramName+" "+intent.CommandClassify.String()+" instead of comparing the branch: a literal in one workflow drifts from the release config the classifier reads")
 						}
 					}
 				}
@@ -327,7 +327,7 @@ func (c *queueChecker) checkClassify() {
 		}
 		if !invokesClassify(doc) {
 			c.emit(QueueRuleClassify, req.Workflow, req.Job,
-				"the guard workflow never calls "+toolName+" "+toolCmdClassify+" during merge-queue policy validation. Call "+toolCmdClassify+" to tell the release PR apart instead of comparing its head branch, so the protected-path exception follows the one classifier")
+				"the guard workflow never calls "+intent.ProgramName+" "+intent.CommandClassify.String()+" during merge-queue policy validation. Call "+intent.CommandClassify.String()+" to tell the release PR apart instead of comparing its head branch, so the protected-path exception follows the one classifier")
 		}
 	}
 }
@@ -343,7 +343,7 @@ var (
 	branchLiteralBeforeOp = regexp.MustCompile(`['"]?([A-Za-z0-9_./-]+)['"]?\s*(==|!=)`)
 
 	// classifyInvocation matches a release-intent classify call.
-	classifyInvocation = regexp.MustCompile(toolCall(toolCmdClassify))
+	classifyInvocation = regexp.MustCompile(toolCall(intent.CommandClassify))
 )
 
 // branchLiterals returns every literal compared with == or != in the text,

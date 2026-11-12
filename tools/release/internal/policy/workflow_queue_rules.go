@@ -156,8 +156,8 @@ func eventRead(scalar string) string {
 }
 
 // checkRangeFloor (range-readers-take-the-floor) requires every workflow step
-// that reads a commit range (plan, release-pr, freeze-plan, check-contract
-// --until) to pass --floor in its quoted form, and every plan step to pass
+// that reads a commit range (plan or release-pr) to pass --floor in its
+// quoted form, and every plan step to pass
 // --mode quoted too: --floor "${{ vars.RELEASE_BATCH_FLOOR }}", --mode
 // "${{ vars.RELEASE_BATCH_MODE }}", or the same values through env
 // (--floor "$FLOOR" with FLOOR mapped from the variable). An unquoted
@@ -170,14 +170,12 @@ func (c *queueChecker) checkRangeFloor() {
 			job := jobNode(doc, jobName)
 			for _, step := range stepsOf(job) {
 				run := stepRunText(step)
-				readsRange := rangeReader.MatchString(run) ||
-					(strings.Contains(run, toolCmdCheckContract) && strings.Contains(run, toolFlagUntil))
-				if !readsRange {
+				if !rangeReader.MatchString(run) {
 					continue
 				}
-				c.checkQuotedFlag(name, job, step, run, toolFlagFloor, intent.VarBatchFloor)
+				c.checkQuotedFlag(name, job, step, run, intent.FlagFloor, intent.VarBatchFloor)
 				if planRunner.MatchString(run) {
-					c.checkQuotedFlag(name, job, step, run, toolFlagMode, intent.VarBatchMode)
+					c.checkQuotedFlag(name, job, step, run, intent.FlagMode, intent.VarBatchMode)
 				}
 			}
 		}
@@ -187,11 +185,11 @@ func (c *queueChecker) checkRangeFloor() {
 // checkQuotedFlag requires one range-reader argument in its quoted form: the
 // flag followed by "${{ vars.VAR }}" directly, or by "$ENV" with ENV mapped
 // from the variable in the step or job env.
-func (c *queueChecker) checkQuotedFlag(name string, job, step *yaml.Node, run, flag string, variable intent.RepoVariable) {
-	value, ok := flagValue(run, flag)
+func (c *queueChecker) checkQuotedFlag(name string, job, step *yaml.Node, run string, flag intent.Flag, variable intent.RepoVariable) {
+	value, ok := flagValue(run, flag.String())
 	if !ok || !c.quotedVariable(step, job, value, variable) {
 		c.emit(QueueRuleRangeFloor, name, stepID(step),
-			"a step reads a commit range without a quoted "+flag+" during merge-queue policy validation. Pass "+flag+" \"${{ "+repoVar(variable)+" }}\" (or "+flag+" \"$VAR\" with VAR mapped from the variable in env): an unquoted expansion vanishes when the variable is unset and the flag eats the next argument")
+			"a step reads a commit range without a quoted "+flag.String()+" during merge-queue policy validation. Pass "+flag.String()+" \"${{ "+repoVar(variable)+" }}\" (or "+flag.String()+" \"$VAR\" with VAR mapped from the variable in env): an unquoted expansion vanishes when the variable is unset and the flag eats the next argument")
 	}
 }
 
@@ -551,7 +549,7 @@ func (c *queueChecker) checkPushStep(doc *yaml.Node, workflow, job string, step 
 				continue
 			}
 			c.emit(QueueRuleNoPush, workflow, id,
-				"a step merges a PR outside an arm/hold step during merge-queue policy validation. Only the gate-tested arm and hold steps may merge, and a listed bot job may merge only its own branch ("+strconv.Quote(branch)+"); gate this step on the queue-gate output or drop it")
+				"a step merges a PR outside an arm/hold step during merge-queue policy validation. Only the gate-tested arm and hold steps may merge, and a listed bot job may merge only its own branch ("+strconv.Quote(branch)+"); gate this step on the "+intent.CommandQueueGate.String()+" output or drop it")
 			continue
 		}
 		if verb == ghVerbClose {

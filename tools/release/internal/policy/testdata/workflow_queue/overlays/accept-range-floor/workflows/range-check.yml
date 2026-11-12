@@ -1,9 +1,9 @@
-name: Freeze
+name: Range check
 on:
   push:
     tags: ["v*"]
 jobs:
-  freeze:
+  range-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -19,6 +19,6 @@ jobs:
         run: |
           go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - run: release-intent freeze-plan --branch develop --floor "$FLOOR" --frozen surface=0.2.0 --ahead other
+      - run: release-intent release-pr --branch develop --check --floor "$FLOOR"
         env:
           FLOOR: ${{ vars.RELEASE_BATCH_FLOOR }}
