@@ -1,0 +1,9 @@
+id: go-json-key-assert
+language: go
+severity: warning
+message: decoded JSON is read by string key.
+rule:
+  kind: type_assertion_expression
+  has:
+    kind: index_expression
+    has: { field: index, any: [{ kind: interpreted_string_literal }, { kind: raw_string_literal }] }

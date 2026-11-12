@@ -1,0 +1,15 @@
+id: jsx-literal-testid
+language: tsx
+severity: warning
+message: a test id is set from a string literal.
+rule:
+  all:
+    - any:
+        - kind: string
+        - kind: template_string
+          not: { has: { kind: template_substitution } }
+    - any:
+        - inside: { kind: jsx_attribute, has: { kind: property_identifier, regex: '^data-testid$' } }
+        - inside:
+            kind: jsx_expression
+            inside: { kind: jsx_attribute, has: { kind: property_identifier, regex: '^data-testid$' } }

@@ -24,8 +24,12 @@ type ScanRequest struct {
 	Dir string
 	// Roots are the paths to scan, relative to Dir.
 	Roots []string
-	// Rules are the ast-grep rule documents to run, one file each.
+	// Rules are the ast-grep rule documents to run, one file each. A file may
+	// hold several YAML documents.
 	Rules []RuleFile
+	// LanguageGlobs maps an ast-grep language to the file globs parsed as it
+	// (sgconfig `languageGlobs`). Nil means DefaultLanguageGlobs.
+	LanguageGlobs map[string][]string
 }
 
 // RuleFile is one ast-grep rule document written to the scan's temporary rule
@@ -47,8 +51,16 @@ type Match struct {
 	// Line is the 1-based start line of the match (ast-grep reports 0-based
 	// lines; the runner converts them).
 	Line int
+	// EndLine is the 1-based end line of the match.
+	EndLine int
+	// Column is the 1-based column of the match's start on Line, in
+	// characters, as ast-grep reports it.
+	Column int
 	// Text is the matched source text.
 	Text string
+	// LineText is the whole source line the match starts on, without its
+	// line ending.
+	LineText string
 	// Vars maps each single metavariable the rule bound (without the `$`) to
 	// its matched text.
 	Vars map[string]string

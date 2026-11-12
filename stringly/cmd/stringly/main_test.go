@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"slices"
 	"strings"
@@ -27,6 +28,7 @@ type cliCase struct {
 type cliFixture struct {
 	Commands   []string  `yaml:"commands"`
 	ShowTopics []string  `yaml:"showTopics"`
+	ShowFmts   []string  `yaml:"showFormats"`
 	Invalid    []string  `yaml:"invalidWords"`
 	Cases      []cliCase `yaml:"cases"`
 }
@@ -48,6 +50,14 @@ var requiredCLICases = []string{
 	"show-without-topic-lists-topics",
 	"show-unknown-topic-lists-topics",
 	"show-version-refuses-extra-argument",
+	"update-refused-in-dev-build",
+	"init-refused-in-dev-build",
+	"check-unknown-lang",
+	"check-unknown-format",
+	"check-unknown-flag",
+	"check-without-config",
+	"show-unknown-format",
+	"show-version-json",
 }
 
 func loadCLIFixture(t *testing.T) cliFixture {
@@ -81,13 +91,11 @@ func TestCLI(t *testing.T) {
 	for _, c := range loadCLIFixture(t).Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			getenv := func(key string) string {
-				if key == devEnvVar {
-					return c.DevEnv
-				}
-				return ""
+			var environ []string
+			if c.DevEnv != "" {
+				environ = []string{devEnvVar + "=" + c.DevEnv}
 			}
-			code := run(c.Args, c.Linked, c.Built, getenv, &stdout, &stderr)
+			code := run(context.Background(), c.Args, c.Linked, c.Built, environ, &stdout, &stderr, wiredDeps())
 			if code != c.WantExit {
 				t.Errorf("exit %d, want %d\nstderr:\n%s", code, c.WantExit, stderr.String())
 			}
@@ -117,12 +125,16 @@ func TestCommandAndTopicMembership(t *testing.T) {
 	f := loadCLIFixture(t)
 	assertNames(t, "AllCommands", AllCommands, f.Commands, ParseCommand)
 	assertNames(t, "AllShowTopics", AllShowTopics, f.ShowTopics, ParseShowTopic)
+	assertNames(t, "AllShowFormats", AllShowFormats, f.ShowFmts, ParseShowFormat)
 	for _, bad := range f.Invalid {
 		if _, err := ParseCommand(bad); err == nil {
 			t.Errorf("ParseCommand(%q) succeeded, want an error", bad)
 		}
 		if _, err := ParseShowTopic(bad); err == nil {
 			t.Errorf("ParseShowTopic(%q) succeeded, want an error", bad)
+		}
+		if _, err := ParseShowFormat(bad); err == nil {
+			t.Errorf("ParseShowFormat(%q) succeeded, want an error", bad)
 		}
 	}
 }
