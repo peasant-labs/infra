@@ -9,50 +9,16 @@ import (
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
-// runReleasePR implements:
-// release-intent release-pr --branch REF [--floor SHA] (--write [--current REF] | --check)
-func runReleasePR(args []string) error {
-	var branch, floor, current string
-	var wantWrite, wantCheck bool
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--branch":
-			val, next, err := requireFlagValue(args, i, "--branch")
-			if err != nil {
-				return err
-			}
-			branch = val
-			i = next
-		case "--floor":
-			val, next, err := requireFlagValue(args, i, "--floor")
-			if err != nil {
-				return err
-			}
-			floor = val
-			i = next
-		case "--write":
-			wantWrite = true
-		case "--check":
-			wantCheck = true
-		case "--current":
-			val, next, err := requireFlagValue(args, i, "--current")
-			if err != nil {
-				return err
-			}
-			current = val
-			i = next
-		default:
-			return usageErr("unknown flag %q for release-pr: expected --branch REF [--floor SHA] (--write [--current REF] | --check)", args[i])
-		}
-	}
-	if branch == "" {
-		return usageErr("usage: release-intent release-pr --branch REF [--floor SHA] (--write [--current REF] | --check) (missing required --branch): pass the branch to build the release content from")
-	}
+// runReleasePR implements the release-pr command: write the release content
+// into the working tree, or check the working tree against it.
+func runReleasePR(flags flagValues) error {
+	wantWrite, wantCheck := flags.Has(intent.FlagWrite), flags.Has(intent.FlagCheck)
 	if wantWrite == wantCheck {
-		return usageErr("usage: release-intent release-pr --branch REF [--floor SHA] (--write [--current REF] | --check) (need exactly one of --write or --check): --write writes the release content, --check compares it")
+		return usageErr("%s (need exactly one of %s or %s): %s, %s",
+			usageOf(intent.CommandReleasePR), intent.FlagWrite, intent.FlagCheck, shapeOf(intent.FlagWrite).Meaning, shapeOf(intent.FlagCheck).Meaning)
 	}
-	if current != "" && !wantWrite {
-		return usageErr("usage: release-intent release-pr --check takes no --current: --current only applies to --write")
+	if flags.Has(intent.FlagCurrent) && !wantWrite {
+		return usageErr("%s (%s takes no %s): %s only applies to %s", usageOf(intent.CommandReleasePR), intent.FlagCheck, intent.FlagCurrent, intent.FlagCurrent, intent.FlagWrite)
 	}
 	ctx := context.Background()
 	runner, err := newExecGit()
@@ -63,13 +29,13 @@ func runReleasePR(args []string) error {
 	// before-candidate set a verify would speak for. No pre-tag report is
 	// involved, so the facts carry no verdict and the content renders from
 	// Decision.Full.
-	facts, cfg, err := Gather(ctx, runner, branch, DefaultConfigPath, floor, intent.ModeTag, intent.VerdictNone)
+	facts, cfg, err := Gather(ctx, runner, intent.CommandReleasePR, flags.Value(intent.FlagBranch), intent.DefaultConfigPath, flags.Value(intent.FlagFloor), intent.ModeTag, intent.VerdictNone)
 	if err != nil {
-		return rejectAs("release-pr", err)
+		return rejectAs(intent.CommandReleasePR, err)
 	}
 	decision, err := intent.Plan(cfg, facts)
 	if err != nil {
-		return rejectAs("release-pr", err)
+		return rejectAs(intent.CommandReleasePR, err)
 	}
 	content, err := releaseContent(ctx, runner, cfg, facts, decision)
 	if err != nil {
@@ -77,31 +43,40 @@ func runReleasePR(args []string) error {
 	}
 	if wantCheck {
 		if cerr := checkWorkingTree(cfg, content); cerr != nil {
-			var ie *intent.Error
-			if errors.As(cerr, &ie) && ie.Code == intent.ErrReleaseContentStale {
-				fmt.Println("fresh=false")
+			rejected := rejectAsMode(intent.CommandReleasePR, intent.FlagCheck, cerr)
+			if r, ok := asReject(rejected); ok && r.Err.Code == intent.ErrReleaseContentStale {
+				r.Lines = []outputLine{outBool(intent.OutputFresh, false)}
 			}
-			return rejectAs("release-pr --check", cerr)
+			return rejected
 		}
-		return emitLines([]string{"fresh=true", "push=false", "version=" + decision.Full.Version.String(), "error="})
+		return emit(releasePRLines(false, decision)...)
 	}
-	push := "true"
-	if current != "" {
+	push := true
+	if flags.Has(intent.FlagCurrent) {
 		if len(facts.Commits) == 0 {
-			return fmt.Errorf("release-pr: cannot determine the branch tip for --current: the branch has no commits")
+			return fmt.Errorf("%s: cannot determine the branch tip for %s: the branch has no commits", intent.CommandReleasePR, intent.FlagCurrent)
 		}
-		needs, err := needsPush(ctx, runner, cfg, facts.Commits[0].SHA, current, content)
+		push, err = needsPush(ctx, runner, cfg, facts.Commits[0].SHA, flags.Value(intent.FlagCurrent), content)
 		if err != nil {
 			return err
-		}
-		if !needs {
-			push = "false"
 		}
 	}
 	if err := writeReleaseContent(cfg, content); err != nil {
 		return err
 	}
-	return emitLines([]string{"fresh=true", "push=" + push, "version=" + decision.Full.Version.String(), "error="})
+	return emit(releasePRLines(push, decision)...)
+}
+
+// releasePRLines is the accepted output of both release-pr modes: the tree
+// holds the full set's content, whether the release branch needs a push, and
+// the version that content carries.
+func releasePRLines(push bool, decision intent.Decision) []outputLine {
+	return []outputLine{
+		outBool(intent.OutputFresh, true),
+		outBool(intent.OutputPush, push),
+		out(intent.OutputVersion, decision.Full.Version.String()),
+		out(intent.OutputError, ""),
+	}
 }
 
 // releaseContent renders the generator output for the decision's full pending
@@ -112,7 +87,7 @@ func runReleasePR(args []string) error {
 func releaseContent(ctx context.Context, runner GitRunner, cfg intent.Config, facts intent.Facts, decision intent.Decision) (intent.Content, error) {
 	full := decision.Full
 	if len(full.Pending) == 0 || full.Version == "" || full.Tag == "" {
-		return intent.Content{}, fmt.Errorf("release-pr: nothing to write: no pending releasing subjects (version is empty). Open a releasing PR first")
+		return intent.Content{}, fmt.Errorf("%s: nothing to write: no pending releasing subjects (version is empty). Open a releasing PR first", intent.CommandReleasePR)
 	}
 	shas := make([]string, 0, len(facts.Commits))
 	for _, c := range facts.Commits {
@@ -125,7 +100,7 @@ func releaseContent(ctx context.Context, runner GitRunner, cfg intent.Config, fa
 		if errors.As(err, &nf) {
 			base = nil
 		} else {
-			return intent.Content{}, fmt.Errorf("release-pr: cannot read changelog %q at base %q: %w. Confirm the revision is readable; a failed fetch is never written over", cfg.Changelog, baseRev, err)
+			return intent.Content{}, fmt.Errorf("%s: cannot read changelog %q at base %q: %w. Confirm the revision is readable; a failed fetch is never written over", intent.CommandReleasePR, cfg.Changelog, baseRev, err)
 		}
 	}
 	return intent.Generate(cfg, intent.ContentInput{Pending: full.Pending, BaseChangelog: string(base), Version: full.Version, Tag: full.Tag, Date: full.Date})
@@ -137,7 +112,7 @@ func releaseContent(ctx context.Context, runner GitRunner, cfg intent.Config, fa
 func checkWorkingTree(cfg intent.Config, content intent.Content) error {
 	got, err := fileContent(os.ReadFile, cfg, content)
 	if err != nil {
-		return fmt.Errorf("release-pr --check: cannot assemble the working-tree content for comparison: %w. Run from the repository root with the release PR checked out", err)
+		return fmt.Errorf("%s %s: cannot assemble the working-tree content for comparison: %w. Run from the repository root with the release PR checked out", intent.CommandReleasePR, intent.FlagCheck, err)
 	}
 	return intent.CompareContent(content, got)
 }
@@ -173,18 +148,18 @@ func writeReleaseContent(cfg intent.Config, content intent.Content) error {
 		}
 		data, err := os.ReadFile(vf.Path)
 		if err != nil {
-			return fmt.Errorf("release-pr --write: cannot read %q: %w. Run from the repository root", vf.Path, err)
+			return fmt.Errorf("%s %s: cannot read %q: %w. Run from the repository root", intent.CommandReleasePR, intent.FlagWrite, vf.Path, err)
 		}
 		out, err := intent.WriteVersionField(data, vf.Field, want)
 		if err != nil {
-			return fmt.Errorf("release-pr --write: cannot write %q: %w. Run from the repository root", vf.Path, err)
+			return fmt.Errorf("%s %s: cannot write %q: %w. Run from the repository root", intent.CommandReleasePR, intent.FlagWrite, vf.Path, err)
 		}
 		if err := os.WriteFile(vf.Path, out, 0o644); err != nil {
-			return fmt.Errorf("release-pr --write: cannot write %q: %w", vf.Path, err)
+			return fmt.Errorf("%s %s: cannot write %q: %w", intent.CommandReleasePR, intent.FlagWrite, vf.Path, err)
 		}
 	}
 	if err := os.WriteFile(cfg.Changelog, []byte(content.Changelog), 0o644); err != nil {
-		return fmt.Errorf("release-pr --write: cannot write %q: %w", cfg.Changelog, err)
+		return fmt.Errorf("%s %s: cannot write %q: %w", intent.CommandReleasePR, intent.FlagWrite, cfg.Changelog, err)
 	}
 	return nil
 }

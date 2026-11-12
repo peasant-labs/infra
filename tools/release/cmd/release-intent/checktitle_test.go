@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"fmt"
 	"os"
 	"strings"
@@ -14,79 +13,117 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed testdata/check-title.yaml
-var checkTitleFixtureYAML []byte
+// titleSetup names the repository shape one check-title row runs on.
+type titleSetup string
+
+const (
+	// titleSetupBaseReadFailure fails the base config read with a non-absent
+	// error, through a scripted runner.
+	titleSetupBaseReadFailure titleSetup = "base-read-failure"
+	// titleSetupProtectionRemoved drops the version-file protection in the
+	// head config and bumps the version.
+	titleSetupProtectionRemoved titleSetup = "protection-removed"
+	// titleSetupPRBehindBase lands a commit on the base after the PR branched.
+	titleSetupPRBehindBase titleSetup = "pr-behind-base"
+	// titleSetupScriptsOnlyAfterRelease lands a release on the base after
+	// the PR branched; the PR edits only an ordinary field.
+	titleSetupScriptsOnlyAfterRelease titleSetup = "scripts-only-after-release"
+	// titleSetupVersionFieldEdit bumps the protected field in the head.
+	titleSetupVersionFieldEdit titleSetup = "version-field-edit"
+	// titleSetupVersionFieldRemoved drops the protected field in the head.
+	titleSetupVersionFieldRemoved titleSetup = "version-field-removed"
+	// titleSetupGroupShapedBase diffs two divergent queue entries.
+	titleSetupGroupShapedBase titleSetup = "group-shaped-base"
+	// titleSetupOrdinaryScriptsEdit edits only an ordinary field.
+	titleSetupOrdinaryScriptsEdit titleSetup = "ordinary-scripts-edit"
+	// titleSetupAdopting has no config at the base and adds it in the head.
+	titleSetupAdopting titleSetup = "adopting"
+	// titleSetupRawVersionDocument replaces the version file in the head
+	// with the row's raw bytes.
+	titleSetupRawVersionDocument titleSetup = "raw-version-document"
+)
+
+var allTitleSetups = []titleSetup{
+	titleSetupBaseReadFailure, titleSetupProtectionRemoved, titleSetupPRBehindBase,
+	titleSetupScriptsOnlyAfterRelease, titleSetupVersionFieldEdit, titleSetupVersionFieldRemoved,
+	titleSetupGroupShapedBase, titleSetupOrdinaryScriptsEdit, titleSetupAdopting,
+	titleSetupRawVersionDocument,
+}
+
+func (s *titleSetup) UnmarshalYAML(node *yaml.Node) error {
+	member, err := decodeMember(node, allTitleSetups, "check-title setup")
+	*s = member
+	return err
+}
 
 type checkTitleInput struct {
-	Title      string `yaml:"title"`
-	Author     string `yaml:"author"`
-	HeadBranch string `yaml:"headBranch"`
-	Setup      string `yaml:"setup"`
+	// Title is the PR title under test, in its wire spelling.
+	Title string `yaml:"title"`
+	// Author and HeadBranch may be placeholders for the config's bot author
+	// and release bot branch.
+	Author     string     `yaml:"author"`
+	HeadBranch string     `yaml:"headBranch"`
+	Setup      titleSetup `yaml:"setup"`
+	// RawVersionDocument is corrupt on purpose; only a must-fail row carries it.
+	RawVersionDocument string `yaml:"rawVersionDocument"`
 }
 
 type checkTitleExpected struct {
-	Exit    int      `yaml:"exit"`
-	Code    string   `yaml:"code"`
-	Message string   `yaml:"message"`
-	Stdout  []string `yaml:"stdout"`
-	Absent  []string `yaml:"absent"`
+	Exit wantExit `yaml:"exit"`
+	// Code is the typed rejection, empty for a row that is not rejected.
+	Code       intent.ErrorCode `yaml:"code"`
+	Message    string           `yaml:"message"`
+	Stdout     []wantLine       `yaml:"stdout"`
+	AbsentKeys []wantKey        `yaml:"absent_keys"`
 }
 
-type checkTitleFixtures struct {
-	RequiredNames []string                                             `yaml:"required_names"`
-	Cases         testcase.Corpus[checkTitleInput, checkTitleExpected] `yaml:"cases"`
-}
+type checkTitleCase = testcase.Case[checkTitleInput, checkTitleExpected]
 
-func loadCheckTitleFixtures(t *testing.T) checkTitleFixtures {
+func loadCheckTitleFixtures(t *testing.T) []checkTitleCase {
 	t.Helper()
-	var f checkTitleFixtures
-	if err := yaml.Unmarshal(checkTitleFixtureYAML, &f); err != nil {
-		t.Fatalf("parse check-title fixture: %v", err)
+	cases := loadCorpus[checkTitleInput, checkTitleExpected](t, "check-title.yaml")
+	for _, c := range cases {
+		if c.Input.RawVersionDocument != "" && c.Classification != testcase.MustFail {
+			t.Fatalf("check-title fixtures: %q carries a raw version document but is not must-fail", c.Name)
+		}
+		if (c.Input.Setup == titleSetupRawVersionDocument) != (c.Input.RawVersionDocument != "") {
+			t.Fatalf("check-title fixtures: %q: a raw version document goes with the %q setup and nothing else", c.Name, titleSetupRawVersionDocument)
+		}
+		if (c.Expected.Code != "") != (c.Expected.Exit.Status == exitRejected) {
+			t.Fatalf("check-title fixtures: %q: a rejection code goes with exit %d and nothing else", c.Name, exitRejected)
+		}
 	}
-	if err := f.Cases.Validate(); err != nil {
-		t.Fatalf("check-title fixtures: %v", err)
-	}
-	seen := map[string]struct{}{}
-	for _, c := range f.Cases.Cases {
-		seen[c.Name] = struct{}{}
-	}
-	checkRequiredNames(t, f.RequiredNames, seen, "check-title fixtures")
-	checkCorpusSiblings(t, checkTitleFixtureYAML, "check-title fixtures")
-	return f
+	return cases
 }
 
 // mockGitRunner returns programmed git results without touching git. It mocks
 // the git dependency, never checkTitle: every method returns the scripted
 // outcome for the scenario under test.
 type mockGitRunner struct {
-	firstParent func(ctx context.Context, ref, changelog string) ([]intent.Commit, error)
-	tags        func(ctx context.Context, prefix string) (map[string]string, error)
-	firstAdding func(ctx context.Context, branch, path string) (string, error)
-	changed     func(ctx context.Context, base, head string) (string, []string, error)
-	readFile    func(ctx context.Context, rev, path string) ([]byte, error)
-	mergeTree   func(ctx context.Context, tip, current string) error
+	readFile func(ctx context.Context, rev, path string) ([]byte, error)
 }
 
-func (m *mockGitRunner) FirstParent(ctx context.Context, ref, changelog string) ([]intent.Commit, error) {
-	return m.firstParent(ctx, ref, changelog)
+func (m *mockGitRunner) unscripted(method string) error {
+	return fmt.Errorf("mock runner: %s is not scripted for this scenario", method)
 }
-func (m *mockGitRunner) Tags(ctx context.Context, prefix string) (map[string]string, error) {
-	return m.tags(ctx, prefix)
+
+func (m *mockGitRunner) FirstParent(context.Context, string, string) ([]intent.Commit, error) {
+	return nil, m.unscripted("FirstParent")
 }
-func (m *mockGitRunner) FirstCommitAdding(ctx context.Context, branch, path string) (string, error) {
-	return m.firstAdding(ctx, branch, path)
+func (m *mockGitRunner) Tags(context.Context, string) (map[string]string, error) {
+	return nil, m.unscripted("Tags")
 }
-func (m *mockGitRunner) ChangedPaths(ctx context.Context, base, head string) (string, []string, error) {
-	return m.changed(ctx, base, head)
+func (m *mockGitRunner) FirstCommitAdding(context.Context, string, string) (string, error) {
+	return "", m.unscripted("FirstCommitAdding")
+}
+func (m *mockGitRunner) ChangedPaths(context.Context, string, string) (string, []string, error) {
+	return "", nil, m.unscripted("ChangedPaths")
 }
 func (m *mockGitRunner) ReadFile(ctx context.Context, rev, path string) ([]byte, error) {
 	return m.readFile(ctx, rev, path)
 }
-func (m *mockGitRunner) MergeTree(ctx context.Context, tip, current string) error {
-	if m.mergeTree != nil {
-		return m.mergeTree(ctx, tip, current)
-	}
-	return fmt.Errorf("mock runner: MergeTree is not scripted for this scenario")
+func (m *mockGitRunner) MergeTree(context.Context, string, string) error {
+	return m.unscripted("MergeTree")
 }
 
 func captureStdout(t *testing.T, fn func()) string {
@@ -105,247 +142,183 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-func checkTitleExit(err error) int {
-	if err == nil {
-		return 0
-	}
-	if _, ok := asReject(err); ok {
-		return 2
-	}
-	return 1
+// titleScene is one prepared check-title row: the two revisions, the runner,
+// and the config that names the bot author and release branch.
+type titleScene struct {
+	base, head string
+	runner     GitRunner
+	cfg        intent.Config
 }
 
-// TestCheckTitleTempRepos drives checkTitle on temp repositories described by
-// the YAML fixture: one row per protected-path and base shape. Direct calls
-// never print the machine line (that happens in exitWith); accept rows assert
-// a nil error and reject rows assert the typed code.
+func sceneOf(r *testRepo, base, head string) titleScene {
+	return titleScene{base: base, head: head, runner: r.Runner(), cfg: r.Config()}
+}
+
+// laterVersion is the version one bump of the level above the seed.
+func laterVersion(t *testing.T, r *testRepo, level intent.Level) intent.SemVer {
+	t.Helper()
+	next, err := intent.NextVersion(r.fix.SeedVersion, level, false)
+	if err != nil {
+		t.Fatalf("next version after %q at %s: %v", r.fix.SeedVersion, level, err)
+	}
+	return next
+}
+
+// quietLint is the ordinary, unprotected edit to a version file.
+func quietLint(r *testRepo) {
+	r.SetOrdinaryField(0, "scripts", map[string]string{"lint": "quiet"})
+}
+
+var titleQuietLint = titled(intent.TypeFix, "scripts", intent.LevelPatch, "quiet lint")
+
+func buildTitleScene(t *testing.T, in checkTitleInput) titleScene {
+	t.Helper()
+	switch in.Setup {
+	case titleSetupBaseReadFailure:
+		// The base config blob read fails (a failed on-demand fetch, not an
+		// absent file) while the head config reads fine. checkTitle must
+		// fail closed: a base read error is never the adopting PR.
+		cfg := loadRepoFixtures(t).Configs[repoStandard]
+		const base, head = "base", "head"
+		fetchErr := &BlobReadError{Rev: base, Path: intent.DefaultConfigPath, Err: fmt.Errorf("simulated on-demand fetch failure")}
+		runner := &mockGitRunner{readFile: func(_ context.Context, rev, _ string) ([]byte, error) {
+			if rev == base {
+				return nil, fetchErr
+			}
+			return marshalConfig(t, cfg), nil
+		}}
+		return titleScene{base: base, head: head, runner: runner, cfg: cfg}
+	case titleSetupOrdinaryScriptsEdit:
+		r := newPendingRepo(t, repoStandard)
+		quietLint(r)
+		head := r.Commit(titleQuietLint)
+		return sceneOf(r, r.Parent(), head)
+	case titleSetupProtectionRemoved:
+		r := newSeededRepo(t, repoStandard)
+		base := r.Head()
+		r.SetVersionField(0, laterVersion(t, r, intent.LevelMinor))
+		r.WriteConfig(r.fix.Configs[repoUnprotected])
+		head := r.Commit(titled(intent.TypeFeat, "graph", intent.LevelMinor, "drop protection and bump"))
+		return sceneOf(r, base, head)
+	case titleSetupPRBehindBase:
+		r := newSeededRepo(t, repoStandard)
+		r.CreateBranch(r.Branch("feature"))
+		r.WriteFile("feature.txt", "work\n")
+		head := r.Commit(titled(intent.TypeFeat, "graph", intent.LevelMinor, "branch work"))
+		r.Checkout(r.Trunk())
+		r.WriteFile("later.txt", "later\n")
+		base := r.Commit(titleDocs)
+		return sceneOf(r, base, head)
+	case titleSetupScriptsOnlyAfterRelease:
+		r := newReleasedRepo(t, repoStandard)
+		r.CreateBranch(r.Branch("feature"))
+		quietLint(r)
+		head := r.Commit(titleQuietLint)
+		r.Checkout(r.Trunk())
+		next := laterVersion(t, r, intent.LevelMinor)
+		r.AppendChangelog("\n## " + next.String() + "\n\n- release one (#1)\n")
+		r.SetVersionField(0, next)
+		release := releaseTitled(intent.LevelPatch, "publish "+r.TagName(next))
+		release.PR = 1
+		base := r.Commit(release)
+		return sceneOf(r, base, head)
+	case titleSetupVersionFieldEdit:
+		r := newSeededRepo(t, repoStandard)
+		base := r.Head()
+		r.SetVersionField(0, laterVersion(t, r, intent.LevelPatch))
+		head := r.Commit(titled(intent.TypeFeat, "graph", intent.LevelPatch, "bump"))
+		return sceneOf(r, base, head)
+	case titleSetupVersionFieldRemoved:
+		r := newSeededRepo(t, repoStandard)
+		base := r.Head()
+		r.RemoveVersionField(0)
+		head := r.Commit(titled(intent.TypeFeat, "graph", intent.LevelMinor, "drop version field"))
+		return sceneOf(r, base, head)
+	case titleSetupRawVersionDocument:
+		r := newPendingRepo(t, repoStandard)
+		r.WriteVersionDocument(0, in.RawVersionDocument)
+		head := r.Commit(titled(intent.TypeFeat, "graph", intent.LevelMinor, "rewrite the version file"))
+		return sceneOf(r, r.Parent(), head)
+	case titleSetupGroupShapedBase:
+		r := newSeededRepo(t, repoStandard)
+		r.CreateBranch(r.Branch("queue-a"))
+		r.WriteFile("a.txt", "a\n")
+		base := r.Commit(titled(intent.TypeFeat, "a", intent.LevelMinor, "entry a"))
+		r.Checkout(r.Trunk())
+		r.CreateBranch(r.Branch("queue-b"))
+		r.WriteFile("b.txt", "b\n")
+		head := r.Commit(titled(intent.TypeFeat, "b", intent.LevelMinor, "entry b"))
+		return sceneOf(r, base, head)
+	case titleSetupAdopting:
+		// The adopting PR adds the config: the base commit has none and the
+		// head adds it. The base is an ancestor of the head.
+		r := newTestRepo(t, repoStandard)
+		r.WriteFile("work.txt", "base\n")
+		base := r.Commit(titled(intent.TypeFeat, "graph", intent.LevelMinor, "base work"))
+		r.Seed()
+		head := r.Commit(titled(intent.TypeFeat, "graph", intent.LevelMinor, "adopt config"))
+		return sceneOf(r, base, head)
+	default:
+		t.Fatalf("check-title setup %q is in the closed set but has no builder", in.Setup)
+		return titleScene{}
+	}
+}
+
+// expandActor resolves the placeholders a row may use for the PR author and
+// head branch from the scene's config.
+func (s titleScene) expandActor(t *testing.T, word string) string {
+	t.Helper()
+	switch placeholder(word) {
+	case phBotAuthor:
+		return s.cfg.AutomationAuthor
+	case phReleaseBranch:
+		branch, ok := s.cfg.BotBranches[intent.PRKindRelease]
+		if !ok {
+			t.Fatalf("the scene's config names no release bot branch")
+		}
+		return branch
+	}
+	if placeholderPattern.MatchString(word) {
+		t.Fatalf("check-title fixtures: %q is not a placeholder an author or head branch may use", word)
+	}
+	return word
+}
+
+// TestCheckTitleTempRepos drives checkTitle on the repositories the corpus
+// names: one row per protected-path and base shape. An accept prints the
+// empty error line; a rejection carries its typed code and prints nothing
+// here, because the process boundary prints the error line.
 func TestCheckTitleTempRepos(t *testing.T) {
-	f := loadCheckTitleFixtures(t)
-	for _, c := range f.Cases.Cases {
+	for _, c := range loadCheckTitleFixtures(t) {
 		c := c
 		t.Run(c.Name, func(t *testing.T) {
-			var base, head string
-			var runner GitRunner
-			if c.Input.Setup == "mock-base-failure" {
-				// The base config blob read fails (a failed on-demand fetch,
-				// not an absent file) while the head config reads fine.
-				// checkTitle must fail closed: a base read error is never the
-				// adopting PR.
-				fetchErr := &BlobReadError{Rev: "base", Path: DefaultConfigPath, Err: fmt.Errorf("simulated on-demand fetch failure")}
-				runner = &mockGitRunner{
-					readFile: func(ctx context.Context, rev, path string) ([]byte, error) {
-						if rev == "base" {
-							return nil, fetchErr
-						}
-						return []byte(checkTitleTestConfig), nil
-					},
-				}
-				base, head = "base", "head"
-			} else {
-				switch c.Input.Setup {
-				case "protection-removed":
-					base, head, runner = setupProtectionRemoved(t)
-				case "pr-behind-base":
-					base, head, runner = setupPRBehindBase(t)
-				case "scripts-only-after-release":
-					base, head, runner = setupScriptsOnlyAfterRelease(t)
-				case "version-field-edit":
-					base, head, runner = setupVersionFieldEdit(t)
-				case "version-field-removed":
-					base, head, runner = setupVersionFieldRemoved(t)
-				case "group-shaped-base":
-					base, head, runner = setupGroupShapedBase(t)
-				case "ordinary-scripts-edit":
-					base, head, runner = setupOrdinaryScriptsEdit(t)
-				default:
-					t.Fatalf("unknown check-title setup %q", c.Input.Setup)
-				}
-			}
+			scene := buildTitleScene(t, c.Input)
+			author := scene.expandActor(t, c.Input.Author)
+			headBranch := scene.expandActor(t, c.Input.HeadBranch)
 			var runErr error
-			out := captureStdout(t, func() {
-				runErr = checkTitle(context.Background(), runner, base, head, c.Input.Author, c.Input.HeadBranch, c.Input.Title)
+			stdout := captureStdout(t, func() {
+				runErr = checkTitle(context.Background(), scene.runner, scene.base, scene.head, author, headBranch, c.Input.Title)
 			})
-			assertExactStdout(t, out, c.Expected.Stdout, c.Name)
-			for _, absent := range c.Expected.Absent {
-				if strings.Contains(out, absent) {
-					t.Fatalf("%s: stdout %q must not contain %q", c.Name, out, absent)
-				}
-			}
-			if exit := checkTitleExit(runErr); exit != c.Expected.Exit {
-				t.Fatalf("%s: exit = %d, want %d (err %v)", c.Name, exit, c.Expected.Exit, runErr)
+			assertStdoutLines(t, c.Name, stdout, plainLines(c.Expected.Stdout))
+			assertKeysAbsent(t, c.Name, stdout, plainKeys(c.Expected.AbsentKeys))
+			if status := statusOf(runErr); status != c.Expected.Exit.Status {
+				t.Fatalf("%s: exit = %d, want %d (err %v)", c.Name, status, c.Expected.Exit.Status, runErr)
 			}
 			if c.Expected.Code != "" {
 				rej, ok := asReject(runErr)
 				if !ok {
 					t.Fatalf("%s: expected rejection with code %q, got %v", c.Name, c.Expected.Code, runErr)
 				}
-				if string(rej.Err.Code) != c.Expected.Code {
+				if rej.Err.Code != c.Expected.Code {
 					t.Fatalf("%s: rejection code = %q, want %q", c.Name, rej.Err.Code, c.Expected.Code)
 				}
-			}
-			if c.Expected.Message != "" {
-				if runErr == nil || !strings.Contains(runErr.Error(), c.Expected.Message) {
-					t.Fatalf("%s: error %v must contain %q", c.Name, runErr, c.Expected.Message)
+				if rej.Command != intent.CommandCheckTitle {
+					t.Fatalf("%s: rejection names command %q, want %q", c.Name, rej.Command, intent.CommandCheckTitle)
 				}
-			} else if c.Expected.Exit == 0 && runErr != nil {
-				t.Fatalf("%s: expected accept, got err %v", c.Name, runErr)
+			}
+			if c.Expected.Message != "" && (runErr == nil || !strings.Contains(runErr.Error(), c.Expected.Message)) {
+				t.Fatalf("%s: error %v must contain %q", c.Name, runErr, c.Expected.Message)
 			}
 		})
 	}
-}
-
-func assertExactStdout(t *testing.T, out string, want []string, name string) {
-	t.Helper()
-	trimmed := strings.TrimSuffix(out, "\n")
-	var lines []string
-	if trimmed != "" {
-		lines = strings.Split(trimmed, "\n")
-	}
-	if len(lines) != len(want) {
-		t.Fatalf("%s: stdout has %d lines %q, want %d %q (exact match)", name, len(lines), out, len(want), want)
-	}
-	for i := range want {
-		if lines[i] != want[i] {
-			t.Fatalf("%s: stdout line %d = %q, want %q (exact match)", name, i, lines[i], want[i])
-		}
-	}
-}
-
-const checkTitleTestConfig = "releases: true\ntag_prefix: v\nautomation_author: peasant-labs-releaser[bot]\nchangelog: CHANGELOG.md\nversion_files:\n  - {path: package.json, field: version}\nprotected_paths: []\nbot_branches:\n  release: automation/release\n"
-
-func setupOrdinaryScriptsEdit(t *testing.T) (string, string, GitRunner) {
-	t.Helper()
-	dir := initIntentRepo(t)
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\", \"scripts\": {\"lint\": \"quiet\"}}\n")
-	runGit(t, dir, "add", "package.json")
-	runGit(t, dir, "commit", "-q", "-m", "fix(scripts)[patch]: quiet lint")
-	return gitRev(t, dir, "HEAD~1"), gitRev(t, dir, "HEAD"), mustRunner(t, dir)
-}
-
-func setupProtectionRemoved(t *testing.T) (string, string, GitRunner) {
-	t.Helper()
-	dir := newBareRepo(t)
-	writeFile(t, dir, ".github/release-intent.yaml", checkTitleTestConfig)
-	writeFile(t, dir, "CHANGELOG.md", "# changelog\n")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\"}\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "feat(init)[minor]: seed")
-	base := gitRev(t, dir, "HEAD")
-	writeFile(t, dir, ".github/release-intent.yaml", "releases: true\ntag_prefix: v\nautomation_author: peasant-labs-releaser[bot]\nchangelog: CHANGELOG.md\nversion_files: []\nprotected_paths: []\nbot_branches:\n  release: automation/release\n")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.2.0\"}\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "feat(graph)[minor]: drop protection and bump")
-	return base, gitRev(t, dir, "HEAD"), mustRunner(t, dir)
-}
-
-func setupPRBehindBase(t *testing.T) (string, string, GitRunner) {
-	t.Helper()
-	dir := newBareRepo(t)
-	writeFile(t, dir, ".github/release-intent.yaml", checkTitleTestConfig)
-	writeFile(t, dir, "CHANGELOG.md", "# changelog\n")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\"}\n")
-	writeFile(t, dir, "work.txt", "base\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "feat(init)[minor]: seed")
-	runGit(t, dir, "checkout", "-q", "-b", "feature")
-	writeFile(t, dir, "feature.txt", "work\n")
-	runGit(t, dir, "add", "feature.txt")
-	runGit(t, dir, "commit", "-q", "-m", "feat(graph)[minor]: branch work")
-	head := gitRev(t, dir, "HEAD")
-	runGit(t, dir, "checkout", "-q", "master")
-	writeFile(t, dir, "later.txt", "later\n")
-	runGit(t, dir, "add", "later.txt")
-	runGit(t, dir, "commit", "-q", "-m", "docs(readme)[patch]: later words")
-	return gitRev(t, dir, "HEAD"), head, mustRunner(t, dir)
-}
-
-func setupScriptsOnlyAfterRelease(t *testing.T) (string, string, GitRunner) {
-	t.Helper()
-	dir := newBareRepo(t)
-	writeFile(t, dir, ".github/release-intent.yaml", checkTitleTestConfig)
-	writeFile(t, dir, "CHANGELOG.md", "# changelog\n")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\"}\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "feat(init)[minor]: seed")
-	runGit(t, dir, "tag", "v0.1.0")
-	runGit(t, dir, "checkout", "-q", "-b", "feature")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\", \"scripts\": {\"lint\": \"quiet\"}}\n")
-	runGit(t, dir, "add", "package.json")
-	runGit(t, dir, "commit", "-q", "-m", "fix(scripts)[patch]: quiet lint")
-	head := gitRev(t, dir, "HEAD")
-	runGit(t, dir, "checkout", "-q", "master")
-	writeFile(t, dir, "CHANGELOG.md", "# changelog\n\n## 0.2.0\n\n- release one (#1)\n")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.2.0\"}\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "release[patch]: v0.2.0 (#1)")
-	return gitRev(t, dir, "HEAD"), head, mustRunner(t, dir)
-}
-
-func setupVersionFieldEdit(t *testing.T) (string, string, GitRunner) {
-	t.Helper()
-	dir := newBareRepo(t)
-	writeFile(t, dir, ".github/release-intent.yaml", checkTitleTestConfig)
-	writeFile(t, dir, "CHANGELOG.md", "# changelog\n")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\"}\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "feat(init)[minor]: seed")
-	base := gitRev(t, dir, "HEAD")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.1\"}\n")
-	runGit(t, dir, "add", "package.json")
-	runGit(t, dir, "commit", "-q", "-m", "feat(graph)[patch]: bump")
-	return base, gitRev(t, dir, "HEAD"), mustRunner(t, dir)
-}
-
-func setupVersionFieldRemoved(t *testing.T) (string, string, GitRunner) {
-	t.Helper()
-	dir := newBareRepo(t)
-	writeFile(t, dir, ".github/release-intent.yaml", checkTitleTestConfig)
-	writeFile(t, dir, "CHANGELOG.md", "# changelog\n")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\"}\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "feat(init)[minor]: seed")
-	base := gitRev(t, dir, "HEAD")
-	writeFile(t, dir, "package.json", "{\"name\": \"demo\"}\n")
-	runGit(t, dir, "add", "package.json")
-	runGit(t, dir, "commit", "-q", "-m", "feat(graph)[minor]: drop version field")
-	return base, gitRev(t, dir, "HEAD"), mustRunner(t, dir)
-}
-
-func setupGroupShapedBase(t *testing.T) (string, string, GitRunner) {
-	t.Helper()
-	dir := newBareRepo(t)
-	writeFile(t, dir, ".github/release-intent.yaml", checkTitleTestConfig)
-	writeFile(t, dir, "CHANGELOG.md", "# changelog\n")
-	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\"}\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "feat(init)[minor]: seed")
-	runGit(t, dir, "checkout", "-q", "-b", "queue-a")
-	writeFile(t, dir, "a.txt", "a\n")
-	runGit(t, dir, "add", "a.txt")
-	runGit(t, dir, "commit", "-q", "-m", "feat(a)[minor]: entry a")
-	base := gitRev(t, dir, "HEAD")
-	runGit(t, dir, "checkout", "-q", "master")
-	runGit(t, dir, "checkout", "-q", "-b", "queue-b")
-	writeFile(t, dir, "b.txt", "b\n")
-	runGit(t, dir, "add", "b.txt")
-	runGit(t, dir, "commit", "-q", "-m", "feat(b)[minor]: entry b")
-	return base, gitRev(t, dir, "HEAD"), mustRunner(t, dir)
-}
-
-func newBareRepo(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	runGit(t, dir, "init", "-q", "-b", "master")
-	runGit(t, dir, "config", "user.email", "t@t")
-	runGit(t, dir, "config", "user.name", "t@t")
-	return dir
-}
-
-func mustRunner(t *testing.T, dir string) GitRunner {
-	t.Helper()
-	r, err := newExecGitIn(dir)
-	if err != nil {
-		t.Fatalf("newExecGitIn: %v", err)
-	}
-	return r
 }

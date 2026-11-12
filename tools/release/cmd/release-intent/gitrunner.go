@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -35,11 +36,11 @@ type GitRunner interface {
 }
 
 // gitSubcommand is the typed closed allowlist of git subcommands the runner
-// may invoke.
+// may invoke. Every member only reads the repository. The zero value is no
+// subcommand.
 type gitSubcommand string
 
 const (
-	gitRevList    gitSubcommand = "rev-list"
 	gitMergeBase  gitSubcommand = "merge-base"
 	gitLog        gitSubcommand = "log"
 	gitDiff       gitSubcommand = "diff"
@@ -49,16 +50,134 @@ const (
 	gitMergeTree  gitSubcommand = "merge-tree"
 )
 
-// allowedGitSubcommands is the allowlist enforced by runGit.
-var allowedGitSubcommands = map[gitSubcommand]bool{
-	gitRevList:    true,
-	gitMergeBase:  true,
-	gitLog:        true,
-	gitDiff:       true,
-	gitShow:       true,
-	gitLsTree:     true,
-	gitForEachRef: true,
-	gitMergeTree:  true,
+// allGitSubcommands is the canonical closed set the runner enforces.
+var allGitSubcommands = []gitSubcommand{
+	gitMergeBase, gitLog, gitDiff, gitShow, gitLsTree, gitForEachRef, gitMergeTree,
+}
+
+func (s gitSubcommand) String() string { return string(s) }
+
+// IsValid reports whether the subcommand is on the allowlist.
+func (s gitSubcommand) IsValid() bool {
+	for _, known := range allGitSubcommands {
+		if s == known {
+			return true
+		}
+	}
+	return false
+}
+
+// gitOption is one fixed option the runner passes to git. Options are
+// program text, never user input.
+type gitOption string
+
+const (
+	// optEndOfOptions closes the option list, so nothing after it parses as
+	// an option.
+	optEndOfOptions gitOption = "--end-of-options"
+	// optPathSeparator separates revisions from paths.
+	optPathSeparator gitOption = "--"
+	optFirstParent   gitOption = "--first-parent"
+	optAddedOnly     gitOption = "--diff-filter=A"
+	optNameOnly      gitOption = "--name-only"
+	optNoRenames     gitOption = "--no-renames"
+	optWriteTree     gitOption = "--write-tree"
+)
+
+// Output formats. Fields are NUL-separated: a subject cannot hold a NUL.
+const (
+	// logFormatCommit prints SHA, subject and committer date (YYYY-MM-DD).
+	logFormatCommit = "%H%x00%s%x00%cs"
+	// logFormatSHA prints the SHA alone.
+	logFormatSHA = "%H"
+	// refFormatTag prints the short tag name, the peeled commit of an
+	// annotated tag (empty for a lightweight tag), and the object itself.
+	refFormatTag = "%(refname:strip=2)%00%(*objectname)%00%(objectname)"
+	// gitFieldSeparator is the NUL the formats above put between fields.
+	gitFieldSeparator = "\x00"
+	// revPathSeparator joins a revision to a path in git's <rev>:<path>
+	// blob syntax.
+	revPathSeparator = ":"
+)
+
+func formatOption(format string) gitOption { return gitOption("--format=" + format) }
+
+// gitInvocation is one git command line in structured form. The query
+// builders below are the only places one is assembled, so every command the
+// runner can run is listed in this file. Revisions and paths are the dynamic
+// parts; run refuses any of them that begins with '-'.
+type gitInvocation struct {
+	sub       gitSubcommand
+	options   []gitOption
+	revisions []string
+	// separatePaths puts the path separator after the revisions, with or
+	// without paths following it.
+	separatePaths bool
+	paths         []string
+}
+
+// argv renders the command line after the git executable: the subcommand,
+// the fixed options, the end-of-options mark, the revisions, then the path
+// separator and paths.
+func (inv gitInvocation) argv() []string {
+	argv := []string{inv.sub.String()}
+	for _, o := range inv.options {
+		argv = append(argv, string(o))
+	}
+	argv = append(argv, string(optEndOfOptions))
+	argv = append(argv, inv.revisions...)
+	if inv.separatePaths {
+		argv = append(argv, string(optPathSeparator))
+		argv = append(argv, inv.paths...)
+	}
+	return argv
+}
+
+// logFirstParent lists every first-parent commit of ref, newest first.
+func logFirstParent(ref string) gitInvocation {
+	return gitInvocation{sub: gitLog, options: []gitOption{optFirstParent, formatOption(logFormatCommit)}, revisions: []string{ref}}
+}
+
+// logFirstParentTouching lists the first-parent commits of ref that touch path.
+func logFirstParentTouching(ref, path string) gitInvocation {
+	return gitInvocation{sub: gitLog, options: []gitOption{optFirstParent, formatOption(logFormatSHA)}, revisions: []string{ref}, separatePaths: true, paths: []string{path}}
+}
+
+// logFirstParentAdding lists the first-parent commits of ref that add path.
+func logFirstParentAdding(ref, path string) gitInvocation {
+	return gitInvocation{sub: gitLog, options: []gitOption{optFirstParent, optAddedOnly, formatOption(logFormatSHA)}, revisions: []string{ref}, separatePaths: true, paths: []string{path}}
+}
+
+// tagsWithPrefix lists every tag the tag prefix opens.
+func tagsWithPrefix(prefix string) gitInvocation {
+	return gitInvocation{sub: gitForEachRef, options: []gitOption{formatOption(refFormatTag)}, revisions: []string{intent.TagRefGlob(prefix)}}
+}
+
+// mergeBaseOf finds the merge base of two revisions.
+func mergeBaseOf(base, head string) gitInvocation {
+	return gitInvocation{sub: gitMergeBase, revisions: []string{base, head}}
+}
+
+// changedNames lists the paths that differ between two revisions, with no
+// rename detection.
+func changedNames(from, to string) gitInvocation {
+	return gitInvocation{sub: gitDiff, options: []gitOption{optNameOnly, optNoRenames}, revisions: []string{from, to}, separatePaths: true}
+}
+
+// mergeTreeOf computes the merged tree of two revisions without touching the
+// working tree.
+func mergeTreeOf(tip, current string) gitInvocation {
+	return gitInvocation{sub: gitMergeTree, options: []gitOption{optWriteTree}, revisions: []string{tip, current}}
+}
+
+// showBlob prints the bytes of path at rev.
+func showBlob(rev, path string) gitInvocation {
+	return gitInvocation{sub: gitShow, revisions: []string{rev + revPathSeparator + path}}
+}
+
+// listTreeEntry lists path at rev: empty output means the path is absent.
+func listTreeEntry(rev, path string) gitInvocation {
+	return gitInvocation{sub: gitLsTree, revisions: []string{rev}, separatePaths: true, paths: []string{path}}
 }
 
 // execGit is the production GitRunner.
@@ -71,7 +190,7 @@ type execGit struct {
 func newExecGit() (GitRunner, error) {
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
-		return nil, fmt.Errorf("git runner: cannot find a `git` executable on PATH for release-intent history checks: %w. Install git or enter the nix dev shell (which provides it) before running release-intent git commands", err)
+		return nil, fmt.Errorf("git runner: cannot find a `git` executable on PATH for %s history checks: %w. Install git or enter the nix dev shell (which provides it) before running %s git commands", intent.ProgramName, err, intent.ProgramName)
 	}
 	return &execGit{gitPath: gitPath}, nil
 }
@@ -88,31 +207,39 @@ func newExecGitIn(dir string) (GitRunner, error) {
 	return g, nil
 }
 
-// dashRefusal is the single refusal for a dynamic git argument that begins
-// with '-'. Both runGit and the read path that probes before reading use it,
-// so a hostile value never executes and never surfaces as a blob error.
-func dashRefusal(arg string, sub gitSubcommand) error {
-	return fmt.Errorf("git runner: refusing to pass %q to `git %s`: a ref/tag/SHA/pattern/path that begins with '-' could be interpreted as a git option instead of a revision. Pass a value that does not start with '-'", arg, sub)
+// HostileArgError is the single refusal for a dynamic git argument that
+// begins with '-'. The value never reaches git, so it never executes as an
+// option and never surfaces as a blob read error.
+type HostileArgError struct {
+	Arg string
+	Sub gitSubcommand
 }
 
-// runGit builds and runs `git <sub> <fixedFlags...> <dynArgs...>` with no
-// shell. Callers place `--end-of-options` in fixedFlags where git supports it
-// (before revisions) and `--` before paths, so a leading-dash dynamic value
-// can never become an option: the dash check below refuses it first anyway.
-func (g *execGit) runGit(ctx context.Context, sub gitSubcommand, fixedFlags []string, dynArgs ...string) ([]byte, error) {
-	if !allowedGitSubcommands[sub] {
-		return nil, fmt.Errorf("git runner: subcommand %q is not in the release-intent allowlist; refusing to run it. This is a programming error in release-intent, not a user input issue", sub)
+func (e *HostileArgError) Error() string {
+	return fmt.Sprintf("git runner: refusing to pass %q to `git %s`: a ref/tag/SHA/pattern/path that begins with '-' could be interpreted as a git option instead of a revision. Pass a value that does not start with '-'", e.Arg, e.Sub)
+}
+
+func dashRefusal(arg string, sub gitSubcommand) error {
+	return &HostileArgError{Arg: arg, Sub: sub}
+}
+
+// run executes one structured git command line with no shell. It refuses a
+// subcommand off the allowlist and any revision or path that begins with
+// '-'. The end-of-options mark and the path separator are also on every
+// command line, so a leading-dash value could not become an option even
+// without the refusal.
+func (g *execGit) run(ctx context.Context, inv gitInvocation) ([]byte, error) {
+	if !inv.sub.IsValid() {
+		return nil, fmt.Errorf("git runner: subcommand %q is not in the %s allowlist; refusing to run it. This is a programming error in %s, not a user input issue", inv.sub, intent.ProgramName, intent.ProgramName)
 	}
-	for _, a := range dynArgs {
-		if a != "--" && strings.HasPrefix(a, "-") {
-			return nil, dashRefusal(a, sub)
+	for _, group := range [][]string{inv.revisions, inv.paths} {
+		for _, a := range group {
+			if strings.HasPrefix(a, "-") {
+				return nil, dashRefusal(a, inv.sub)
+			}
 		}
 	}
-	argv := make([]string, 0, len(fixedFlags)+len(dynArgs)+1)
-	argv = append(argv, string(sub))
-	argv = append(argv, fixedFlags...)
-	argv = append(argv, dynArgs...)
-	cmd := exec.CommandContext(ctx, g.gitPath, argv...)
+	cmd := exec.CommandContext(ctx, g.gitPath, inv.argv()...)
 	cmd.Dir = g.dir
 	return cmd.Output()
 }
@@ -121,15 +248,12 @@ func (g *execGit) runGit(ctx context.Context, sub gitSubcommand, fixedFlags []st
 // comes from a second call so an empty commit is still listed: history
 // simplification on the first call would drop it.
 func (g *execGit) FirstParent(ctx context.Context, ref string, changelog string) ([]intent.Commit, error) {
-	// Format: SHA, subject, committer date. Use NUL separators that subjects
-	// cannot contain unescaped; the date is %cs (committer date short
-	// YYYY-MM-DD) for dated changelog headings.
-	out, err := g.runGit(ctx, gitLog, []string{"--first-parent", "--format=%H%x00%s%x00%cs", "--end-of-options"}, ref)
+	out, err := g.run(ctx, logFirstParent(ref))
 	if err != nil {
 		return nil, fmt.Errorf("git runner: cannot list first-parent commits of %q via `git log --first-parent`: %w. Confirm the ref exists in this checkout", ref, err)
 	}
 	commits := parseLogCommits(string(out))
-	names, err := g.runGit(ctx, gitLog, []string{"--first-parent", "--format=%H", "--end-of-options"}, ref, "--", changelog)
+	names, err := g.run(ctx, logFirstParentTouching(ref, changelog))
 	if err != nil {
 		return nil, fmt.Errorf("git runner: cannot list the commits touching %q via `git log --first-parent`: %w. Confirm the ref exists in this checkout", changelog, err)
 	}
@@ -151,7 +275,7 @@ func parseLogCommits(out string) []intent.Commit {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\x00", 3)
+		parts := strings.SplitN(line, gitFieldSeparator, 3)
 		if len(parts) < 2 {
 			continue
 		}
@@ -172,7 +296,7 @@ func (g *execGit) Tags(ctx context.Context, prefix string) (map[string]string, e
 	if strings.HasPrefix(prefix, "-") {
 		return nil, dashRefusal(prefix, gitForEachRef)
 	}
-	out, err := g.runGit(ctx, gitForEachRef, []string{"--format=%(refname:strip=2)%00%(*objectname)%00%(objectname)", "--end-of-options"}, "refs/tags/"+prefix+"*")
+	out, err := g.run(ctx, tagsWithPrefix(prefix))
 	if err != nil {
 		return nil, fmt.Errorf("git runner: cannot list tags with prefix %q via `git for-each-ref`: %w. Confirm the checkout has tags fetched", prefix, err)
 	}
@@ -181,7 +305,7 @@ func (g *execGit) Tags(ctx context.Context, prefix string) (map[string]string, e
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		parts := strings.Split(line, "\x00")
+		parts := strings.Split(line, gitFieldSeparator)
 		if len(parts) != 3 {
 			continue
 		}
@@ -203,7 +327,7 @@ func (g *execGit) Tags(ctx context.Context, prefix string) (map[string]string, e
 // --first-parent, a merge commit that brings the file in counts as the adding
 // commit.
 func (g *execGit) FirstCommitAdding(ctx context.Context, branch, path string) (string, error) {
-	out, err := g.runGit(ctx, gitLog, []string{"--first-parent", "--diff-filter=A", "--format=%H", "--end-of-options"}, branch, "--", path)
+	out, err := g.run(ctx, logFirstParentAdding(branch, path))
 	if err != nil {
 		return "", fmt.Errorf("git runner: cannot find the commit adding %q on %q via `git log --first-parent --diff-filter=A`: %w", path, branch, err)
 	}
@@ -221,12 +345,12 @@ func (g *execGit) FirstCommitAdding(ctx context.Context, branch, path string) (s
 // side is caught. A base that shares no history with head is an error: there
 // is no merge base to diff.
 func (g *execGit) ChangedPaths(ctx context.Context, base, head string) (string, []string, error) {
-	out, err := g.runGit(ctx, gitMergeBase, []string{"--end-of-options"}, base, head)
+	out, err := g.run(ctx, mergeBaseOf(base, head))
 	if err != nil {
-		return "", nil, fmt.Errorf("git runner: base %q shares no history with head %q (no merge base via `git merge-base`): the PR range needs a merge base. Rebase the PR onto the base branch or pass revisions with shared history: %v", base, head, err)
+		return "", nil, fmt.Errorf("git runner: base %q shares no history with head %q (no merge base via `git merge-base`): the PR range needs a merge base. Rebase the PR onto the base branch or pass revisions with shared history: %w", base, head, err)
 	}
 	mb := strings.TrimSpace(string(out))
-	diff, err := g.runGit(ctx, gitDiff, []string{"--name-only", "--no-renames", "--end-of-options", mb, head, "--"})
+	diff, err := g.run(ctx, changedNames(mb, head))
 	if err != nil {
 		return "", nil, fmt.Errorf("git runner: cannot diff %q against %q via `git diff --name-only --no-renames`: %w. Confirm both revisions exist", mb, head, err)
 	}
@@ -242,7 +366,7 @@ func (g *execGit) ChangedPaths(ctx context.Context, base, head string) (string, 
 // MergeTree reports whether tip merges into current without conflict by
 // computing the write tree. A nil error means the merge is clean.
 func (g *execGit) MergeTree(ctx context.Context, tip, current string) error {
-	if _, err := g.runGit(ctx, gitMergeTree, []string{"--write-tree", "--end-of-options"}, tip, current); err != nil {
+	if _, err := g.run(ctx, mergeTreeOf(tip, current)); err != nil {
 		return fmt.Errorf("git runner: tip %q does not merge into %q cleanly (via `git merge-tree --write-tree`): %w. Rebuild the release branch from the tip", tip, current, err)
 	}
 	return nil
@@ -253,14 +377,15 @@ func (g *execGit) MergeTree(ctx context.Context, tip, current string) error {
 // errors and never treat them as absent. A hostile rev is refused before any
 // git call, never wrapped as a blob error.
 func (g *execGit) ReadFile(ctx context.Context, rev, path string) ([]byte, error) {
-	if strings.Contains(path, ":") || strings.HasPrefix(path, "/") || strings.Contains(path, "..") {
+	if strings.Contains(path, revPathSeparator) || strings.HasPrefix(path, "/") || strings.Contains(path, "..") {
 		return nil, fmt.Errorf("git runner: refusing to read path %q at %q: paths must be repo-relative and must not escape via .. or absolute form", path, rev)
 	}
-	if strings.HasPrefix(rev+":"+path, "-") {
-		return nil, dashRefusal(rev+":"+path, gitShow)
-	}
-	out, err := g.runGit(ctx, gitShow, []string{"--end-of-options"}, rev+":"+path)
+	out, err := g.run(ctx, showBlob(rev, path))
 	if err != nil {
+		var hostile *HostileArgError
+		if errors.As(err, &hostile) {
+			return nil, err
+		}
 		if g.pathAbsent(ctx, rev, path) {
 			return nil, &NotFoundError{Rev: rev, Path: path}
 		}
@@ -272,7 +397,7 @@ func (g *execGit) ReadFile(ctx context.Context, rev, path string) ([]byte, error
 // pathAbsent reports whether path is absent at rev. It uses ls-tree so an
 // absent path is structural (empty output, exit 0), never a message match.
 func (g *execGit) pathAbsent(ctx context.Context, rev, path string) bool {
-	out, err := g.runGit(ctx, gitLsTree, []string{"--end-of-options"}, rev, "--", path)
+	out, err := g.run(ctx, listTreeEntry(rev, path))
 	if err != nil {
 		return false
 	}
