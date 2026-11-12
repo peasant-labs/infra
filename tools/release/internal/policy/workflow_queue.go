@@ -51,9 +51,8 @@ const (
 	// change the head commit.
 	QueueRuleTitleGuard QueueRule = "title-guard-no-early-success"
 	// QueueRuleRangeFloor requires every workflow step that reads a commit
-	// range (plan and release-pr) to pass
-	// --floor from the RELEASE_BATCH_FLOOR repository variable, so a subject
-	// the tool cannot parse leaves parsing everywhere at once.
+	// range to pass the recovery floor from its repository variable, so a
+	// subject the tool cannot parse leaves parsing everywhere at once.
 	QueueRuleRangeFloor QueueRule = "range-readers-take-the-floor"
 	// QueueRuleNoPush requires every branch push to be a listed job pushing
 	// its own branch: the release job pushes the release branch and each bot
@@ -84,10 +83,10 @@ const (
 	// QueueRuleToolPin requires every checkout of the tool to name a 40-hex
 	// commit, and all of them in one repo to name the same commit.
 	QueueRuleToolPin QueueRule = "tool-pin-is-a-sha"
-	// QueueRuleClassify requires workflows to call the release-intent
-	// classify command instead of comparing a bot branch literal: no if or
-	// run compares == or != against a configured bot branch, and the guard
-	// workflow invokes classify to tell the release PR apart.
+	// QueueRuleClassify requires workflows to call the shared classifier
+	// instead of comparing a bot branch literal: no if or run compares == or
+	// != against a configured bot branch, and the guard workflow invokes the
+	// classifier to tell the release PR apart.
 	QueueRuleClassify QueueRule = "bot-branch-via-classify"
 )
 

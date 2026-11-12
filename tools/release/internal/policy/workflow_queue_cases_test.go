@@ -29,11 +29,11 @@ func TestCheckWorkflows_Cases(t *testing.T) {
 		t.Run(row.Name, func(t *testing.T) {
 			t.Parallel()
 			dir := materializeQueueFixture(t, row.Input.Overlay)
-			policy, err := LoadQueuePolicy(filepath.Join(dir, fixturePolicyFile))
+			policy, err := LoadQueuePolicy(filepath.Join(dir, DefaultPath))
 			if err != nil {
 				t.Fatalf("case %q policy does not load: %v", row.Name, err)
 			}
-			cfg, err := intent.LoadConfig(filepath.Join(dir, fixtureConfigFile))
+			cfg, err := intent.LoadConfig(filepath.Join(dir, intent.DefaultConfigPath))
 			if err != nil {
 				t.Fatalf("case %q release config does not load: %v", row.Name, err)
 			}

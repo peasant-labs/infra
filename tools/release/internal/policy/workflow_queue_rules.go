@@ -155,12 +155,10 @@ func eventRead(scalar string) string {
 	return "github.event.changes"
 }
 
-// checkRangeFloor (range-readers-take-the-floor) requires every workflow step
-// that reads a commit range (plan or release-pr) to pass --floor in its
-// quoted form, and every plan step to pass
-// --mode quoted too: --floor "${{ vars.RELEASE_BATCH_FLOOR }}", --mode
-// "${{ vars.RELEASE_BATCH_MODE }}", or the same values through env
-// (--floor "$FLOOR" with FLOOR mapped from the variable). An unquoted
+// checkRangeFloor requires every workflow step that reads a commit range to
+// pass intent.FlagFloor quoted, and every planner step to pass intent.FlagMode
+// quoted too. The argument can directly expand the corresponding typed
+// repository variable, or expand an env variable mapped from it. An unquoted
 // expansion vanishes when the variable is unset -- the normal state, set only
 // for recovery -- turning the flag into a missing value or swallowing the
 // next flag, so the job fails closed red on every run.
@@ -320,7 +318,7 @@ func (c *queueChecker) resolvePushes(rule QueueRule) []allowedPush {
 		branch, ok := c.cfg.BotBranches[intent.PRKindRelease]
 		if !ok {
 			c.emit(rule, "", rel.Job,
-				"the policy names a release job during merge-queue policy validation, but the release config names no branch for the release kind. Set bot_branches release so the checker can tell the release branch apart")
+				"the policy names a release job during merge-queue policy validation, but the release config names no branch for the "+intent.PRKindRelease.String()+" kind. Set bot_branches "+intent.PRKindRelease.String()+" so the checker can tell the release branch apart")
 		} else {
 			allowed = append(allowed, allowedPush{rel.Workflow, rel.Job, branch})
 		}
@@ -583,7 +581,7 @@ var releaseCreate = regexp.MustCompile(`\bgh\s+release\s+create\b`)
 // only when all three hold: the workflow's one trigger is push: tags: with
 // every pattern starting with the release config's tag prefix, so it runs
 // only for a release tag that already exists; no step pushes a ref, writes
-// refs/tags/, or writes a PR; and every create in the step passes
+// a tag ref, or writes a PR; and every create in the step passes
 // --verify-tag, so gh refuses to create a missing tag, and names the
 // triggering tag as its tag argument (see triggeringTag). Such a workflow can
 // publish a Release for the pushed tag and nothing else; gh release edit
@@ -771,7 +769,7 @@ var (
 		"--title": true, "-t": true, "--body": true, "-b": true, "--body-file": true, "-F": true,
 		"--comment": true, "-c": true, "--label": true, "-l": true, "--milestone": true, "-m": true,
 		"--project": true, "-p": true, "--reviewer": true, "-r": true, "--assignee": true, "-a": true,
-		"--repo": true, "-R": true, "--head": true, "--base": true, "-H": true, "-B": true,
+		"--repo": true, "-R": true, ghFlagHead: true, "--base": true, "-H": true, "-B": true,
 		"--field": true, "--jq": true,
 	}
 )
@@ -827,9 +825,9 @@ func (c *queueChecker) checkTokenMint() {
 	}
 }
 
-// refComparison matches the canonical default-branch comparison: github.ref
-// == 'refs/heads/<default>', or the format form against the repository's
-// default branch.
+// refComparison matches the canonical default-branch comparison: the
+// GitHub ref against a fully qualified branch ref, or the format form against
+// the repository's default branch.
 var refComparison = regexp.MustCompile(
 	regexp.QuoteMeta(contextRef) + `\s*==\s*'` + regexp.QuoteMeta(intent.BranchRefPrefix) + `[^']+'|` +
 		regexp.QuoteMeta(contextRef) + `\s*==\s*format\('` + regexp.QuoteMeta(intent.BranchRefPrefix) + `\{0\}'[^)]*default_branch`)
@@ -837,7 +835,8 @@ var refComparison = regexp.MustCompile(
 // contextRef is the expression that reads the ref a run was triggered for.
 const contextRef = "github.ref"
 
-// The gh flags the push rules read in a run line.
+// The gh flags the push rules read in a run line. These belong to gh, not to
+// the release tool, even where their spellings happen to match its flags.
 const (
 	ghFlagHead      = "--head"
 	ghFlagVerifyTag = "--verify-tag"
