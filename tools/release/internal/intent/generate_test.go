@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/generate_corpus.yaml
@@ -16,7 +17,7 @@ type generateInput struct {
 	Config        intent.Config  `yaml:"config"`
 	Pending       []intent.Title `yaml:"pending"`
 	BaseChangelog string         `yaml:"base_changelog"`
-	Version       string         `yaml:"version"`
+	Version       intent.SemVer  `yaml:"version"`
 	Tag           string         `yaml:"tag"`
 	Date          string         `yaml:"date"`
 }
@@ -34,12 +35,12 @@ func TestGenerate(t *testing.T) {
 			in := intent.ContentInput{
 				Pending:       c.Input.Pending,
 				BaseChangelog: c.Input.BaseChangelog,
-				Version:       intent.SemVer(c.Input.Version),
+				Version:       c.Input.Version,
 				Tag:           c.Input.Tag,
 				Date:          c.Input.Date,
 			}
 			got, err := intent.Generate(c.Input.Config, in)
-			if c.Classification == "must-fail" {
+			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("Generate: expected an error, got %+v", got)
 				}

@@ -18,9 +18,9 @@ type highestTagInput struct {
 }
 
 type highestTagExpected struct {
-	Tag     string `yaml:"tag"`
-	Version string `yaml:"version"`
-	Found   bool   `yaml:"found"`
+	Tag     string        `yaml:"tag"`
+	Version intent.SemVer `yaml:"version"`
+	Found   bool          `yaml:"found"`
 }
 
 func TestHighestFinalTag(t *testing.T) {
@@ -34,7 +34,7 @@ func TestHighestFinalTag(t *testing.T) {
 			if tag != c.Expected.Tag {
 				t.Errorf("Tag = %q, want %q", tag, c.Expected.Tag)
 			}
-			if string(version) != c.Expected.Version {
+			if version != c.Expected.Version {
 				t.Errorf("Version = %q, want %q", version, c.Expected.Version)
 			}
 		})

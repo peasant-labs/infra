@@ -1,6 +1,9 @@
 package intent
 
-import "fmt"
+import (
+	"strconv"
+	"strings"
+)
 
 // This file defines every closed set the package trades in. Closed sets are
 // typed, with no bare strings crossing the package boundary: callers compare
@@ -32,23 +35,36 @@ var AllTypes = []Type{
 }
 
 // IsValid reports whether the type is one of the known members.
-func (t Type) IsValid() bool {
-	for _, known := range AllTypes {
-		if t == known {
-			return true
-		}
-	}
-	return false
-}
+func (t Type) IsValid() bool { return isMember(AllTypes, t) }
 
 func (t Type) String() string { return string(t) }
 
-// Class groups types by what a bump bracket means on them.
+// ParseType returns the member spelled raw and refuses anything else.
+func ParseType(raw string) (Type, error) {
+	return parseMember(AllTypes, raw, "title type", "intent.ParseType")
+}
+
+// UnmarshalText parses a type through ParseType.
+func (t *Type) UnmarshalText(text []byte) error {
+	member, err := ParseType(string(text))
+	if err != nil {
+		return err
+	}
+	*t = member
+	return nil
+}
+
+// Class groups types by what a bump bracket means on them. The zero value is
+// ClassUnknown: the class of a type outside the closed set, which permits
+// nothing.
 type Class int
 
 const (
+	// ClassUnknown is the class of a type that is not a known member. It is
+	// not a member of AllClasses and no rule accepts it.
+	ClassUnknown Class = iota
 	// ClassMustRelease types always release and always carry a bracket.
-	ClassMustRelease Class = iota + 1
+	ClassMustRelease
 	// ClassMayRelease types release only with a bracket.
 	ClassMayRelease
 	// ClassNeverRelease types never carry a bracket or a breaking mark.
@@ -58,16 +74,76 @@ const (
 // AllClasses is the canonical closed set of type classes.
 var AllClasses = []Class{ClassMustRelease, ClassMayRelease, ClassNeverRelease}
 
-// Class reports the release class of the type.
+// IsValid reports whether the class is one of the known members.
+func (c Class) IsValid() bool { return isMember(AllClasses, c) }
+
+// classWords spells each class once.
+var classWords = map[Class]string{
+	ClassMustRelease:  "must-release",
+	ClassMayRelease:   "may-release",
+	ClassNeverRelease: "never-release",
+}
+
+// String returns the class's word. ClassUnknown and any other value outside
+// the closed set render as an invalid marker that ParseClass refuses.
+func (c Class) String() string {
+	if word, ok := classWords[c]; ok {
+		return word
+	}
+	return "invalid-class(" + strconv.Itoa(int(c)) + ")"
+}
+
+// ParseClass returns the class spelled word and refuses anything else.
+func ParseClass(word string) (Class, error) {
+	for _, class := range AllClasses {
+		if word == classWords[class] {
+			return class, nil
+		}
+	}
+	return ClassUnknown, inputError(
+		"unknown type class "+strconv.Quote(word),
+		"the class set is closed, and an unknown value is never read as a member",
+		"intent.ParseClass",
+		"parsing a type class",
+		"no bracket rule can be chosen from this value",
+		"use one of "+strconv.Quote(ClassMustRelease.String())+", "+strconv.Quote(ClassMayRelease.String())+", "+strconv.Quote(ClassNeverRelease.String()),
+	)
+}
+
+// UnmarshalText parses a class through ParseClass.
+func (c *Class) UnmarshalText(text []byte) error {
+	class, err := ParseClass(string(text))
+	if err != nil {
+		return err
+	}
+	*c = class
+	return nil
+}
+
+// Class reports the release class of the type. A type outside the closed set
+// has ClassUnknown: it is never read as a type that may skip a release.
 func (t Type) Class() Class {
 	switch t {
 	case TypeFeat, TypeFix, TypeRelease:
 		return ClassMustRelease
 	case TypeRefactor, TypePerf, TypeBuild, TypeRevert:
 		return ClassMayRelease
-	default:
+	case TypeDocs, TypeTest, TypeCI, TypeChore, TypeStyle:
 		return ClassNeverRelease
+	default:
+		return ClassUnknown
 	}
+}
+
+// typesOf lists the types of one class, in canonical order.
+func typesOf(class Class) []Type {
+	out := []Type{}
+	for _, t := range AllTypes {
+		if t.Class() == class {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Level is a release bump level. The zero value means no release.
@@ -87,51 +163,78 @@ const (
 // AllLevels is the canonical closed set of bump levels, in increasing order.
 var AllLevels = []Level{LevelNone, LevelPatch, LevelMinor, LevelMajor}
 
+// levelWords spells each level once: the title bracket, the output line and
+// the fixtures all use these words.
+var levelWords = map[Level]string{
+	LevelNone:  "none",
+	LevelPatch: "patch",
+	LevelMinor: "minor",
+	LevelMajor: "major",
+}
+
+// IsValid reports whether the level is one of the known members.
+func (l Level) IsValid() bool { return isMember(AllLevels, l) }
+
+// String returns the level's word. A value outside the closed set renders as
+// an invalid marker that ParseLevel refuses, never as a member's word.
 func (l Level) String() string {
-	switch l {
-	case LevelPatch:
-		return "patch"
-	case LevelMinor:
-		return "minor"
-	case LevelMajor:
-		return "major"
-	default:
-		return "none"
+	if word, ok := levelWords[l]; ok {
+		return word
 	}
+	return "invalid-level(" + strconv.Itoa(int(l)) + ")"
 }
 
-// parseLevel maps a level word to its level. It is the one map both the
-// title grammar and the fixture loader use.
-func parseLevel(word string) (Level, bool) {
-	switch word {
-	case "patch":
-		return LevelPatch, true
-	case "minor":
-		return LevelMinor, true
-	case "major":
-		return LevelMajor, true
-	case "none", "":
-		return LevelNone, true
-	default:
-		return LevelNone, false
+// bumpLevels lists the levels a title bracket may carry: every level that
+// releases, in increasing order.
+var bumpLevels = func() []Level {
+	out := []Level{}
+	for _, level := range AllLevels {
+		if level != LevelNone {
+			out = append(out, level)
+		}
 	}
+	return out
+}()
+
+// levelList renders levels for an error message.
+func levelList(levels []Level) string {
+	words := make([]string, 0, len(levels))
+	for _, level := range levels {
+		words = append(words, strconv.Quote(level.String()))
+	}
+	return strings.Join(words, ", ")
 }
 
-// UnmarshalYAML accepts the level names the fixtures use.
-func (l *Level) UnmarshalYAML(unmarshal func(any) error) error {
-	var word string
-	if err := unmarshal(&word); err != nil {
+// ParseLevel returns the level spelled word and refuses anything else,
+// including the empty string: no release is spelled "none".
+func ParseLevel(word string) (Level, error) {
+	for _, level := range AllLevels {
+		if word == levelWords[level] {
+			return level, nil
+		}
+	}
+	return LevelNone, inputError(
+		"unknown level "+strconv.Quote(word),
+		"the level set is closed, and an unknown value is never read as a member",
+		"intent.ParseLevel",
+		"parsing a level",
+		"no version can be computed from this value",
+		"use one of "+levelList(AllLevels),
+	)
+}
+
+// UnmarshalText parses a level through ParseLevel.
+func (l *Level) UnmarshalText(text []byte) error {
+	level, err := ParseLevel(string(text))
+	if err != nil {
 		return err
-	}
-	level, ok := parseLevel(word)
-	if !ok {
-		return fmt.Errorf("unknown level %q: want one of none, patch, minor, major", word)
 	}
 	*l = level
 	return nil
 }
 
-// Mode selects whether the release job may write. Anything but "tag" plans.
+// Mode selects whether the release job may write. The zero value is not a
+// member: it is refused wherever a mode is used.
 type Mode string
 
 const (
@@ -144,12 +247,44 @@ const (
 // AllModes is the canonical closed set of release-job modes.
 var AllModes = []Mode{ModePlanOnly, ModeTag}
 
-// ParseMode maps "tag" to ModeTag and anything else to ModePlanOnly.
-func ParseMode(raw string) Mode {
-	if raw == string(ModeTag) {
-		return ModeTag
+func (m Mode) String() string { return string(m) }
+
+// IsValid reports whether the mode is one of the known members.
+func (m Mode) IsValid() bool { return isMember(AllModes, m) }
+
+// modeUnset is the value of an unset repository variable.
+const modeUnset = ""
+
+// ParseMode reads the mode a workflow passes from the VarBatchMode
+// repository variable. The empty string is an unset variable and plans
+// without writing; a member's own spelling selects that member. Anything
+// else is an error: a misspelled value never arms the job and never passes
+// for a deliberate plan-only run.
+func ParseMode(raw string) (Mode, error) {
+	if raw == modeUnset {
+		return ModePlanOnly, nil
 	}
-	return ModePlanOnly
+	if mode := Mode(raw); mode.IsValid() {
+		return mode, nil
+	}
+	return "", inputError(
+		"unknown mode "+strconv.Quote(raw),
+		"the mode set is closed, and an unknown value neither arms the release job nor counts as a plan-only run",
+		"intent.ParseMode",
+		"reading the release-job mode",
+		"no plan can be made from this value",
+		"set the repository variable "+VarBatchMode.String()+" to one of "+memberList(AllModes)+", or leave it unset to plan without writing",
+	)
+}
+
+// UnmarshalText parses a mode through ParseMode.
+func (m *Mode) UnmarshalText(text []byte) error {
+	mode, err := ParseMode(string(text))
+	if err != nil {
+		return err
+	}
+	*m = mode
+	return nil
 }
 
 // Action is the one thing a plan tells the release workflow to do.
@@ -173,11 +308,30 @@ var AllActions = []Action{ActionNone, ActionVerify, ActionTag, ActionOpenPR, Act
 
 func (a Action) String() string { return string(a) }
 
+// IsValid reports whether the value is one of the known members.
+func (a Action) IsValid() bool { return isMember(AllActions, a) }
+
+// ParseAction returns the member spelled raw and refuses anything else.
+func ParseAction(raw string) (Action, error) {
+	return parseMember(AllActions, raw, "plan action", "intent.ParseAction")
+}
+
+// UnmarshalText parses the value through ParseAction.
+func (a *Action) UnmarshalText(text []byte) error {
+	member, err := ParseAction(string(text))
+	if err != nil {
+		return err
+	}
+	*a = member
+	return nil
+}
+
 // Verdict is the workflow's report on its pre-tag steps, and nothing else.
 type Verdict string
 
 const (
-	// VerdictNone means no pre-tag report was given.
+	// VerdictNone means no pre-tag report was given. It is the zero value:
+	// nothing is proven.
 	VerdictNone Verdict = ""
 	// VerdictTaggable means every pre-tag step passed.
 	VerdictTaggable Verdict = "taggable"
@@ -189,6 +343,24 @@ const (
 var AllVerdicts = []Verdict{VerdictNone, VerdictTaggable, VerdictRejected}
 
 func (v Verdict) String() string { return string(v) }
+
+// IsValid reports whether the value is one of the known members.
+func (v Verdict) IsValid() bool { return isMember(AllVerdicts, v) }
+
+// ParseVerdict returns the member spelled raw and refuses anything else.
+func ParseVerdict(raw string) (Verdict, error) {
+	return parseMember(AllVerdicts, raw, "pre-tag verdict", "intent.ParseVerdict")
+}
+
+// UnmarshalText parses the value through ParseVerdict.
+func (v *Verdict) UnmarshalText(text []byte) error {
+	member, err := ParseVerdict(string(text))
+	if err != nil {
+		return err
+	}
+	*v = member
+	return nil
+}
 
 // Gate is the merge-queue hold decision for the release PR.
 type Gate string
@@ -204,6 +376,24 @@ const (
 var AllGates = []Gate{GateArm, GateHold}
 
 func (g Gate) String() string { return string(g) }
+
+// IsValid reports whether the value is one of the known members.
+func (g Gate) IsValid() bool { return isMember(AllGates, g) }
+
+// ParseGate returns the member spelled raw and refuses anything else.
+func ParseGate(raw string) (Gate, error) {
+	return parseMember(AllGates, raw, "queue gate", "intent.ParseGate")
+}
+
+// UnmarshalText parses the value through ParseGate.
+func (g *Gate) UnmarshalText(text []byte) error {
+	member, err := ParseGate(string(text))
+	if err != nil {
+		return err
+	}
+	*g = member
+	return nil
+}
 
 // Freshness is whether a landed release candidate still matches what the
 // generator produces now. Unknown means there was nothing to compare, never
@@ -224,6 +414,24 @@ var AllFreshness = []Freshness{FreshnessUnknown, FreshnessFresh, FreshnessStale}
 
 func (f Freshness) String() string { return string(f) }
 
+// IsValid reports whether the value is one of the known members.
+func (f Freshness) IsValid() bool { return isMember(AllFreshness, f) }
+
+// ParseFreshness returns the member spelled raw and refuses anything else.
+func ParseFreshness(raw string) (Freshness, error) {
+	return parseMember(AllFreshness, raw, "freshness", "intent.ParseFreshness")
+}
+
+// UnmarshalText parses the value through ParseFreshness.
+func (f *Freshness) UnmarshalText(text []byte) error {
+	member, err := ParseFreshness(string(text))
+	if err != nil {
+		return err
+	}
+	*f = member
+	return nil
+}
+
 // PRKind tells the workflows which bot PR a head branch belongs to, if any.
 type PRKind string
 
@@ -242,6 +450,24 @@ const (
 var AllPRKinds = []PRKind{PRKindOrdinary, PRKindRelease, PRKindVendorHash, PRKindCutRelease}
 
 func (k PRKind) String() string { return string(k) }
+
+// IsValid reports whether the value is one of the known members.
+func (k PRKind) IsValid() bool { return isMember(AllPRKinds, k) }
+
+// ParsePRKind returns the member spelled raw and refuses anything else.
+func ParsePRKind(raw string) (PRKind, error) {
+	return parseMember(AllPRKinds, raw, "PR kind", "intent.ParsePRKind")
+}
+
+// UnmarshalText parses the value through ParsePRKind.
+func (k *PRKind) UnmarshalText(text []byte) error {
+	member, err := ParsePRKind(string(text))
+	if err != nil {
+		return err
+	}
+	*k = member
+	return nil
+}
 
 // botKinds lists the bot PR kinds in canonical order, derived once from
 // AllPRKinds so the closed set has one home.
@@ -297,11 +523,45 @@ var AllErrorCodes = []ErrorCode{
 
 func (c ErrorCode) String() string { return string(c) }
 
+// IsValid reports whether the value is one of the known members.
+func (c ErrorCode) IsValid() bool { return isMember(AllErrorCodes, c) }
+
+// ParseErrorCode returns the member spelled raw and refuses anything else.
+func ParseErrorCode(raw string) (ErrorCode, error) {
+	return parseMember(AllErrorCodes, raw, "error code", "intent.ParseErrorCode")
+}
+
+// UnmarshalText parses the value through ParseErrorCode.
+func (c *ErrorCode) UnmarshalText(text []byte) error {
+	member, err := ParseErrorCode(string(text))
+	if err != nil {
+		return err
+	}
+	*c = member
+	return nil
+}
+
 // SemVer is a bare X.Y.Z version value, without any tag prefix. A tag is
 // always TagPrefix plus a SemVer.
 type SemVer string
 
 func (s SemVer) String() string { return string(s) }
+
+// UnmarshalText parses a version through ParseSemVer. An empty value stays
+// the zero value, which means no version: a plan with nothing pending
+// computes none.
+func (s *SemVer) UnmarshalText(text []byte) error {
+	if len(text) == 0 {
+		*s = ""
+		return nil
+	}
+	version, err := ParseSemVer(string(text))
+	if err != nil {
+		return err
+	}
+	*s = version
+	return nil
+}
 
 // Title is one parsed intent title: a PR title, or a landed subject with its
 // PR number attached. PR is 0 when the text is a PR title, not a landed

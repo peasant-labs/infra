@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/policy_corpus.yaml
@@ -23,7 +24,7 @@ type policyInput struct {
 }
 
 type policyExpected struct {
-	Code string `yaml:"code"`
+	Code intent.ErrorCode `yaml:"code"`
 }
 
 func TestPolicyViolation(t *testing.T) {
@@ -31,11 +32,11 @@ func TestPolicyViolation(t *testing.T) {
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			got := intent.PolicyViolation(c.Input.Rule, c.Input.Where, c.Input.Message)
-			if c.Classification == "must-fail" {
+			if c.Classification == testcase.MustFail {
 				requireSixParts(t, got, c.Expected.Code)
 				return
 			}
-			if string(got.Code) != c.Expected.Code {
+			if got.Code != c.Expected.Code {
 				t.Errorf("Code = %q, want %q", got.Code, c.Expected.Code)
 			}
 			if !strings.Contains(got.What, c.Input.Rule) || !strings.Contains(got.What, c.Input.Message) {
