@@ -9,6 +9,7 @@ on:
   push:
     paths:
       - ".github/workflows/runner-router.yml"
+      - ".github/workflows/runner-router-smoke.yml"
 
 permissions:
   contents: read
@@ -18,7 +19,6 @@ jobs:
     uses: ./.github/workflows/runner-router.yml
     with:
       fallback: '["ubuntu-24.04"]'
-      required_slots: 1
     secrets:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
@@ -64,30 +64,59 @@ jobs:
           esac
 
   assert-wide:
-    needs: route-wide
+    needs: [route, route-wide]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Assert a wide demand falls back
         env:
+          ROUTE_REASON: ${{ needs.route.outputs.reason }}
           RUNNER: ${{ needs.route-wide.outputs.runner }}
           POOL: ${{ needs.route-wide.outputs.pool }}
           REASON: ${{ needs.route-wide.outputs.reason }}
           FALLBACK: '["ubuntu-24.04"]'
         run: |
           set -euo pipefail
+          echo "route reason=${ROUTE_REASON}"
           echo "runner=${RUNNER}"
           echo "pool=${POOL}"
           echo "reason=${REASON}"
-          # 99 slots never fit the pool, so this must fall back. The pool
-          # is either busy, stale, or unreadable; it is never online.
+          # 99 slots exceed any published max_capacity, so a wide demand
+          # never routes to the pool. When the narrow read saw a fresh
+          # record (pool-online or pool-busy), the wide read must either
+          # agree it is fresh (pool-busy) or straddle the freshness window
+          # (pool-stale); otherwise any fallback reason is fine.
           [ "${POOL}" = "false" ]
           [ "${RUNNER}" = "${FALLBACK}" ]
           case "${REASON}" in
-            pool-busy|pool-stale|query-failed)
+            pool-online)
+              echo "a 99-slot demand must never route to the pool" >&2
+              exit 1
+              ;;
+          esac
+          case "${ROUTE_REASON}" in
+            pool-online|pool-busy)
+              case "${REASON}" in
+                pool-busy|pool-stale)
+                  ;;
+                *)
+                  echo "wide read disagrees with a fresh narrow read: ${REASON}" >&2
+                  exit 1
+                  ;;
+              esac
+              ;;
+            pool-stale|query-failed)
+              case "${REASON}" in
+                pool-busy|pool-stale|query-failed)
+                  ;;
+                *)
+                  echo "unexpected reason: ${REASON}" >&2
+                  exit 1
+                  ;;
+              esac
               ;;
             *)
-              echo "unexpected reason: ${REASON}" >&2
+              echo "unexpected narrow reason: ${ROUTE_REASON}" >&2
               exit 1
               ;;
           esac

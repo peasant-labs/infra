@@ -45,9 +45,8 @@ determine-runner:
   uses: peasant-labs/infra/.github/workflows/runner-router.yml@<reviewed-40-character-commit-sha>
   with:
     fallback: '["blacksmith-4vcpu-ubuntu-2404"]'
-    # How many pool jobs this run places at once. Omit it when the run
-    # places one job; a matrix that places four jobs passes 4.
-    required_slots: 4
+    # Only when this run places several pool jobs at once, say how many:
+    # required_slots: 4
   secrets:
     RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 ```
@@ -60,19 +59,22 @@ record counts as online when it is younger than five minutes, reports a healthy
 listener, and has room for the whole calling run: `max_capacity -
 assigned_jobs` (booting and running) must leave at least `required_slots`
 free slots, or the run's jobs would wait in the pool's queue and the router
-falls back instead. `required_slots` defaults to `1`, which keeps the old
-meaning exactly (any free slot routes to the pool). A request larger than the
+falls back instead. `required_slots` defaults to `1`, so a run that places
+one job routes to the pool on any free slot. A request larger than the
 pool's `max_capacity` can never fit, so it always falls back with reason
 `pool-busy` and a notice saying the request exceeds the pool's capacity. A
 record without `max_capacity` skips the capacity gate, so an older dispatcher
-keeps routing by health alone. The runner list is
-deliberately not consulted, because a scale set has no registered runners while
-it is idle. The fallback is written before the check, so an abort still yields a
-runnable label set.
+keeps routing by health alone. `pool-busy` therefore means "healthy and
+fresh, but fewer free slots than `required_slots`", and the router's notice
+line names the `assigned`, `max`, and `required` counts so the cause is
+visible. The runner list is deliberately not consulted, because a scale set
+has no registered runners while it is idle. The fallback is written before
+the check, so an abort still yields a runnable label set.
 
-`pool-busy` therefore means "healthy and fresh, but fewer free slots than
-`required_slots`", and the router's notice line names the `assigned`,
-`max`, and `required` counts so the cause is visible.
+The contract test is the Go test in `runner-dispatcher`
+(`TestRouterReadsPublishedRecord` and `TestRouterMutationsAreKilled`), which
+run this workflow's own script against records written by the dispatcher's
+publisher.
 
 Known limit: two runs that start at the same moment can both see enough free
 slots and both route to the pool, so one of them still queues. The check
