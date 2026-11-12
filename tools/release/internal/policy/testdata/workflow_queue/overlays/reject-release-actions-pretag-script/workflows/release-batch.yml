@@ -49,7 +49,7 @@ jobs:
         if: "!cancelled() && steps.verdict.outputs.action == 'tag'"
         env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: git push origin ${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}
+        run: git push origin "${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}"
       - id: decide
         if: "!cancelled()"
         run: release-intent plan --branch develop --verdict ${{ (steps.verify-config.outcome == 'success' && steps.verify-workflows.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"

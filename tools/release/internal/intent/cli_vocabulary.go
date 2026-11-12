@@ -126,3 +126,59 @@ func (f Flag) IsValid() bool { return slices.Contains(AllFlags, f) }
 func ParseFlag(raw string) (Flag, error) {
 	return closedset.Parse(AllFlags, raw, parsing("flag", "intent.ParseFlag"))
 }
+
+// FlagUse is one flag a command accepts and whether the command needs it.
+type FlagUse struct {
+	Flag     Flag
+	Required bool
+}
+
+// Flags lists the flags the command accepts, in usage order, each marked
+// required or optional. It is the one place a command's flag set is decided:
+// the command line parses and prints its synopsis from it, and the workflow
+// policy checks every invocation in a consumer workflow against it. A value
+// outside the command set accepts no flags.
+func (c Command) Flags() []FlagUse {
+	switch c {
+	case CommandCheckConfig:
+		return []FlagUse{{FlagConfig, false}}
+	case CommandCheckWorkflows:
+		return []FlagUse{{FlagPolicy, false}, {FlagDir, true}, {FlagPrintRequired, false}}
+	case CommandCheckTitle:
+		return []FlagUse{{FlagBase, true}, {FlagHead, true}, {FlagAuthor, true}, {FlagHeadBranch, true}}
+	case CommandClassify:
+		return []FlagUse{{FlagAuthor, true}, {FlagHeadBranch, true}, {FlagRev, true}}
+	case CommandGroupPR:
+		return []FlagUse{{FlagRef, true}}
+	case CommandPlan:
+		return []FlagUse{{FlagBranch, true}, {FlagMode, true}, {FlagFloor, false}, {FlagVerdict, false}}
+	case CommandReleasePR:
+		return []FlagUse{{FlagBranch, true}, {FlagFloor, false}, {FlagWrite, false}, {FlagCheck, false}, {FlagCurrent, false}}
+	case CommandQueueGate:
+		return []FlagUse{{FlagQueue, true}, {FlagReleasePR, true}}
+	default:
+		return nil
+	}
+}
+
+// Accepts reports whether the command takes the flag at all.
+func (c Command) Accepts(f Flag) bool {
+	for _, use := range c.Flags() {
+		if use.Flag == f {
+			return true
+		}
+	}
+	return false
+}
+
+// RequiredFlags lists the flags the command cannot run without, in usage
+// order. It is read from Flags, never kept as a second list.
+func (c Command) RequiredFlags() []Flag {
+	var out []Flag
+	for _, use := range c.Flags() {
+		if use.Required {
+			out = append(out, use.Flag)
+		}
+	}
+	return out
+}

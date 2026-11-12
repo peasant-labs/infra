@@ -12,14 +12,12 @@ import (
 var shellWordsFixtureYAML []byte
 
 // shellWordsCase is one splitter case: the input line, its words with quotes
-// kept, the bare words, and the refspecs a git push with these arguments
-// resolves to.
+// kept, and the bare words.
 type shellWordsCase struct {
-	Name         string   `yaml:"name"`
-	Input        string   `yaml:"input"`
-	Words        []string `yaml:"words"`
-	Bare         []string `yaml:"bare"`
-	PushRefspecs []string `yaml:"push_refspecs"`
+	Name  string   `yaml:"name"`
+	Input string   `yaml:"input"`
+	Words []string `yaml:"words"`
+	Bare  []string `yaml:"bare"`
 }
 
 type shellWordsFixtures struct {
@@ -53,10 +51,9 @@ func loadShellWordsFixtures(t *testing.T) shellWordsFixtures {
 	return fx
 }
 
-// TestShellWords drives the one splitter and the two readers built on it over
-// the corpus: the split keeps quoted spans and GitHub expressions whole, the
-// bare form drops the delimiting quotes, and a git push line resolves to the
-// same operands.
+// TestShellWords drives the word splitter and its bare reader over the
+// corpus: the split keeps quoted spans and GitHub expressions whole, and the
+// bare form drops the delimiting quotes.
 func TestShellWords(t *testing.T) {
 	t.Parallel()
 
@@ -73,9 +70,6 @@ func TestShellWords(t *testing.T) {
 			}
 			if !slices.Equal(bare, tc.Bare) {
 				t.Fatalf("bare words of %q = %q, want %q", tc.Input, bare, tc.Bare)
-			}
-			if got := splitPushArgs(tc.Input); !slices.Equal(got, tc.PushRefspecs) {
-				t.Fatalf("splitPushArgs(%q) = %q, want %q", tc.Input, got, tc.PushRefspecs)
 			}
 		})
 	}

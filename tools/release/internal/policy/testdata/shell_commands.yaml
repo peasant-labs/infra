@@ -1,0 +1,156 @@
+# Cases for the checker's shell lexer: each input is a run block, commands
+# lists the simple commands it holds as bare words (quotes removed,
+# expansions as written) in the order the lexer finds them, and complete
+# says whether the block lexed to the end. A substitution's commands come
+# before the command that holds it. Redirection targets, comments, and
+# here-document bodies are not commands; an unquoted here-document's
+# substitutions are. bash -c, sh -c and eval scripts are lexed again.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - separators
+  - continuation-and-newline
+  - comment
+  - quotes
+  - expression
+  - substitution-in-quotes
+  - nested-substitution
+  - backtick
+  - redirections
+  - heredoc-literal
+  - heredoc-expanding
+  - heredoc-strip-tabs
+  - here-string
+  - bash-c
+  - eval
+  - subshell-and-group
+  - parameter-default
+  - unterminated-quote
+  - unterminated-heredoc
+  - unterminated-substitution
+cases:
+  - name: separators
+    input: "a b; c && d || e | f & g"
+    commands:
+      - ["a", "b"]
+      - ["c"]
+      - ["d"]
+      - ["e"]
+      - ["f"]
+      - ["g"]
+    complete: true
+  - name: continuation-and-newline
+    input: "a \\\n b\nc"
+    commands:
+      - ["a", "b"]
+      - ["c"]
+    complete: true
+  - name: comment
+    input: "a # git push origin main\nb"
+    commands:
+      - ["a"]
+      - ["b"]
+    complete: true
+  - name: quotes
+    input: "a 'x y' \"z $w\" pre\"mid\"post"
+    commands:
+      - ["a", "x y", "z $w", "premidpost"]
+    complete: true
+  - name: expression
+    input: "a ${{ x && y || 'z w' }} b"
+    commands:
+      - ["a", "${{ x && y || 'z w' }}", "b"]
+    complete: true
+  - name: substitution-in-quotes
+    input: "x=\"$(git push origin main)\""
+    commands:
+      - ["git", "push", "origin", "main"]
+      - ["x=$(git push origin main)"]
+    complete: true
+  - name: nested-substitution
+    input: "classified=\"$(release-intent classify --author \"${A}\" --head-branch \"$(printf '%s' \"${p}\" | jq -r .h)\" --rev \"${B}\")\""
+    commands:
+      - ["printf", "%s", "${p}"]
+      - ["jq", "-r", ".h"]
+      - ["release-intent", "classify", "--author", "${A}", "--head-branch", "$(printf '%s' \"${p}\" | jq -r .h)", "--rev", "${B}"]
+      - ["classified=$(release-intent classify --author \"${A}\" --head-branch \"$(printf '%s' \"${p}\" | jq -r .h)\" --rev \"${B}\")"]
+    complete: true
+  - name: backtick
+    input: "a `git push origin main` b"
+    commands:
+      - ["git", "push", "origin", "main"]
+      - ["a", "`git push origin main`", "b"]
+    complete: true
+  - name: redirections
+    input: "git push origin x 2>&1 >/dev/null <in >>\"$GITHUB_OUTPUT\""
+    commands:
+      - ["git", "push", "origin", "x"]
+    complete: true
+  - name: heredoc-literal
+    input: "cat <<'EOF'\ngit push origin main\nEOF\nb"
+    commands:
+      - ["cat"]
+      - ["b"]
+    complete: true
+  - name: heredoc-expanding
+    input: "cat <<EOF > notes.md\n$(git push origin main)\nEOF"
+    commands:
+      - ["cat"]
+      - ["git", "push", "origin", "main"]
+    complete: true
+  - name: heredoc-strip-tabs
+    input: "cat <<-EOF\n\tgit push origin main\n\tEOF\nb"
+    commands:
+      - ["cat"]
+      - ["b"]
+    complete: true
+  - name: here-string
+    input: "cat <<< \"git push origin main\""
+    commands:
+      - ["cat"]
+    complete: true
+  - name: bash-c
+    input: "bash -ec \"git push origin main\""
+    commands:
+      - ["bash", "-ec", "git push origin main"]
+      - ["git", "push", "origin", "main"]
+    complete: true
+  - name: eval
+    input: "eval git push origin main"
+    commands:
+      - ["eval", "git", "push", "origin", "main"]
+      - ["git", "push", "origin", "main"]
+    complete: true
+  - name: subshell-and-group
+    input: "(cd x && git push origin main) || { echo no; exit 1; }"
+    commands:
+      - ["cd", "x"]
+      - ["git", "push", "origin", "main"]
+      - ["{", "echo", "no"]
+      - ["exit", "1"]
+      - ["}"]
+    complete: true
+  - name: parameter-default
+    input: "echo ${X:-$(git push origin main)}"
+    commands:
+      - ["git", "push", "origin", "main"]
+      - ["X:-$(git push origin main)"]
+      - ["echo", "${X:-$(git push origin main)}"]
+    complete: true
+  - name: unterminated-quote
+    input: "a \"b"
+    commands:
+      - ["a", "b"]
+    complete: false
+  - name: unterminated-heredoc
+    input: "cat <<EOF\nx"
+    commands:
+      - ["cat"]
+    complete: false
+  - name: unterminated-substitution
+    input: "a $(b"
+    commands:
+      - ["b"]
+      - ["a", "$(b"]
+    complete: false

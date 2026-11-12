@@ -1,0 +1,372 @@
+# Cases for the ref-write reader: each row is a run block (or a whole step,
+# to sample the shell and env scopes) and the ref writes the reader finds in
+# it, in order. kind is branch (one literal branch), tag (one refs/tags/
+# destination, its tag as written), or unproven (a write the reader cannot
+# pin, with why naming the reason). The push rule then holds each write to
+# its job's allowance; an unproven write is always rejected.
+#
+# The rows sample every git push form (branch, src:dst, HEAD:dst,
+# refs/heads/, + force, --all, --branches, --mirror, --tags, --follow-tags,
+# --delete, -d, :dst, --prune, --repo, no refspec, variables, patterns),
+# every way a push can be spelled (git -c, git -C, a path, sudo, env, if, a
+# substitution, bash -c, eval), the config that changes a push, and the gh
+# and API calls that write refs.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - branch-plain
+  - branch-src-dst
+  - branch-head-dst
+  - branch-refs-heads
+  - branch-force-refspec
+  - branch-force-options
+  - branch-short-cluster
+  - branch-two-refspecs
+  - branch-after-double-dash
+  - tag-quoted-variable
+  - tag-src-dst-expression
+  - tag-unquoted-expression
+  - tag-source-to-branch
+  - push-all
+  - push-branches
+  - push-mirror
+  - push-tags
+  - push-follow-tags
+  - push-delete
+  - push-delete-short
+  - push-delete-cluster
+  - push-delete-refspec
+  - push-prune
+  - push-repo-option
+  - push-unknown-option
+  - push-no-refspec
+  - push-no-remote
+  - push-head-alone
+  - push-variable-target
+  - push-expression-target
+  - push-pattern
+  - push-other-namespace
+  - push-variable-option
+  - git-config-option
+  - git-directory-option
+  - git-unknown-global
+  - git-absolute-path
+  - wrapper-sudo
+  - wrapper-env
+  - in-condition
+  - in-substitution
+  - in-bash-c
+  - in-eval
+  - comment-only
+  - echo-only
+  - alias-config-option
+  - alias-config-command
+  - push-config-command
+  - remote-mirror-config
+  - variable-config-key
+  - variable-subcommand
+  - send-pack
+  - subtree-push
+  - gh-api-rest-ref
+  - gh-api-pr-merge
+  - gh-api-contents-default-post
+  - gh-api-get
+  - gh-api-comment
+  - gh-api-graphql-read
+  - gh-api-graphql-mutation
+  - gh-api-graphql-variable
+  - gh-api-graphql-file
+  - gh-repo-sync
+  - curl-ref-endpoint
+  - unterminated-push
+  - step-foreign-shell
+  - step-foreign-shell-quiet
+  - step-env-config
+cases:
+  - name: branch-plain
+    run: "git push origin automation/release"
+    writes:
+      - {kind: branch, branch: "automation/release"}
+  - name: branch-src-dst
+    run: "git push origin feature:automation/release"
+    writes:
+      - {kind: branch, branch: "automation/release"}
+  - name: branch-head-dst
+    run: "git push origin HEAD:main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: branch-refs-heads
+    run: "git push origin refs/heads/main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: branch-force-refspec
+    run: "git push origin +HEAD:main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: branch-force-options
+    run: "git push --force-with-lease=main:abc123 -f --atomic origin main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: branch-short-cluster
+    run: "git push -fu origin main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: branch-two-refspecs
+    run: "git push origin automation/release HEAD:main"
+    writes:
+      - {kind: branch, branch: "automation/release"}
+      - {kind: branch, branch: "main"}
+  - name: branch-after-double-dash
+    run: "git push origin -- main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: tag-quoted-variable
+    run: "git push origin \"refs/tags/${TAG}\""
+    writes:
+      - {kind: tag, tag: "${TAG}"}
+  - name: tag-src-dst-expression
+    run: "git push origin \"${{ steps.plan.outputs.candidate }}:refs/tags/${{ steps.plan.outputs.tag }}\""
+    writes:
+      - {kind: tag, tag: "${{ steps.plan.outputs.tag }}"}
+  - name: tag-unquoted-expression
+    run: "git push origin ${{ steps.plan.outputs.candidate }}:refs/tags/${{ steps.plan.outputs.tag }}"
+    writes:
+      - {kind: unproven, why: "refspec \"${{ steps.plan.outputs.candidate }}:refs/tags/${{ steps.plan.outputs.tag }}\" expands outside double quotes, so its value may split into more refspecs or options; quote it"}
+  - name: tag-source-to-branch
+    run: "git push origin refs/tags/v1.0.0:refs/heads/main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: push-all
+    run: "git push --all origin"
+    writes:
+      - {kind: unproven, why: "git push --all pushes every local branch, the default branch included"}
+      - {kind: unproven, why: "git push names no refspec, so push.default and the remote's push config decide which branch it writes"}
+  - name: push-branches
+    run: "git push --branches origin"
+    writes:
+      - {kind: unproven, why: "git push --branches pushes every local branch, the default branch included"}
+      - {kind: unproven, why: "git push names no refspec, so push.default and the remote's push config decide which branch it writes"}
+  - name: push-mirror
+    run: "git push --mirror origin"
+    writes:
+      - {kind: unproven, why: "git push --mirror mirrors every local ref onto the remote, the default branch included"}
+      - {kind: unproven, why: "git push names no refspec, so push.default and the remote's push config decide which branch it writes"}
+  - name: push-tags
+    run: "git push --tags origin"
+    writes:
+      - {kind: unproven, why: "git push --tags pushes every local tag"}
+      - {kind: unproven, why: "git push names no refspec, so push.default and the remote's push config decide which branch it writes"}
+  - name: push-follow-tags
+    run: "git push --follow-tags origin automation/release"
+    writes:
+      - {kind: unproven, why: "git push --follow-tags pushes every annotated tag reachable from the pushed commits"}
+      - {kind: branch, branch: "automation/release"}
+  - name: push-delete
+    run: "git push --delete origin automation/release"
+    writes:
+      - {kind: unproven, why: "git push --delete deletes the named remote refs"}
+      - {kind: branch, branch: "automation/release"}
+  - name: push-delete-short
+    run: "git push -d origin automation/release"
+    writes:
+      - {kind: unproven, why: "git push -d deletes the named remote refs"}
+      - {kind: branch, branch: "automation/release"}
+  - name: push-delete-cluster
+    run: "git push -fd origin automation/release"
+    writes:
+      - {kind: unproven, why: "git push -d deletes the named remote refs"}
+      - {kind: branch, branch: "automation/release"}
+  - name: push-delete-refspec
+    run: "git push origin :automation/release"
+    writes:
+      - {kind: unproven, why: "refspec \":automation/release\" has no source, so it deletes the remote ref"}
+  - name: push-prune
+    run: "git push --prune origin automation/release"
+    writes:
+      - {kind: unproven, why: "git push --prune deletes every remote branch with no local counterpart"}
+      - {kind: branch, branch: "automation/release"}
+  - name: push-repo-option
+    run: "git push --repo origin main"
+    writes:
+      - {kind: unproven, why: "git push --repo names the remote through --repo, so the checker cannot tell the remote from the refspecs"}
+      - {kind: branch, branch: "main"}
+  - name: push-unknown-option
+    run: "git push --frobnicate origin automation/release"
+    writes:
+      - {kind: unproven, why: "git push option \"--frobnicate\" is not one the checker reads, and it may change which refs the push writes"}
+      - {kind: branch, branch: "automation/release"}
+  - name: push-no-refspec
+    run: "git push origin"
+    writes:
+      - {kind: unproven, why: "git push names no refspec, so push.default and the remote's push config decide which branch it writes"}
+  - name: push-no-remote
+    run: "git push"
+    writes:
+      - {kind: unproven, why: "git push names no refspec, so push.default and the remote's push config decide which branch it writes"}
+  - name: push-head-alone
+    run: "git push origin HEAD"
+    writes:
+      - {kind: unproven, why: "refspec \"HEAD\" writes the current branch, whatever it is"}
+  - name: push-variable-target
+    run: "git push origin \"$BRANCH\""
+    writes:
+      - {kind: unproven, why: "refspec \"$BRANCH\" writes \"$BRANCH\", which is a variable the checker cannot prove"}
+  - name: push-expression-target
+    run: "git push origin HEAD:${{ inputs.branch }}"
+    writes:
+      - {kind: unproven, why: "refspec \"HEAD:${{ inputs.branch }}\" expands outside double quotes, so its value may split into more refspecs or options; quote it"}
+  - name: push-pattern
+    run: "git push origin 'refs/heads/*:refs/heads/*'"
+    writes:
+      - {kind: unproven, why: "refspec \"refs/heads/*:refs/heads/*\" is a pattern, so it may write any ref it matches"}
+  - name: push-other-namespace
+    run: "git push origin HEAD:refs/notes/commits"
+    writes:
+      - {kind: unproven, why: "refspec \"HEAD:refs/notes/commits\" writes \"refs/notes/commits\", outside refs/heads/ and refs/tags/"}
+  - name: push-variable-option
+    run: "git push $FLAGS origin automation/release"
+    writes:
+      - {kind: unproven, why: "the remote \"$FLAGS\" expands outside double quotes, so its value may split into more refspecs or options; quote it"}
+      - {kind: branch, branch: "origin"}
+      - {kind: branch, branch: "automation/release"}
+  - name: git-config-option
+    run: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: git-directory-option
+    run: "git -C repo push origin main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: git-unknown-global
+    run: "git --namespace=x push origin automation/release"
+    writes:
+      - {kind: unproven, why: "git option \"--namespace=x\" before push is not one the checker reads, and it may change which ref the push writes"}
+  - name: git-absolute-path
+    run: "/usr/bin/git push origin main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: wrapper-sudo
+    run: "sudo -E git push origin main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: wrapper-env
+    run: "env GIT_TRACE=1 git push origin main"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: in-condition
+    run: "if ! git push origin main; then exit 1; fi"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: in-substitution
+    run: "out=\"$(git push origin main 2>&1)\""
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: in-bash-c
+    run: "bash -c 'git push origin main'"
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: in-eval
+    run: "eval \"git push origin main\""
+    writes:
+      - {kind: branch, branch: "main"}
+  - name: comment-only
+    run: "# git push origin main"
+    writes: []
+  - name: echo-only
+    run: "echo git push origin main"
+    writes: []
+  - name: alias-config-option
+    run: "git -c alias.p=push p origin main"
+    writes:
+      - {kind: unproven, why: "git config \"alias.p\" defines an alias, which can rename push so no push it runs can be read"}
+  - name: alias-config-command
+    run: "git config --global alias.p push"
+    writes:
+      - {kind: unproven, why: "git config \"alias.p\" defines an alias, which can rename push so no push it runs can be read"}
+  - name: push-config-command
+    run: "git config push.followTags true"
+    writes:
+      - {kind: unproven, why: "git config \"push.followTags\" changes what every later push writes (push.followTags pushes tags)"}
+  - name: remote-mirror-config
+    run: "git config remote.origin.mirror true"
+    writes:
+      - {kind: unproven, why: "git config \"remote.origin.mirror\" sets the refs a push to that remote writes"}
+  - name: variable-config-key
+    run: "git config \"$KEY\" \"$VALUE\""
+    writes:
+      - {kind: unproven, why: "git config sets key \"$KEY\", a variable, which may be an alias or a push setting"}
+  - name: variable-subcommand
+    run: "git \"$CMD\" origin main"
+    writes:
+      - {kind: unproven, why: "the git subcommand \"$CMD\" is a variable, so it may be a push"}
+  - name: send-pack
+    run: "git send-pack origin main"
+    writes:
+      - {kind: unproven, why: "git send-pack pushes refs with no refspec the checker reads; use git push with an explicit refspec"}
+  - name: subtree-push
+    run: "git subtree push --prefix=dist origin main"
+    writes:
+      - {kind: unproven, why: "git subtree push writes a ref the checker cannot read; use git push with an explicit refspec"}
+  - name: gh-api-rest-ref
+    run: "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/main -f sha=abc"
+    writes:
+      - {kind: unproven, why: "gh api POST repos/o/r/git/refs writes a ref through the REST API, which the checker cannot hold to one branch"}
+      - {kind: unproven, why: "the run names git/refs, which writes a ref or arms a merge through the GitHub API or injects git config; the checker cannot hold such a call to one branch"}
+  - name: gh-api-pr-merge
+    run: "gh api -X PUT repos/o/r/pulls/7/merge"
+    writes:
+      - {kind: unproven, why: "gh api PUT repos/o/r/pulls/7/merge writes a ref through the REST API, which the checker cannot hold to one branch"}
+  - name: gh-api-contents-default-post
+    run: "gh api repos/o/r/contents/README.md -f message=m -f content=x"
+    writes:
+      - {kind: unproven, why: "gh api POST repos/o/r/contents/README.md writes a ref through the REST API, which the checker cannot hold to one branch"}
+  - name: gh-api-get
+    run: "gh api repos/o/r/pulls/7 --jq .head.ref"
+    writes: []
+  - name: gh-api-comment
+    run: "gh api repos/o/r/issues/7/comments -f body=hi"
+    writes: []
+  - name: gh-api-graphql-read
+    run: "gh api graphql -F owner=\"${owner}\" -F repo=\"${repo}\" -f query='query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){mergeQueue{entries(first:100){nodes{position}}}}}'"
+    writes: []
+  - name: gh-api-graphql-mutation
+    run: "gh api graphql -f query='mutation { createRef(input: {repositoryId: \"x\", name: \"refs/heads/main\", oid: \"y\"}) { ref { name } } }'"
+    writes:
+      - {kind: unproven, why: "the run names createRef, which writes a ref or arms a merge through the GitHub API or injects git config; the checker cannot hold such a call to one branch"}
+  - name: gh-api-graphql-variable
+    run: "gh api graphql -f query=\"$QUERY\""
+    writes:
+      - {kind: unproven, why: "gh api graphql reads its query from a variable or a file, so the checker cannot see whether it is a ref mutation"}
+  - name: gh-api-graphql-file
+    run: "gh api graphql -F query=@query.graphql"
+    writes:
+      - {kind: unproven, why: "gh api graphql reads its query from a variable or a file, so the checker cannot see whether it is a ref mutation"}
+  - name: gh-repo-sync
+    run: "gh repo sync o/r --branch main"
+    writes:
+      - {kind: unproven, why: "gh repo sync writes a branch with no refspec the checker reads"}
+  - name: curl-ref-endpoint
+    run: "curl -X POST https://api.github.com/repos/o/r/git/refs -d @body.json"
+    writes:
+      - {kind: unproven, why: "the run names git/refs, which writes a ref or arms a merge through the GitHub API or injects git config; the checker cannot hold such a call to one branch"}
+  - name: unterminated-push
+    run: "git push origin \"main"
+    writes:
+      - {kind: branch, branch: "main"}
+      - {kind: unproven, why: "the run block does not lex as a complete shell script (an unterminated quote, substitution, or here-document), so its pushes cannot be read"}
+  - name: step-foreign-shell
+    step:
+      {shell: python, run: "import subprocess\nsubprocess.run(['git', 'push', 'origin', 'main'])"}
+    writes:
+      - {kind: unproven, why: "the step runs under shell \"python\", which the checker cannot read, and it mentions a push or a ref-writing API"}
+  - name: step-foreign-shell-quiet
+    step:
+      {shell: python, run: "print('hello')"}
+    writes: []
+  - name: step-env-config
+    step:
+      {env: {GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: alias.p, GIT_CONFIG_VALUE_0: push}, run: git p origin main}
+    writes:
+      - {kind: unproven, why: "env sets GIT_CONFIG_COUNT, which injects git config (a push alias or push settings) that the checker cannot read"}
+      - {kind: unproven, why: "env sets GIT_CONFIG_KEY_0, which injects git config (a push alias or push settings) that the checker cannot read"}

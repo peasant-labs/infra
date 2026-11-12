@@ -98,42 +98,11 @@ func parseReportedVerdict(raw string) (intent.Verdict, bool) {
 	return verdict, true
 }
 
-// flagUse is one flag a command accepts and whether the command needs it.
-type flagUse struct {
-	Flag     intent.Flag
-	Required bool
-}
-
-// flagsOf lists the flags the command accepts, in usage order. It is the one
-// place a command's flag set is decided: parsing and usage both read it.
-func flagsOf(c intent.Command) []flagUse {
-	switch c {
-	case intent.CommandCheckConfig:
-		return []flagUse{{intent.FlagConfig, false}}
-	case intent.CommandCheckWorkflows:
-		return []flagUse{{intent.FlagPolicy, false}, {intent.FlagDir, true}, {intent.FlagPrintRequired, false}}
-	case intent.CommandCheckTitle:
-		return []flagUse{{intent.FlagBase, true}, {intent.FlagHead, true}, {intent.FlagAuthor, true}, {intent.FlagHeadBranch, true}}
-	case intent.CommandClassify:
-		return []flagUse{{intent.FlagAuthor, true}, {intent.FlagHeadBranch, true}, {intent.FlagRev, true}}
-	case intent.CommandGroupPR:
-		return []flagUse{{intent.FlagRef, true}}
-	case intent.CommandPlan:
-		return []flagUse{{intent.FlagBranch, true}, {intent.FlagMode, true}, {intent.FlagFloor, false}, {intent.FlagVerdict, false}}
-	case intent.CommandReleasePR:
-		return []flagUse{{intent.FlagBranch, true}, {intent.FlagFloor, false}, {intent.FlagWrite, false}, {intent.FlagCheck, false}, {intent.FlagCurrent, false}}
-	case intent.CommandQueueGate:
-		return []flagUse{{intent.FlagQueue, true}, {intent.FlagReleasePR, true}}
-	default:
-		return nil
-	}
-}
-
 // usageOf renders the command's synopsis from its flag set.
 func usageOf(c intent.Command) string {
 	var b strings.Builder
 	b.WriteString("usage: " + intent.ProgramName + " " + c.String())
-	for _, use := range flagsOf(c) {
+	for _, use := range c.Flags() {
 		word := use.Flag.String()
 		if p := shapeOf(use.Flag).Placeholder; p != "" {
 			word += " " + p
@@ -175,7 +144,7 @@ func (v flagValues) ValueOr(f intent.Flag, fallback string) string {
 // required flag. Every refusal is a usage error carrying the synopsis.
 func parseFlags(c intent.Command, args []string) (flagValues, error) {
 	accepted := map[intent.Flag]bool{}
-	for _, use := range flagsOf(c) {
+	for _, use := range c.Flags() {
 		accepted[use.Flag] = true
 	}
 	out := flagValues{values: map[intent.Flag]string{}}
@@ -203,7 +172,7 @@ func parseFlags(c intent.Command, args []string) (flagValues, error) {
 		out.values[flag] = val
 		i++
 	}
-	for _, use := range flagsOf(c) {
+	for _, use := range c.Flags() {
 		if use.Required && !out.Has(use.Flag) {
 			return flagValues{}, usageErr("%s (missing required %s): pass %s", usageOf(c), use.Flag, shapeOf(use.Flag).Meaning)
 		}

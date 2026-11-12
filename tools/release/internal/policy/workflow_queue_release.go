@@ -42,8 +42,8 @@ var (
 	// preTagRunner matches any implemented subcommand of the release tool.
 	preTagRunner = regexp.MustCompile(toolCall(intent.AllCommands...))
 	// prWrite matches a run line that opens, edits, closes, merges, or
-	// releases a PR, or pushes a ref.
-	prWrite = regexp.MustCompile(`git\s+push\b|\bgh\s+pr\s+(create|edit|close|merge)\b|\bgh\s+release\s+create\b`)
+	// releases a PR. Ref writes are read by stepRefWrites.
+	prWrite = regexp.MustCompile(`\bgh\s+pr\s+(create|edit|close|merge)\b|\bgh\s+release\s+create\b`)
 	// tagPush matches a run line that pushes a tag: a tag refspec, an
 	// explicit tag, or a release creation.
 	tagPush = regexp.MustCompile(regexp.QuoteMeta(intent.TagRefPrefix) + `|\bgit\s+tag\b|\bgh\s+release\s+create\b`)
@@ -184,7 +184,7 @@ func isMintStep(step *yaml.Node) bool {
 }
 
 // isWriteStep reports whether the step can write: it mints the App token, it
-// consumes a minted token output, or its run pushes a ref or writes a PR.
+// consumes a minted token output, its run writes a ref, or it writes a PR.
 func isWriteStep(step *yaml.Node) bool {
 	if isMintStep(step) {
 		return true
@@ -194,7 +194,7 @@ func isWriteStep(step *yaml.Node) bool {
 			return true
 		}
 	}
-	return prWrite.MatchString(stepRunText(step))
+	return prWrite.MatchString(stepRunText(step)) || hasRefWrite(step)
 }
 
 // isArmHoldStep reports whether the step is gated on the queue gate output
@@ -209,11 +209,10 @@ func isTagStep(step *yaml.Node) bool {
 	return tagPush.MatchString(stepRunText(step))
 }
 
-// isBranchPushStep reports whether the step pushes a branch (a push that is
-// not a tag push).
+// isBranchPushStep reports whether the step writes a ref that is not a tag:
+// a branch push, or a write the reader cannot prove.
 func isBranchPushStep(step *yaml.Node) bool {
-	run := stepRunText(step)
-	return strings.Contains(run, "git push") && !isTagStep(step)
+	return hasBranchOrUnprovenWrite(step) && !isTagStep(step)
 }
 
 // isPROpenEditStep reports whether the step opens or edits the release PR.
