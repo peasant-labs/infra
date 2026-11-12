@@ -1,0 +1,20 @@
+# Required members of SourceKind: the six recognised definition sites. The
+# test asserts exact set membership in both directions. No count is asserted.
+
+sourceKinds:
+  - closed-call
+  - record-table
+  - ts-union
+  - jsdoc-union
+  - go-typed-constant
+  - schema-module
+
+# Wire values ParseSourceKind must refuse.
+invalid:
+  - ""
+  - closed
+  - Closed-Call
+  - ts_union
+  - as-const-array
+  - untyped-freeze
+  - schema

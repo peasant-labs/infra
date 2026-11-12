@@ -1,0 +1,24 @@
+# Required members of FindingKind, from the message contract. The test asserts
+# exact set membership in both directions. No count is asserted.
+
+findingKinds:
+  - new-file
+  - raised
+  - stale-lower
+  - stale-missing-file
+  - marker-no-reason
+  - marker-unused
+  - marker-unknown-rule
+  - marker-not-accepted
+  - native-ignore-on-guard-rule
+  - baseline-header
+  - environment
+
+# Wire values ParseFindingKind must refuse.
+invalid:
+  - ""
+  - stale
+  - new_file
+  - Raised
+  - unused-suppression
+  - marker

@@ -1,0 +1,22 @@
+# The documented example config (village). Every key the design documents
+# appears here, so a field missing from or misnamed in Config fails to decode.
+version: 1
+baseline: .stringly-baseline.yaml
+ts:
+  roots: [frontend]
+go:
+  roots: [backend]
+schema:
+  module: github.com/peasant-labs/schema
+endpoints:
+  prefixes: ["/api/v1"]
+  callees: [api]
+  mountFiles: [backend/internal/router/router.go]
+dataDirs: [testdata, fixtures, __fixtures__, captures]
+exempt:
+  - rule: testid-selector-string
+    paths: [frontend/scripts/visual/lib/test-id-selector.mjs]
+    reason: the one place a test-id selector string is built
+  - rule: "*"
+    paths: [backend/internal/db/gen/**]
+    reason: sqlc output, regenerated from the queries
