@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"sort"
 
 	"github.com/peasant-labs/infra/stringly/internal/rules"
 )
@@ -22,8 +23,13 @@ type Member struct {
 	Value string
 	// Set is the declaring name: the object that holds the closed() call, the
 	// record table, the union's type alias or the Go type. It is empty when the
-	// source has no name (an inline union).
+	// source has no name (an inline union). A Go member's set is
+	// "<package>.<Type>".
 	Set string
+	// Name is the member's own name when the source gives it one: the Go
+	// constant, or the property that holds a closed() call. It is empty
+	// otherwise.
+	Name string
 	// Source is how the value was declared.
 	Source SourceKind
 	// Site is where the value was declared.
@@ -61,6 +67,76 @@ type BuildRequest struct {
 	// Env is the environment for `go mod download`, in os.Environ form. Tests
 	// pass a file proxy here; production passes the process environment.
 	Env []string
+}
+
+// Values returns every distinct member value, sorted in byte order.
+func (c Catalog) Values() []string {
+	seen := make(map[string]bool, len(c.Members))
+	values := make([]string, 0, len(c.Members))
+	for _, m := range c.Members {
+		if !seen[m.Value] {
+			seen[m.Value] = true
+			values = append(values, m.Value)
+		}
+	}
+	sort.Strings(values)
+	return values
+}
+
+// Lookup returns every member that declares value, in catalog order.
+func (c Catalog) Lookup(value string) []Member {
+	var out []Member
+	for _, m := range c.Members {
+		if m.Value == value {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// DefinitionSiteHit reports whether a hit of this catalog's closed-set rule
+// sits in a file that defines the literal's value, and so is exempt (design
+// section 6.5): for closed-set-literal, a repository file that declares the
+// value with closed() or a record table; for go-closed-set-literal, a
+// repository file that declares a typed constant with the value. A union's
+// own file is never exempt, and neither is any file for a hit of another
+// rule.
+func (c Catalog) DefinitionSiteHit(h rules.Hit) bool {
+	if h.Rule != closedSetRule(c.Lang) {
+		return false
+	}
+	value, ok := literalValue(c.Lang, h.Text)
+	if !ok {
+		return false
+	}
+	for _, m := range c.Members {
+		if m.Value != value || m.Site.Module != "" || m.Site.File != h.File {
+			continue
+		}
+		switch m.Source {
+		case SourceClosedCall, SourceRecordTable:
+			if c.Lang == rules.LangTS {
+				return true
+			}
+		case SourceGoTypedConstant:
+			if c.Lang == rules.LangGo {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// closedSetRule returns the generated rule a catalog of lang feeds, or the
+// zero RuleID for an unknown language.
+func closedSetRule(lang rules.Lang) rules.RuleID {
+	switch lang {
+	case rules.LangTS:
+		return rules.ClosedSetLiteral
+	case rules.LangGo:
+		return rules.GoClosedSetLiteral
+	}
+	return ""
 }
 
 // Builder harvests a catalog from a repository and its pinned schema module.
