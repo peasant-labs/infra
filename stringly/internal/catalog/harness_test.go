@@ -12,49 +12,15 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/peasant-labs/infra/stringly/internal/astgrep"
+	"github.com/peasant-labs/infra/stringly/internal/astgrep/astgreptest"
 	"github.com/peasant-labs/infra/stringly/internal/catalog"
 	"github.com/peasant-labs/infra/stringly/internal/rules"
 )
-
-// The harness runs the real ast-grep binary. It must be the version the tool
-// requires; a missing or different binary fails the tests with the install
-// command, it never skips them.
-var (
-	astGrepOnce sync.Once
-	astGrepPath string
-	astGrepErr  error
-)
-
-func astGrepBinary(t *testing.T) string {
-	t.Helper()
-	astGrepOnce.Do(func() {
-		p, err := exec.LookPath("ast-grep")
-		if err != nil {
-			astGrepErr = fmt.Errorf("ast-grep is not on PATH: %w", err)
-			return
-		}
-		out, err := exec.Command(p, "--version").Output()
-		if err != nil {
-			astGrepErr = fmt.Errorf("%s --version failed: %w", p, err)
-			return
-		}
-		if got := strings.TrimSpace(string(out)); got != "ast-grep "+astgrep.RequiredVersion {
-			astGrepErr = fmt.Errorf("%s reports %q, but the tests need ast-grep %s", p, got, astgrep.RequiredVersion)
-			return
-		}
-		astGrepPath = p
-	})
-	if astGrepErr != nil {
-		t.Fatalf("%v. Fix: npm install --global @ast-grep/cli@%s, or put that version first on PATH.", astGrepErr, astgrep.RequiredVersion)
-	}
-	return astGrepPath
-}
 
 // sgRunner is a test double for the ast-grep runner boundary: it runs the
 // real binary with the rules it is given and the languageGlobs the tool uses
@@ -63,7 +29,7 @@ type sgRunner struct {
 	bin string
 }
 
-func newRunner(t *testing.T) sgRunner { return sgRunner{bin: astGrepBinary(t)} }
+func newRunner(t *testing.T) sgRunner { return sgRunner{bin: astgreptest.Require(t)} }
 
 func (r sgRunner) Version(ctx context.Context) (string, error) {
 	out, err := exec.CommandContext(ctx, r.bin, "--version").Output()
