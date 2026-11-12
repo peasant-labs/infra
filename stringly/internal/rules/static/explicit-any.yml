@@ -1,0 +1,16 @@
+# Rule 9: the type keyword `any`.
+id: explicit-any
+language: tsx
+severity: warning
+message: the type `any` is written explicitly.
+metadata:
+  why: >-
+    `any` turns off type checking for every value that flows through it, so a closed set, a
+    contract type or a test id passed through it can drift without a build failure.
+  fix: >-
+    use `unknown` and narrow it, or name the real type (the contract type from
+    @peasant-labs/schema where one exists). The rule accepts a stringly-allow marker with a
+    reason.
+rule:
+  kind: predefined_type
+  regex: '^any$'

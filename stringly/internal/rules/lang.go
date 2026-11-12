@@ -41,6 +41,34 @@ func ParseLang(s string) (Lang, error) {
 		s, joinStrings(AllLangs))
 }
 
+// AstGrepLanguage returns the ast-grep `language:` of every rule written for
+// l: "go", or "tsx" for TypeScript and JavaScript. It returns "" for a value
+// that is not in AllLangs.
+func (l Lang) AstGrepLanguage() string {
+	switch l {
+	case LangGo:
+		return "go"
+	case LangTS:
+		return "tsx"
+	}
+	return ""
+}
+
+// FileGlobs returns the file-name globs a scan parses as l. A scan's ast-grep
+// config maps them to AstGrepLanguage under `languageGlobs`, so .ts, .js,
+// .mjs and .cjs files are parsed as TSX like .tsx files are; without that
+// mapping the TS rules match nothing in them. It returns nil for a value that
+// is not in AllLangs.
+func (l Lang) FileGlobs() []string {
+	switch l {
+	case LangGo:
+		return []string{"*.go"}
+	case LangTS:
+		return []string{"*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"}
+	}
+	return nil
+}
+
 func joinStrings[T fmt.Stringer](values []T) string {
 	parts := make([]string, len(values))
 	for i, v := range values {
