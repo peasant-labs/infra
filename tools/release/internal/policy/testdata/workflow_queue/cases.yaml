@@ -47,6 +47,8 @@ required_names:
   - reject-title-guard-no-entry
   - reject-title-guard-job-if
   - reject-title-guard-event-action
+  - reject-title-guard-plain-trigger
+  - reject-title-guard-no-edited
   - reject-range-floor-missing
   - reject-range-floor-unquoted
   - reject-no-push-cross-push
@@ -111,7 +113,7 @@ cases:
     sibling: ""
     classification: must-pass
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy title-guard-no-early-success" }
-    mutation: { description: "base repo: guard entry marked with step-level event tests only" }
+    mutation: { description: "base repo: guard entry marked with step-level event tests only, triggered on every default activity type plus edited" }
 
   - name: accept-range-floor
     input: { overlay: "accept-range-floor" }
@@ -376,6 +378,22 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy title-guard-no-early-success" }
     mutation: { description: "read the pull-request action so an edited body ends green without checking" }
+
+  - name: reject-title-guard-plain-trigger
+    input: { overlay: "reject-title-guard-plain-trigger" }
+    expected: { rule: "title-guard-no-early-success", want_contains: ["trigger names no types", "omit edited"] }
+    sibling: accept-title-guard
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy title-guard-no-early-success" }
+    mutation: { description: "drop the guard trigger's types list so GitHub's defaults apply and a retitle runs no check" }
+
+  - name: reject-title-guard-no-edited
+    input: { overlay: "reject-title-guard-no-edited" }
+    expected: { rule: "title-guard-no-early-success", want_contains: ["names types without edited"] }
+    sibling: accept-title-guard
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy title-guard-no-early-success" }
+    mutation: { description: "list every default activity type on the guard trigger but not edited, so a retitle runs no check" }
 
   - name: reject-range-floor-missing
     input: { overlay: "reject-range-floor-missing" }

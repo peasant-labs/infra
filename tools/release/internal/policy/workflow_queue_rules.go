@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -46,6 +47,7 @@ func (c *queueChecker) checkTitleGuard() {
 			c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
 				"the guard job has a job-level if during merge-queue policy validation. Drop it so the full check runs on every event, including an edited PR body that changes no commit")
 		}
+		c.checkGuardActivityTypes(req, doc)
 		if cont := mappingValue(job, "continue-on-error"); cont != nil && cont.Value == "true" {
 			c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
 				"the guard job uses continue-on-error during merge-queue policy validation. Drop it so a failed check stays red instead of passing the queue")
@@ -65,6 +67,37 @@ func (c *queueChecker) checkTitleGuard() {
 		for _, name := range eventNameMisuse(doc) {
 			c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
 				"the guard workflow tests github.event_name in "+name+" during merge-queue policy validation. Test the event name only in a step-level if or in the concurrency expression")
+		}
+	}
+}
+
+// guardPullRequestActions are the activity types the guard workflow must run
+// on: every default type, so a head change is checked, plus the edit, so a
+// retitle re-runs the check without a push.
+var guardPullRequestActions = append(slices.Clone(DefaultPullRequestActions), PullRequestActionEdited)
+
+// checkGuardActivityTypes requires the guard workflow's pull_request trigger
+// to list its activity types and to include every guard action. GitHub's
+// default types omit the edit, so a trigger with no list, or a list without
+// the edit, leaves a red title check red after the author fixes the title.
+func (c *queueChecker) checkGuardActivityTypes(req RequiredContext, doc *yaml.Node) {
+	want := joinMembers(guardPullRequestActions)
+	pr, ok := findTrigger(doc, GitHubEventPullRequest)
+	if !ok {
+		c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
+			"the guard workflow has no "+GitHubEventPullRequest.String()+" trigger during merge-queue policy validation. Trigger on "+GitHubEventPullRequest.String()+" with "+triggerKeyTypes+": ["+want+"] so every head change and every retitle runs the full check")
+		return
+	}
+	actions, listed := activityTypes(pr)
+	if !listed {
+		c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
+			"the guard workflow's "+GitHubEventPullRequest.String()+" trigger names no "+triggerKeyTypes+" during merge-queue policy validation, and GitHub's default types ("+joinMembers(DefaultPullRequestActions)+") omit "+PullRequestActionEdited.String()+". List "+triggerKeyTypes+": ["+want+"] so a retitle re-runs the check without a push")
+		return
+	}
+	for _, action := range guardPullRequestActions {
+		if !slices.Contains(actions, action) {
+			c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
+				"the guard workflow's "+GitHubEventPullRequest.String()+" trigger names "+triggerKeyTypes+" without "+action.String()+" during merge-queue policy validation. List "+triggerKeyTypes+": ["+want+"] so every head change and every retitle runs the full check")
 		}
 	}
 }
