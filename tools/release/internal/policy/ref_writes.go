@@ -274,7 +274,9 @@ options:
 		}
 	case "config":
 		for _, w := range rest {
-			out = append(out, gitConfigWrites(w, raw)...)
+			if !w.expands {
+				out = append(out, gitConfigWrites(w, raw)...)
+			}
 		}
 		if key := firstOperand(rest); key != nil && key.expands {
 			out = append(out, unproven(raw, "git config sets key "+quote(key.bare)+", a variable, which may be an alias or a push setting"))
@@ -365,7 +367,7 @@ func pushRefWrites(args []shellWord, raw string) []refWrite {
 			operands = append(operands, w)
 			continue
 		}
-		if w.expands {
+		if w.expands || w.splits {
 			out = append(out, unproven(raw, "push option "+quote(b)+" is a variable, so it may push every branch or delete one"))
 			continue
 		}
@@ -392,11 +394,21 @@ func pushRefWrites(args []shellWord, raw string) []refWrite {
 	if len(operands) < 2 {
 		return append(out, unproven(raw, "git push names no refspec, so push.default and the remote's push config decide which branch it writes"))
 	}
+	if operands[0].splits {
+		out = append(out, unproven(raw, "the remote "+quote(operands[0].bare)+splitReason))
+	}
 	for _, spec := range operands[1:] {
+		if spec.splits {
+			out = append(out, unproven(spec.bare, "refspec "+quote(spec.bare)+splitReason))
+			continue
+		}
 		out = append(out, refspecWrite(spec))
 	}
 	return out
 }
+
+// splitReason says why an unquoted expansion in a push argument is unproven.
+const splitReason = " expands outside double quotes, so its value may split into more refspecs or options; quote it"
 
 // pushShortCluster reads a cluster of one-letter push options such as -fu.
 // -d deletes; -o takes the rest of the cluster (or the next word) as its

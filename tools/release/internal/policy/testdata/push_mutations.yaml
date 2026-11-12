@@ -1,0 +1,299 @@
+# Push-target mutations of the realistic consumer workflow set (the queue
+# corpus base: a release job with its tag step, two bot jobs, a guard, and
+# CI). The harness copies the base into a temp dir, proves the copy passes,
+# then replaces find with replace in one workflow (find must occur exactly
+# once, so only that push changes) and runs the production checker. rules is
+# the exact set of rules that must fire; want_contains are fragments the
+# diagnostics must carry.
+#
+# The rows cover each push class: the release job's branch push, the release
+# job's tag step, and each bot job, against the default branch in every
+# refspec form (main, HEAD:main, refs/heads/main, +HEAD:main), the forms that
+# name no single branch, and the spellings that hid a push before (git -c,
+# git -C, a substitution, bash -c). The job classes that may push nothing (an
+# unlisted job, the tag-triggered publish) are sampled by the queue corpus.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - release-main
+  - release-head-main
+  - release-refs-heads-main
+  - release-force-head-main
+  - cut-main
+  - cut-head-main
+  - cut-refs-heads-main
+  - cut-force-head-main
+  - vendor-main
+  - vendor-head-main
+  - vendor-refs-heads-main
+  - vendor-force-head-main
+  - release-tag-step-main
+  - release-tag-step-head-main
+  - release-tag-step-refs-heads-main
+  - release-tag-step-force-head-main
+  - release-all
+  - release-branches
+  - release-mirror
+  - release-tags
+  - release-follow-tags
+  - release-delete
+  - release-delete-short
+  - release-delete-refspec
+  - release-no-refspec
+  - release-head-alone
+  - release-variable
+  - release-unquoted-variable
+  - release-pattern
+  - release-other-bot
+  - cut-tag
+  - vendor-all
+  - vendor-other-bot
+  - cut-delete-refspec
+  - release-tag-literal
+  - release-tag-to-branch
+  - release-git-config-option
+  - release-git-directory-option
+  - release-in-substitution
+  - release-in-bash-c
+cases:
+  - name: release-main
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: release-head-main
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin HEAD:main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: release-refs-heads-main
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin refs/heads/main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: release-force-head-main
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin +HEAD:main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: cut-main
+    workflow: cut-release.yml
+    find: "git push origin HEAD:automation/cut-release"
+    replace: "git push origin main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"cut\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: cut-head-main
+    workflow: cut-release.yml
+    find: "git push origin HEAD:automation/cut-release"
+    replace: "git push origin HEAD:main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"cut\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: cut-refs-heads-main
+    workflow: cut-release.yml
+    find: "git push origin HEAD:automation/cut-release"
+    replace: "git push origin refs/heads/main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"cut\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: cut-force-head-main
+    workflow: cut-release.yml
+    find: "git push origin HEAD:automation/cut-release"
+    replace: "git push origin +HEAD:main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"cut\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: vendor-main
+    workflow: nix-vendor-hash.yml
+    find: "git push origin HEAD:automation/vendor-hash"
+    replace: "git push origin main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"update\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: vendor-head-main
+    workflow: nix-vendor-hash.yml
+    find: "git push origin HEAD:automation/vendor-hash"
+    replace: "git push origin HEAD:main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"update\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: vendor-refs-heads-main
+    workflow: nix-vendor-hash.yml
+    find: "git push origin HEAD:automation/vendor-hash"
+    replace: "git push origin refs/heads/main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"update\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: vendor-force-head-main
+    workflow: nix-vendor-hash.yml
+    find: "git push origin HEAD:automation/vendor-hash"
+    replace: "git push origin +HEAD:main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"update\" pushes branch \"main\"", "may push only its own bot branch"]
+  - name: release-tag-step-main
+    workflow: release-batch.yml
+    find: "git push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    replace: "git push origin main"
+    rules: [no-default-branch-push-from-workflows, release-actions-gated]
+    want_contains: ["job \"release\" pushes branch \"main\"", "no step pushes a tag"]
+  - name: release-tag-step-head-main
+    workflow: release-batch.yml
+    find: "git push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    replace: "git push origin HEAD:main"
+    rules: [no-default-branch-push-from-workflows, release-actions-gated]
+    want_contains: ["job \"release\" pushes branch \"main\"", "no step pushes a tag"]
+  - name: release-tag-step-refs-heads-main
+    workflow: release-batch.yml
+    find: "git push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    replace: "git push origin refs/heads/main"
+    rules: [no-default-branch-push-from-workflows, release-actions-gated]
+    want_contains: ["job \"release\" pushes branch \"main\"", "no step pushes a tag"]
+  - name: release-tag-step-force-head-main
+    workflow: release-batch.yml
+    find: "git push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    replace: "git push origin +HEAD:main"
+    rules: [no-default-branch-push-from-workflows, release-actions-gated]
+    want_contains: ["job \"release\" pushes branch \"main\"", "no step pushes a tag"]
+  - name: release-all
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --all origin"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push --all pushes every local branch"]
+  - name: release-branches
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --branches origin"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push --branches pushes every local branch"]
+  - name: release-mirror
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --mirror origin"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push --mirror mirrors every local ref"]
+  - name: release-tags
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --tags origin"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push --tags pushes every local tag"]
+  - name: release-follow-tags
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --follow-tags origin automation/release"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push --follow-tags pushes every annotated tag"]
+  - name: release-delete
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --delete origin automation/release"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push --delete deletes the named remote refs"]
+  - name: release-delete-short
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push -d origin automation/release"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push -d deletes the named remote refs"]
+  - name: release-delete-refspec
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin :automation/release"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["has no source, so it deletes the remote ref"]
+  - name: release-no-refspec
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push names no refspec"]
+  - name: release-head-alone
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin HEAD"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["writes the current branch, whatever it is"]
+  - name: release-variable
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin \"$BRANCH\""
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["which is a variable the checker cannot prove"]
+  - name: release-unquoted-variable
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin $BRANCH"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["expands outside double quotes"]
+  - name: release-pattern
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin 'refs/heads/*:refs/heads/*'"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["is a pattern"]
+  - name: release-other-bot
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git push --force-with-lease origin automation/cut-release"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["pushes branch \"automation/cut-release\""]
+  - name: cut-tag
+    workflow: cut-release.yml
+    find: "git push origin HEAD:automation/cut-release"
+    replace: "git push origin HEAD:refs/tags/v9.9.9"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"cut\" pushes tag ref", "outside the release job's tag step"]
+  - name: vendor-all
+    workflow: nix-vendor-hash.yml
+    find: "git push origin HEAD:automation/vendor-hash"
+    replace: "git push origin --all"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["git push --all pushes every local branch"]
+  - name: vendor-other-bot
+    workflow: nix-vendor-hash.yml
+    find: "git push origin HEAD:automation/vendor-hash"
+    replace: "git push origin HEAD:automation/release"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"update\" pushes branch \"automation/release\""]
+  - name: cut-delete-refspec
+    workflow: cut-release.yml
+    find: "git push origin HEAD:automation/cut-release"
+    replace: "git push origin :automation/cut-release"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["deletes the remote ref"]
+  - name: release-tag-literal
+    workflow: release-batch.yml
+    find: "git push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    replace: "git push origin refs/tags/v9.9.9"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["the tag \"v9.9.9\" is not the planner's tag output"]
+  - name: release-tag-to-branch
+    workflow: release-batch.yml
+    find: "git push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    replace: "git push origin \"refs/tags/${{ steps.verdict.outputs.tag }}:refs/heads/main\""
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\""]
+  - name: release-git-config-option
+    workflow: release-batch.yml
+    find: "run: git push --force-with-lease origin automation/release"
+    replace: "run: |\n          git -c http.extraheader=\"AUTHORIZATION: bearer ${GH_TOKEN}\" push --force-with-lease origin main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\""]
+  - name: release-git-directory-option
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "git -C . push --force-with-lease origin main"
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\""]
+  - name: release-in-substitution
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "out=\"$(git push --force-with-lease origin main)\""
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\""]
+  - name: release-in-bash-c
+    workflow: release-batch.yml
+    find: "git push --force-with-lease origin automation/release"
+    replace: "bash -c \"git push --force-with-lease origin main\""
+    rules: [no-default-branch-push-from-workflows]
+    want_contains: ["job \"release\" pushes branch \"main\""]

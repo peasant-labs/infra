@@ -26,13 +26,17 @@ import (
 // here-document) is reported as incomplete, so a caller can fail closed.
 
 // shellWord is one word of a simple command: as written with its quotes, with
-// the quotes removed (expansions left as written), and whether any part of it
-// expands when the step runs. A ${{ }} expression, a $ expansion outside
-// single quotes, and a command substitution expand.
+// the quotes removed (expansions left as written), whether any part of it
+// expands when the step runs, and whether an expansion sits outside double
+// quotes, where its value is split into more words. A ${{ }} expression, a $
+// expansion outside single quotes, and a command substitution expand; a
+// ${{ }} expression is pasted into the script before the shell runs, so
+// outside double quotes it splits too.
 type shellWord struct {
 	raw     string
 	bare    string
 	expands bool
+	splits  bool
 }
 
 // shellCommand is one simple command: its words in order, redirections
@@ -127,6 +131,10 @@ func containsString(set []string, s string) bool {
 	return false
 }
 
+// parameterChars can follow a bare $ to name a parameter: a variable name or
+// a special parameter.
+const parameterChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789@*#?$!-"
+
 // heredoc is one here-document waiting for the end of its command line.
 type heredoc struct {
 	delimiter string
@@ -145,6 +153,7 @@ type shellLexer struct {
 	bare     strings.Builder
 	inWord   bool
 	expands  bool
+	splits   bool
 	dropNext bool
 	// delimNext marks that the next word is a here-document delimiter.
 	delimNext  *heredoc
@@ -157,11 +166,12 @@ func (l *shellLexer) endWord() {
 	if !l.inWord {
 		return
 	}
-	w := shellWord{raw: l.raw.String(), bare: l.bare.String(), expands: l.expands}
+	w := shellWord{raw: l.raw.String(), bare: l.bare.String(), expands: l.expands, splits: l.splits}
 	l.raw.Reset()
 	l.bare.Reset()
 	l.inWord = false
 	l.expands = false
+	l.splits = false
 	switch {
 	case l.delimNext != nil:
 		doc := *l.delimNext
@@ -244,11 +254,13 @@ func (l *shellLexer) lex(stopAtParen int) bool {
 			start := l.i
 			bare := l.dollar()
 			l.add(src[start:l.i], bare)
+			l.splits = l.splits || l.i-start > 1 || (l.i < len(src) && strings.IndexByte(parameterChars, src[l.i]) >= 0)
 		case c == '`':
 			start := l.i
 			l.backtick()
 			l.add(src[start:l.i], src[start:l.i])
 			l.expands = true
+			l.splits = true
 		case c == ';' || c == '&' || c == '|':
 			l.endCommand()
 			l.i++
@@ -450,6 +462,7 @@ func (l *shellLexer) redirect() {
 		l.raw.Reset()
 		l.bare.Reset()
 		l.inWord = false
+		l.splits = false
 	} else {
 		l.endWord()
 	}
@@ -539,13 +552,16 @@ func isDigits(s string) bool {
 }
 
 // commandWord returns the index of the word a command runs: the first word
-// after leading variable assignments and the wrappers that run their
-// arguments as a command (env, command, exec, time, nohup, nice, sudo, and
-// their flags). It returns -1 for a command that only assigns.
+// after leading reserved words (if, then, !, {, ...), variable assignments,
+// and the wrappers that run their arguments as a command (env, command, exec,
+// time, nohup, nice, sudo, and their flags). It returns -1 for a command that
+// only assigns.
 func commandWord(cmd shellCommand) int {
 	for i := 0; i < len(cmd); i++ {
 		w := cmd[i].bare
 		switch {
+		case !cmd[i].expands && containsString(reservedWords, cmd[i].raw):
+			continue
 		case isAssignment(w):
 			continue
 		case containsString(commandWrappers, path.Base(w)):
@@ -558,6 +574,10 @@ func commandWord(cmd shellCommand) int {
 	}
 	return -1
 }
+
+// reservedWords open or continue a compound command; the command they lead
+// into is the next word.
+var reservedWords = []string{"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until"}
 
 // commandWrappers run their remaining arguments as a command.
 var commandWrappers = []string{"env", "command", "exec", "time", "nohup", "nice", "sudo"}
