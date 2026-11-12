@@ -1,0 +1,126 @@
+# Cases for the ast-grep runner.
+#
+# versions: a stub executable prints `output` for --version (or the real
+#   binary when `real: true`, or no executable at all when `missing: true`).
+#   CheckVersion must pass when `ok`, else fail with every `error` substring.
+#
+# scans: `files` are written to a temporary tree, `rules` to the scan, and the
+#   scan runs over `roots` from the tree. `want` is the exact list of records
+#   (any order); `wantError` substrings mean the scan must fail.
+
+versions:
+  - name: pinned-version-passes
+    real: true
+    ok: true
+  - name: older-version-refused
+    output: "ast-grep 0.45.0\n"
+    error: ["ast-grep 0.45.0 found at", "requires exactly 0.51.2", "npm install --global @ast-grep/cli@0.51.2", "--ast-grep PATH", "No file was scanned"]
+  - name: newer-version-refused
+    output: "ast-grep 0.52.0\n"
+    error: ["ast-grep 0.52.0 found at", "requires exactly 0.51.2"]
+  - name: missing-binary-refused
+    missing: true
+    error: ["was not found", "requires exactly 0.51.2", "npm install --global @ast-grep/cli@0.51.2"]
+  - name: unreadable-version-refused
+    output: "\n"
+    error: ["could not be read", "requires exactly 0.51.2"]
+
+scans:
+  - name: records-carry-line-column-and-line-text
+    files:
+      web/a.tsx: |
+        const x = 1;
+        export const Row = () => <li data-testid="row">row</li>;
+    rules:
+      jsx.yml: |
+        id: jsx-literal-testid
+        language: tsx
+        severity: warning
+        rule:
+          kind: string
+          inside: { kind: jsx_attribute, has: { kind: property_identifier, regex: '^data-testid$' } }
+    roots: [web]
+    want:
+      - {ruleId: jsx-literal-testid, file: web/a.tsx, line: 2, endLine: 2, column: 42, text: '"row"', lineText: 'export const Row = () => <li data-testid="row">row</li>;'}
+
+  - name: every-ts-and-js-extension-parsed-as-tsx
+    files:
+      web/a.ts: "const a = <i data-testid=\"a\" />;\n"
+      web/b.js: "const b = <i data-testid=\"b\" />;\n"
+      web/c.jsx: "const c = <i data-testid=\"c\" />;\n"
+      web/d.mjs: "const d = <i data-testid=\"d\" />;\n"
+      web/e.cjs: "const e = <i data-testid=\"e\" />;\n"
+      web/f.tsx: "const f = <i data-testid=\"f\" />;\n"
+      web/g.go: "package g\n"
+    rules:
+      jsx.yml: |
+        id: jsx-literal-testid
+        language: tsx
+        severity: warning
+        rule:
+          kind: string
+          inside: { kind: jsx_attribute }
+    roots: [web]
+    want:
+      - {ruleId: jsx-literal-testid, file: web/a.ts, line: 1}
+      - {ruleId: jsx-literal-testid, file: web/b.js, line: 1}
+      - {ruleId: jsx-literal-testid, file: web/c.jsx, line: 1}
+      - {ruleId: jsx-literal-testid, file: web/d.mjs, line: 1}
+      - {ruleId: jsx-literal-testid, file: web/e.cjs, line: 1}
+      - {ruleId: jsx-literal-testid, file: web/f.tsx, line: 1}
+
+  - name: only-the-roots-are-scanned
+    files:
+      web/a.go: "package a\n\nvar s = \"x\"\n"
+      other/b.go: "package b\n\nvar s = \"x\"\n"
+    rules:
+      lit.yml: |
+        id: go-lit
+        language: go
+        severity: warning
+        rule: { kind: interpreted_string_literal }
+    roots: [web]
+    want:
+      - {ruleId: go-lit, file: web/a.go, line: 3, text: '"x"'}
+
+  - name: native-suppressions-surface-without-error
+    files:
+      srv/m.go: |
+        package srv
+
+        // ast-grep-ignore: no-such-strict-rule
+        var s = "x"
+    rules:
+      lit.yml: |
+        id: go-lit
+        language: go
+        severity: warning
+        rule: { kind: interpreted_string_literal }
+    roots: [srv]
+    want:
+      - {ruleId: go-lit, file: srv/m.go, line: 4}
+      - {ruleId: unused-suppression, file: srv/m.go, line: 3}
+
+  - name: metavariables-are-read
+    files:
+      srv/m.go: "package srv\n\nfunc f(m map[string]any) { _ = m[\"k\"].(string) }\n"
+    rules:
+      assert.yml: |
+        id: go-json-key-assert
+        language: go
+        severity: warning
+        rule: { pattern: '$M[$K].($T)' }
+    roots: [srv]
+    want:
+      - {ruleId: go-json-key-assert, file: srv/m.go, line: 3, vars: {M: m, K: '"k"', T: string}}
+
+  - name: invalid-rule-fails-with-ast-grep-stderr
+    files:
+      srv/m.go: "package srv\n"
+    rules:
+      bad.yml: |
+        id: bad
+        language: no-such-language
+        rule: { kind: comment }
+    roots: [srv]
+    wantError: ["Cannot parse rule", "exit status"]
