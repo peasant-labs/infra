@@ -51,9 +51,7 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
       - name: Vet
-        run: |
-          go vet ./...
-          go vet -tags stringly_stub ./cmd/stringly/
+        run: go vet ./...
 
       - name: Test
         run: go test ./...

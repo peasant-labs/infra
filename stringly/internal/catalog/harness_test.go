@@ -19,6 +19,7 @@ import (
 
 	"github.com/peasant-labs/infra/stringly/internal/astgrep"
 	"github.com/peasant-labs/infra/stringly/internal/catalog"
+	"github.com/peasant-labs/infra/stringly/internal/rules"
 )
 
 // The harness runs the real ast-grep binary. It must be the version the tool
@@ -69,10 +70,17 @@ func (r sgRunner) Version(ctx context.Context) (string, error) {
 	return strings.TrimPrefix(strings.TrimSpace(string(out)), "ast-grep "), err
 }
 
-const sgConfig = `ruleDirs: [rules]
-languageGlobs:
-  tsx: ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"]
-`
+// sgConfig is the scan config: the rule directory, and the TS file globs
+// mapped to the TS rules' ast-grep language, from the rules package (the same
+// values the command's scan config carries).
+func sgConfig() ([]byte, error) {
+	return yaml.Marshal(map[string]any{
+		"ruleDirs": []string{"rules"},
+		"languageGlobs": map[string][]string{
+			rules.LangTS.AstGrepLanguage(): rules.LangTS.FileGlobs(),
+		},
+	})
+}
 
 func (r sgRunner) Scan(ctx context.Context, req astgrep.ScanRequest) ([]astgrep.Match, error) {
 	tmp, err := os.MkdirTemp("", "stringly-catalog-test-")
@@ -88,7 +96,11 @@ func (r sgRunner) Scan(ctx context.Context, req astgrep.ScanRequest) ([]astgrep.
 			return nil, err
 		}
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "sgconfig.yml"), []byte(sgConfig), 0o644); err != nil {
+	config, err := sgConfig()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "sgconfig.yml"), config, 0o644); err != nil {
 		return nil, err
 	}
 	args := append([]string{"scan", "--config", filepath.Join(tmp, "sgconfig.yml"), "--json=stream"}, req.Roots...)

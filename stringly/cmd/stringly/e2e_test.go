@@ -20,10 +20,10 @@ import (
 	"github.com/peasant-labs/infra/stringly/internal/astgrep/astgreptest"
 )
 
-// e2eBuildTags are the build tags of the binary under test. Until the rules
-// and catalog packages are wired in wiring.go, the binary carries the stub
-// registry and catalog (stub_*.go); once they are wired this is "".
-const e2eBuildTags = "stringly_stub"
+// e2eBuildTags are the build tags of the binary under test. It is empty: the
+// test builds the release binary, with the rules and catalog wired in
+// wiring.go.
+const e2eBuildTags = ""
 
 // e2eVersion is the version the binary under test is linked with.
 const e2eVersion = "v0.1.0"

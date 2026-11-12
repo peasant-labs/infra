@@ -5,10 +5,11 @@
 # which must exit 0, and commits the baseline. At first adoption the baseline
 # has these entries (the test asserts them before any step):
 #
-#   closed-set-literal:    web/src/compare.ts 3
-#   go-closed-set-literal: server/handle.go 2
-#   go-json-key-assert:    server/handle.go 2
-#   jsx-literal-testid:    web/src/view.tsx 2
+#   closed-set-literal:     web/src/compare.ts 3
+#   exported-literal-union: web/src/phase.ts 1
+#   go-closed-set-literal:  server/handle.go 2
+#   go-json-key-assert:     server/handle.go 2
+#   jsx-literal-testid:     web/src/view.tsx 2
 #
 # A step is one of:
 #   replace: {file, old, new}   replace the one occurrence of old in file
@@ -31,6 +32,8 @@
 setupEntries:
   - "  closed-set-literal:"
   - "    web/src/compare.ts: 3"
+  - "  exported-literal-union:"
+  - "    web/src/phase.ts: 1"
   - "  go-closed-set-literal:"
   - "    server/handle.go: 2"
   - "  go-json-key-assert:"
