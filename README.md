@@ -97,3 +97,55 @@ repository at a full commit SHA and build the command from that checkout:
 
 Run its checks with `make release-tool-check` (gofmt, build, vet, test). The
 `Release tool` workflow runs the same steps on every pull request.
+
+### What a consumer workflow may do with a credential
+
+`release-intent check-workflows` does not try to read every way a shell can
+write a ref. It confines the credentials instead, and rejects anything it does
+not list:
+
+- **The default token never writes refs.** Every workflow and every job
+  declares `permissions:`. Every scope is `read` or `none`, except
+  `id-token: write` (OIDC publishing) anywhere, and `contents: write` only in
+  the workflow that runs on nothing but a pushed release tag. Every
+  `actions/checkout` sets `persist-credentials: false`.
+- **Credentials stay in the listed jobs.** A credential is the App token that
+  `actions/create-github-app-token` mints (and every output of that step), the
+  secrets a mint step reads, and the default token where it may write. Only the
+  policy's release job, its bot jobs and the tag-triggered publish jobs may
+  mint or read one, and there only in the mint step's inputs and in the
+  step-level `env:` of a run step, under `GH_TOKEN`, `GITHUB_TOKEN` or
+  `APP_TOKEN`. Never in a workflow or job `env:`, a job output, a reusable
+  workflow, an action's `with:`, or a run block's text.
+- **Those jobs use only pinned, allowed actions:** `actions/checkout`,
+  `actions/setup-go`, `actions/setup-node`, `actions/create-github-app-token`,
+  `actions/upload-artifact`, `pnpm/action-setup` and
+  `cachix/install-nix-action`, each at a 40-hex commit. No reusable workflow
+  and no `container:` there.
+- **A step that receives a credential runs exactly one command** from a
+  closed template set, on the job's own bot branch from the release config:
+
+  | template | command |
+  |---|---|
+  | `push-own-branch` | `git [-c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}"] push [--force-with-lease\|--force] [--no-verify] origin <own bot branch \| HEAD:<own bot branch>>` |
+  | `push-release-tag` (release job) | `git [-c http.extraheader=...] push origin "[<candidate>:]refs/tags/<tag>"`, both read from the planner's outputs |
+  | `pr-create` | `gh pr create --head <own bot branch> [--base <branch>] [--title <text>] [--body <text>]` |
+  | `pr-edit`, `pr-close` | `gh pr edit\|close <own PR> [--title\|--body\|--comment <text>]` |
+  | `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) <own PR>`; in the release job only in the arm and hold steps |
+  | `merge-queue-read` | `gh api graphql [-F name=literal]... -f query='<a mergeQueue query>' [> file]` |
+  | `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`, and `create` passes `--verify-tag` |
+
+  `<own PR>` is the own bot branch, a literal number, or `"${PR_NUMBER}"`
+  mapped from one step output. `<text>` is literal, or double-quoted env
+  names that carry no credential such as `"${TITLE}"` (never `${{ }}`).
+  The step's env holds only `GH_TOKEN`, `GITHUB_TOKEN`, `APP_TOKEN`, `TAG`, `CANDIDATE`, `PR_NUMBER`,
+  `TITLE`, `BODY`, `PRERELEASE` and `LATEST`, and the step runs under the
+  default shell. A second line, a separator, a pipe, a substitution, a
+  here-document, an interpreter or a repository script is refused.
+
+Do every other piece of work (building the tool, planning, committing,
+tagging locally, listing PRs with the read-only default token) in a step that
+holds no credential. Such a step may run any command: with no persisted
+checkout token and a read-only default token, it has nothing to write a ref
+with. Bot branches sit under `automation/`, which the release config enforces,
+so no bot branch can name the default branch.
