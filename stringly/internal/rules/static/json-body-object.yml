@@ -1,0 +1,47 @@
+# Rule 18: JSON.stringify({…}) with an object literal, in a request, response
+# or socket body position.
+id: json-body-object
+language: tsx
+severity: warning
+message: a JSON body is written as an untyped object literal passed to JSON.stringify.
+metadata:
+  why: >-
+    JSON.stringify accepts any value, so the object literal is never checked against the
+    request or response type it stands for; a renamed or retyped field ships without a build
+    failure.
+  fix: >-
+    type the literal with the contract type: JSON.stringify({ ... } satisfies
+    VillageShareRequest), or build it in a variable of that type (in .js and .mjs files a
+    JSDoc-typed const, or the schema package's fixture). The rule accepts a stringly-allow
+    marker with a reason.
+utils:
+  stringify-literal:
+    kind: call_expression
+    all:
+      - has: { field: function, regex: '^JSON\.stringify$' }
+      - has:
+          field: arguments
+          has:
+            nthChild: 1
+            kind: object
+            has: { any: [{ kind: pair }, { kind: shorthand_property_identifier }, { kind: spread_element }] }
+rule:
+  matches: stringify-literal
+  any:
+    - inside:
+        kind: pair
+        has: { field: key, regex: '^[''"]?body[''"]?$' }
+        not:
+          inside:
+            kind: object
+            inside:
+              kind: arguments
+              inside:
+                kind: call_expression
+                has: { field: function, kind: member_expression, has: { field: property, regex: '^attach$' } }
+    - inside: { kind: arguments, inside: { kind: new_expression, has: { field: constructor, regex: '^(Response|Request)$' } } }
+    - inside:
+        kind: arguments
+        inside:
+          kind: call_expression
+          has: { field: function, kind: member_expression, has: { field: property, regex: '^(send|end|write)$' } }

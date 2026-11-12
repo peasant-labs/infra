@@ -1,0 +1,77 @@
+rule: go-endpoint-literal
+params:
+  mountFiles: [backend/internal/router/router.go]
+cases:
+  - name: flags-prefix-literal
+    files:
+      backend/internal/client/client.go: |
+        package client
+
+        const meURL = "https://village.example.test/api/v1/auth/me"
+
+        func path(id string) string { return "/api/v1/transcripts/" + id }
+    hits: {backend/internal/client/client.go: [3, 5]}
+  - name: flags-mux-method-form
+    files:
+      internal/server/mux.go: |
+        package server
+
+        func mount(mux *http.ServeMux, h http.HandlerFunc) { mux.HandleFunc("GET /api/v1/sessions", h) }
+    hits: {internal/server/mux.go: [3]}
+  - name: flags-raw-string
+    files:
+      backend/internal/client/client.go: |
+        package client
+
+        var me = `/api/v1/auth/me`
+    hits: {backend/internal/client/client.go: [3]}
+  - name: flags-any-slash-argument-in-configured-router-file
+    files:
+      backend/internal/router/router.go: |
+        package router
+
+        func routes(r chi.Router, h *Handlers) {
+        	r.Route("/api/v1", func(r chi.Router) {
+        		r.Get("/auth/me", h.Me)
+        		r.Post(`/groups`, h.CreateGroup)
+        	})
+        }
+    hits: {backend/internal/router/router.go: [4, 5, 6]}
+  - name: passes-same-call-in-another-file
+    files:
+      backend/internal/handlers/routes.go: |
+        package handlers
+
+        func routes(r chi.Router, h *Handlers) {
+        	r.Get("/auth/me", h.Me)
+        }
+  - name: passes-slash-argument-without-configured-router-file
+    params:
+      mountFiles: []
+    files:
+      backend/internal/router/router.go: |
+        package router
+
+        func routes(r chi.Router, h *Handlers) {
+        	r.Get("/auth/me", h.Me)
+        }
+  - name: passes-repos-path-outside-router-files
+    files:
+      backend/internal/github/client.go: |
+        package github
+
+        func reposPath(owner, name string) string { return "/repos/" + owner + "/" + name }
+  - name: passes-route-member
+    files:
+      backend/internal/router/router.go: |
+        package router
+
+        func routes(r chi.Router, h *Handlers) {
+        	r.Method(route.VillageGetAuthMe.Method().String(), route.VillageGetAuthMe.Pattern(), h.Me)
+        }
+  - name: passes-third-party-api-version
+    files:
+      backend/internal/gitlab/client.go: |
+        package gitlab
+
+        const userPath = "/api/v4/user"

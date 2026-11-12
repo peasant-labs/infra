@@ -1,0 +1,53 @@
+# Rule 14: a relative path through a data directory, or a data file name passed
+# straight to a file read (TS and JS). Rendered with the repository's data
+# directory names.
+id: data-path-literal
+language: tsx
+severity: warning
+message: a fixture or data file path is written as a literal at its point of use.
+metadata:
+  why: >-
+    the path is spelled out where it is used, often more than once (in the read and again in
+    an error message); moving or renaming the file leaves a copy that points nowhere.
+  fix: >-
+    name the path once in a module-level const next to the code that owns the data (for
+    example const READS = new URL("./testdata/reads.yaml", import.meta.url)), or import the
+    fixture, and use that name everywhere. The rule accepts a stringly-allow marker with a
+    reason.
+utils:
+  text-literal:
+    any: [{ kind: string }, { kind: template_string }]
+  module-const:
+    kind: variable_declarator
+    inside:
+      kind: lexical_declaration
+      regex: '^const\b'
+      inside: { any: [{ kind: program }, { kind: export_statement }] }
+rule:
+  matches: text-literal
+  any:
+    - regex: '^[`"''](\.{1,2}/)?([\w@.%-]+/)*{{ .DataDirRegex }}/?[`"'']$'
+    - regex: '(^[`"'']|[\s(=:,])(\.{1,2}/)?([\w@.%$\{\}-]+/)*{{ .DataDirRegex }}/[^\s`"'']+'
+    - all:
+        - nthChild: 1
+        - regex: '\.(ya?ml|json|jsonl|toml|txt|csv|golden)[`"'']$'
+        - inside:
+            kind: arguments
+            inside:
+              kind: call_expression
+              has: { field: function, regex: '(^|\.)(readFileSync|readFile|createReadStream|openSync)$' }
+  not:
+    any:
+      - inside:
+          any:
+            - kind: import_statement
+            - kind: export_statement
+              has: { field: source, kind: string }
+      - inside: { kind: arguments, inside: { kind: call_expression, has: { field: function, regex: '^(import|require)$' } } }
+      - inside: { matches: module-const }
+      - inside:
+          kind: arguments
+          inside:
+            kind: new_expression
+            has: { field: constructor, regex: '^URL$' }
+            inside: { matches: module-const }
