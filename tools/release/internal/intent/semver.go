@@ -2,7 +2,7 @@ package intent
 
 import (
 	"fmt"
-	"regexp"
+	regexp "github.com/wasilibs/go-re2"
 	"strconv"
 )
 
