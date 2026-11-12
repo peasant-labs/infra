@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/peasant-labs/infra/tools/release/internal/intent"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,7 +38,7 @@ type queuePolicyFile struct {
 func LoadQueuePolicy(path string) (QueuePolicy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return QueuePolicy{}, fmt.Errorf("load queue policy: cannot read %s during merge-queue policy validation: %w. Create the merge-queue policy file (%s) or fix the --policy path", path, err, DefaultPath)
+		return QueuePolicy{}, fmt.Errorf("load queue policy: cannot read %s during merge-queue policy validation: %w. Create the merge-queue policy file (%s) or fix the %s path", path, err, DefaultPath, intent.FlagPolicy)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)

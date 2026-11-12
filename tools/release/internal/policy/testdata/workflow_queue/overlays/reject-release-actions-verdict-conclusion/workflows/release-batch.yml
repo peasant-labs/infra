@@ -20,23 +20,31 @@ jobs:
           repository: peasant-labs/infra
           ref: 71e687cef7eede9a63659be98ce9adac3c563398
           path: infra-tool
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+      - name: Build release-intent
+        working-directory: infra-tool
+        run: |
+          go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - id: plan
-        run: nix develop -c release-intent plan --branch develop --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+        run: release-intent plan --branch develop --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
       - id: mint
         if: vars.RELEASE_BATCH_MODE == 'tag'
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.RELEASER_APP_ID }}
           private-key: ${{ secrets.RELEASER_APP_KEY }}
-      - id: verify-contract
+      - id: verify-config
         if: steps.plan.outputs.action == 'verify'
-        run: nix develop -c release-intent check-contract --until ${{ steps.plan.outputs.candidate }} --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
-      - id: verify-freeze
+        run: release-intent check-config --config release-intent.yaml
+      - id: verify-workflows
         if: "!cancelled() && steps.plan.outputs.action == 'verify'"
-        run: nix develop -c schema-gen freeze --check
+        run: release-intent check-workflows --policy policy.yml --dir workflows
       - id: verdict
         if: "!cancelled() && steps.plan.outputs.action == 'verify'"
-        run: nix develop -c release-intent plan --branch develop --verdict ${{ (steps.verify-contract.conclusion == 'success' && steps.verify-freeze.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+        run: release-intent plan --branch develop --verdict ${{ (steps.verify-config.conclusion == 'success' && steps.verify-workflows.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
       - id: tag
         if: "!cancelled() && steps.verdict.outputs.action == 'tag'"
         env:
@@ -44,17 +52,12 @@ jobs:
         run: git push origin ${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}
       - id: decide
         if: "!cancelled()"
-        run: nix develop -c release-intent plan --branch develop --verdict ${{ (steps.verify-contract.outcome == 'success' && steps.verify-freeze.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
-      - id: contract-tip
-        if: "!cancelled() && steps.decide.outputs.action == 'open-pr'"
-        env:
-          GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: nix develop -c release-intent check-contract --until ${{ github.sha }} --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+        run: release-intent plan --branch develop --verdict ${{ (steps.verify-config.outcome == 'success' && steps.verify-workflows.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
       - id: write
         if: "!cancelled() && steps.decide.outputs.action == 'open-pr'"
         env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: nix develop -c release-intent release-pr --branch develop --current automation/release --write --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+        run: release-intent release-pr --branch develop --current automation/release --write --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
       - id: push
         if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push == 'true'"
         env:
@@ -72,7 +75,7 @@ jobs:
         run: gh api graphql -f query='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){totalCount nodes{position pullRequest{number title}}}}}}}' -f owner=peasant-labs -f repo=schema -f branch=develop > queue.json
       - id: gate
         if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push"
-        run: nix develop -c release-intent queue-gate --queue queue.json --release-pr 7
+        run: release-intent queue-gate --queue queue.json --release-pr 7
       - id: arm
         if: "!cancelled() && steps.gate.outputs.gate == 'arm'"
         env:

@@ -1,11 +1,11 @@
 package policy
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	regexp "github.com/wasilibs/go-re2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -75,7 +75,7 @@ func (c *queueChecker) checkTitleGuard() {
 // concurrency subtree are the two allowed scopes.
 func eventNameMisuse(doc *yaml.Node) []string {
 	var out []string
-	for _, scalar := range docScalarsExcept(doc, "jobs", "concurrency", "on") {
+	for _, scalar := range docScalarsExcept(doc, "jobs", "concurrency", workflowKeyOn) {
 		if strings.Contains(scalar, "github.event_name") {
 			out = append(out, "the workflow header")
 			break
@@ -156,8 +156,8 @@ func eventRead(scalar string) string {
 }
 
 // checkRangeFloor (range-readers-take-the-floor) requires every workflow step
-// that reads a commit range (plan, release-pr, freeze-plan, check-contract
-// --until) to pass --floor in its quoted form, and every plan step to pass
+// that reads a commit range (plan or release-pr) to pass --floor in its
+// quoted form, and every plan step to pass
 // --mode quoted too: --floor "${{ vars.RELEASE_BATCH_FLOOR }}", --mode
 // "${{ vars.RELEASE_BATCH_MODE }}", or the same values through env
 // (--floor "$FLOOR" with FLOOR mapped from the variable). An unquoted
@@ -170,14 +170,12 @@ func (c *queueChecker) checkRangeFloor() {
 			job := jobNode(doc, jobName)
 			for _, step := range stepsOf(job) {
 				run := stepRunText(step)
-				readsRange := rangeReader.MatchString(run) ||
-					(strings.Contains(run, "check-contract") && strings.Contains(run, "--until"))
-				if !readsRange {
+				if !rangeReader.MatchString(run) {
 					continue
 				}
-				c.checkQuotedFlag(name, job, jobName, step, run, "floor", "RELEASE_BATCH_FLOOR")
+				c.checkQuotedFlag(name, job, step, run, intent.FlagFloor, intent.VarBatchFloor)
 				if planRunner.MatchString(run) {
-					c.checkQuotedFlag(name, job, jobName, step, run, "mode", "RELEASE_BATCH_MODE")
+					c.checkQuotedFlag(name, job, step, run, intent.FlagMode, intent.VarBatchMode)
 				}
 			}
 		}
@@ -187,28 +185,28 @@ func (c *queueChecker) checkRangeFloor() {
 // checkQuotedFlag requires one range-reader argument in its quoted form: the
 // flag followed by "${{ vars.VAR }}" directly, or by "$ENV" with ENV mapped
 // from the variable in the step or job env.
-func (c *queueChecker) checkQuotedFlag(name string, job *yaml.Node, jobName string, step *yaml.Node, run, flag, variable string) {
-	value, ok := flagValue(run, flag)
+func (c *queueChecker) checkQuotedFlag(name string, job, step *yaml.Node, run string, flag intent.Flag, variable intent.RepoVariable) {
+	value, ok := flagValue(run, flag.String())
 	if !ok || !c.quotedVariable(step, job, value, variable) {
 		c.emit(QueueRuleRangeFloor, name, stepID(step),
-			"a step reads a commit range without a quoted --"+flag+" during merge-queue policy validation. Pass --"+flag+" \"${{ vars."+variable+" }}\" (or --"+flag+" \"$VAR\" with VAR mapped from the variable in env): an unquoted expansion vanishes when the variable is unset and the flag eats the next argument")
+			"a step reads a commit range without a quoted "+flag.String()+" during merge-queue policy validation. Pass "+flag.String()+" \"${{ "+repoVar(variable)+" }}\" (or "+flag.String()+" \"$VAR\" with VAR mapped from the variable in env): an unquoted expansion vanishes when the variable is unset and the flag eats the next argument")
 	}
 }
 
 // quotedVariable reports whether value carries the variable: the double-quoted
 // ${{ vars.VAR }} form directly, or a double-quoted $ENV mapped from the
 // variable in the step or job env. Single quotes and bare words never expand.
-func (c *queueChecker) quotedVariable(step, job *yaml.Node, value, variable string) bool {
+func (c *queueChecker) quotedVariable(step, job *yaml.Node, value string, variable intent.RepoVariable) bool {
 	if len(value) >= 2 && strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
 		inner := value[1 : len(value)-1]
-		if strings.Contains(inner, "vars."+variable) {
+		if strings.Contains(inner, repoVar(variable)) {
 			return true
 		}
 		if strings.HasPrefix(inner, "$") {
-			if v := envValue(step, inner[1:]); strings.Contains(v, "vars."+variable) {
+			if v := envValue(step, inner[1:]); strings.Contains(v, repoVar(variable)) {
 				return true
 			}
-			if v := envValue(job, inner[1:]); strings.Contains(v, "vars."+variable) {
+			if v := envValue(job, inner[1:]); strings.Contains(v, repoVar(variable)) {
 				return true
 			}
 		}
@@ -226,15 +224,15 @@ func envValue(node *yaml.Node, name string) string {
 	return ""
 }
 
-// flagValue returns the shell word following --flag in the run line, keeping
+// flagValue returns the shell word following the flag in the run line, keeping
 // quoted spans whole, or false when the flag is absent or valueless.
 func flagValue(run, flag string) (string, bool) {
 	words := shellWords(run)
 	for i, w := range words {
-		if w == "--"+flag && i+1 < len(words) {
+		if w == flag && i+1 < len(words) {
 			return words[i+1], true
 		}
-		if rest, ok := strings.CutPrefix(w, "--"+flag+"="); ok {
+		if rest, ok := strings.CutPrefix(w, flag+"="); ok {
 			return rest, true
 		}
 	}
@@ -353,10 +351,10 @@ func pushTarget(refspec string) (string, bool) {
 		dst = dst[i+1:]
 	}
 	dst = strings.TrimSpace(dst)
-	if dst == "" || strings.HasPrefix(dst, "refs/tags/") {
+	if dst == "" || strings.HasPrefix(dst, intent.TagRefPrefix) {
 		return "", false
 	}
-	dst = strings.TrimPrefix(dst, "refs/heads/")
+	dst = strings.TrimPrefix(dst, intent.BranchRefPrefix)
 	if dst == "" || strings.ContainsAny(dst, "${} \t") {
 		return "", false
 	}
@@ -421,7 +419,7 @@ func gitPushSites(run string) []pushSite {
 			out = append(out, pushSite{raw: strings.TrimSpace(segment), unresolved: true})
 		}
 		for _, refspec := range refspecs {
-			if strings.Contains(refspec, "refs/tags/") {
+			if strings.Contains(refspec, intent.TagRefPrefix) {
 				out = append(out, pushSite{isTag: true, raw: refspec})
 				continue
 			}
@@ -441,7 +439,7 @@ func prHeadTarget(run string) (string, bool) {
 	if segment == nil {
 		return "", false
 	}
-	head, ok := flagValue(segment[1], "head")
+	head, ok := flagValue(segment[1], ghFlagHead)
 	if !ok {
 		return "", false
 	}
@@ -535,7 +533,7 @@ func (c *queueChecker) checkPushStep(doc *yaml.Node, workflow, job string, step 
 		switch {
 		case !ok:
 			c.emit(QueueRuleNoPush, workflow, id,
-				"a step opens a PR without --head during merge-queue policy validation. Name the head branch explicitly so the checker can tell it is the job's own branch")
+				"a step opens a PR without "+ghFlagHead+" during merge-queue policy validation. Name the head branch explicitly so the checker can tell it is the job's own branch")
 		case !listed || head != branch:
 			c.emit(QueueRuleNoPush, workflow, id,
 				"a step opens a PR on branch "+strconv.Quote(head)+" during merge-queue policy validation, but the policy lists no such push. Only the release job opens on the release branch and each bot job on its kind's branch")
@@ -543,7 +541,7 @@ func (c *queueChecker) checkPushStep(doc *yaml.Node, workflow, job string, step 
 	}
 	for _, pair := range prTargets(run) {
 		verb, target := pair[0], pair[1]
-		if verb == "merge" {
+		if verb == ghVerbMerge {
 			if isArmHoldStep(step) {
 				continue
 			}
@@ -551,10 +549,10 @@ func (c *queueChecker) checkPushStep(doc *yaml.Node, workflow, job string, step 
 				continue
 			}
 			c.emit(QueueRuleNoPush, workflow, id,
-				"a step merges a PR outside an arm/hold step during merge-queue policy validation. Only the gate-tested arm and hold steps may merge, and a listed bot job may merge only its own branch ("+strconv.Quote(branch)+"); gate this step on the queue-gate output or drop it")
+				"a step merges a PR outside an arm/hold step during merge-queue policy validation. Only the gate-tested arm and hold steps may merge, and a listed bot job may merge only its own branch ("+strconv.Quote(branch)+"); gate this step on the "+intent.CommandQueueGate.String()+" output or drop it")
 			continue
 		}
-		if verb == "close" {
+		if verb == ghVerbClose {
 			if isReleaseJob {
 				continue
 			}
@@ -572,7 +570,7 @@ func (c *queueChecker) checkPushStep(doc *yaml.Node, workflow, job string, step 
 	if releaseCreate.MatchString(run) && !(isReleaseJob && isTagStep(step)) {
 		if fault := c.tagPublishFault(doc, jobNode(doc, job), step, run); fault != "" {
 			c.emit(QueueRuleNoPush, workflow, id,
-				"a step creates a GitHub Release outside the release job's tag step during merge-queue policy validation: "+fault+". A Release is created only by the release tag step, or by a workflow that runs only on a pushed release tag, writes no ref and no PR, and passes --verify-tag so it can never create a tag")
+				"a step creates a GitHub Release outside the release job's tag step during merge-queue policy validation: "+fault+". A Release is created only by the release tag step, or by a workflow that runs only on a pushed release tag, writes no ref and no PR, and passes "+ghFlagVerifyTag+" so it can never create a tag")
 		}
 	}
 }
@@ -605,12 +603,12 @@ func (c *queueChecker) tagPublishFault(doc, job, step *yaml.Node, run string) st
 	for _, words := range releaseCreateCommands(run) {
 		verified := false
 		for _, w := range words {
-			if w == "--verify-tag" {
+			if w == ghFlagVerifyTag {
 				verified = true
 			}
 		}
 		if !verified {
-			return "the create does not pass --verify-tag, so it would create the tag when it is missing"
+			return "the create does not pass " + ghFlagVerifyTag + ", so it would create the tag when it is missing"
 		}
 		tag := releaseCreateTag(words)
 		if !triggeringTag(tag, step, job, doc) {
@@ -691,21 +689,20 @@ var shellName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // refOrPRWrite matches a run line that pushes a ref, writes a tag ref, or
 // writes a PR.
-var refOrPRWrite = regexp.MustCompile(`\bgit\s+push\b|refs/tags/|\bgit\s+tag\b|\bgh\s+pr\s+(create|edit|close|merge)\b`)
+var refOrPRWrite = regexp.MustCompile(`\bgit\s+push\b|` + regexp.QuoteMeta(intent.TagRefPrefix) + `|\bgit\s+tag\b|\bgh\s+pr\s+(create|edit|close|merge)\b`)
 
 // tagOnlyTriggerFault says why the workflow's on: is not exactly push: tags:
 // with every pattern under the tag prefix, or "" when it is.
 func tagOnlyTriggerFault(doc *yaml.Node, prefix string) string {
-	on := mappingValue(doc, "on")
-	if on == nil || on.Kind != yaml.MappingNode || len(on.Content) != 2 || on.Content[0].Value != "push" {
-		return "the workflow's only trigger is not push: tags:"
+	push, only := soleTrigger(doc, GitHubEventPush)
+	if !only {
+		return "the workflow's only trigger is not " + GitHubEventPush.String() + ": " + triggerKeyTags + ":"
 	}
-	push := on.Content[1]
-	if push.Kind != yaml.MappingNode || len(push.Content) != 2 || push.Content[0].Value != "tags" {
-		return "the workflow's push trigger is not limited to tags: alone"
+	if push.Config == nil || len(push.Config.Content) != 2 || push.Config.Content[0].Value != triggerKeyTags {
+		return "the workflow's " + GitHubEventPush.String() + " trigger is not limited to " + triggerKeyTags + ": alone"
 	}
 	var patterns []string
-	switch tags := push.Content[1]; tags.Kind {
+	switch tags := push.Config.Content[1]; tags.Kind {
 	case yaml.ScalarNode:
 		patterns = []string{tags.Value}
 	case yaml.SequenceNode:
@@ -714,7 +711,7 @@ func tagOnlyTriggerFault(doc *yaml.Node, prefix string) string {
 		}
 	}
 	if len(patterns) == 0 {
-		return "the workflow's push: tags: names no pattern"
+		return "the workflow's " + GitHubEventPush.String() + ": " + triggerKeyTags + ": names no pattern"
 	}
 	if prefix == "" {
 		return "the release config sets no tag_prefix to hold the tag patterns to"
@@ -754,6 +751,12 @@ func releaseWorkflow(c *queueChecker) string {
 	return ""
 }
 
+// The gh pr verbs the push rules tell apart.
+const (
+	ghVerbMerge = "merge"
+	ghVerbClose = "close"
+)
+
 var (
 	// prCreate matches a gh pr create invocation.
 	prCreate = regexp.MustCompile(`\bgh\s+pr\s+create\b`)
@@ -761,7 +764,7 @@ var (
 	prEdit = regexp.MustCompile(`\bgh\s+pr\s+edit\b`)
 	// prMergeClose matches a gh pr merge or close invocation and captures the
 	// verb and the rest of the shell segment.
-	prMergeClose = regexp.MustCompile(`\bgh\s+pr\s+(merge|close)\b([\s\S]*?)(?:\|\||&&|;|$)`)
+	prMergeClose = regexp.MustCompile(`\bgh\s+pr\s+(` + ghVerbMerge + `|` + ghVerbClose + `)\b([\s\S]*?)(?:\|\||&&|;|$)`)
 	// prValueFlags take a value, so the token after one is not the command's
 	// positional target.
 	prValueFlags = map[string]bool{
@@ -811,7 +814,7 @@ func (c *queueChecker) checkTokenMint() {
 		}
 		if !hasRefCheck(stepIfText(mint)) && !hasRefCheck(jobCond) {
 			c.emit(QueueRuleTokenMint, target.workflow, target.job,
-				"job "+strconv.Quote(target.job)+" mints the App token without checking github.ref during merge-queue policy validation. Compare github.ref == 'refs/heads/<default>' in the mint step's own if or the job if, or a dispatch on any branch runs that branch's file with the App key")
+				"job "+strconv.Quote(target.job)+" mints the App token without checking github.ref during merge-queue policy validation. Compare "+equals(contextRef, intent.BranchRef("<default>").String())+" in the mint step's own if or the job if, or a dispatch on any branch runs that branch's file with the App key")
 		}
 		// Only the release job and the cut-release job mint behind tag mode:
 		// the vendor-hash fix lands whenever its tree is stale, tag mode or
@@ -819,7 +822,7 @@ func (c *queueChecker) checkTokenMint() {
 		if (target.isRelease || target.kind == intent.PRKindCutRelease) &&
 			!hasTagModeGate(stepIfText(mint)) && !hasTagModeGate(jobCond) {
 			c.emit(QueueRuleTokenMint, target.workflow, target.job,
-				"job "+strconv.Quote(target.job)+" mints the App token without a tag-mode gate during merge-queue policy validation. Mint only when tag mode is on, with "+quoteTagMode()+" in the mint step's if or the job if, so a tag-mode-off run mints no token")
+				"job "+strconv.Quote(target.job)+" mints the App token without a tag-mode gate during merge-queue policy validation. Mint only when tag mode is on, with "+tagModeComparison+" in the mint step's if or the job if, so a tag-mode-off run mints no token")
 		}
 	}
 }
@@ -827,7 +830,18 @@ func (c *queueChecker) checkTokenMint() {
 // refComparison matches the canonical default-branch comparison: github.ref
 // == 'refs/heads/<default>', or the format form against the repository's
 // default branch.
-var refComparison = regexp.MustCompile(`github\.ref\s*==\s*'refs/heads/[^']+'|github\.ref\s*==\s*format\('refs/heads/\{0\}'[^)]*default_branch`)
+var refComparison = regexp.MustCompile(
+	regexp.QuoteMeta(contextRef) + `\s*==\s*'` + regexp.QuoteMeta(intent.BranchRefPrefix) + `[^']+'|` +
+		regexp.QuoteMeta(contextRef) + `\s*==\s*format\('` + regexp.QuoteMeta(intent.BranchRefPrefix) + `\{0\}'[^)]*default_branch`)
+
+// contextRef is the expression that reads the ref a run was triggered for.
+const contextRef = "github.ref"
+
+// The gh flags the push rules read in a run line.
+const (
+	ghFlagHead      = "--head"
+	ghFlagVerifyTag = "--verify-tag"
+)
 
 // hasRefCheck reports whether an if carries the canonical default-branch
 // comparison as a single comparison: the ref comparison, with no disjunction.

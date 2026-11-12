@@ -37,7 +37,7 @@ func CheckWorkflows(policy QueuePolicy, cfg intent.Config, dir string) ([]Diagno
 		return []Diagnostic{{
 			Rule:     QueueRuleRequiredContexts,
 			Workflow: dir,
-			Message:  "check workflows: " + dir + ": rule required-contexts: cannot list the workflows directory during merge-queue policy validation: " + err.Error() + ". Fix the --dir path or run from the repository root",
+			Message:  "check workflows: " + dir + ": rule " + QueueRuleRequiredContexts.String() + ": cannot list the workflows directory during merge-queue policy validation: " + err.Error() + ". Fix the " + intent.FlagDir.String() + " path or run from the repository root",
 		}}, append([]RequiredContext(nil), policy.Queue.Required...)
 	}
 	c.checkRequiredContexts()
@@ -214,9 +214,9 @@ func (c *queueChecker) checkMergeGroup() {
 		if doc == nil {
 			continue
 		}
-		if !hasTrigger(doc, "merge_group") {
+		if !hasTrigger(doc, GitHubEventMergeGroup) {
 			c.emit(QueueRuleMergeGroup, req.Workflow, req.Job,
-				"no merge_group trigger during merge-queue policy validation, but the workflow owns required context "+req.Context+". Trigger on merge_group so the queue build checks the entry that is actually landing")
+				"no "+GitHubEventMergeGroup.String()+" trigger during merge-queue policy validation, but the workflow owns required context "+req.Context+". Trigger on "+GitHubEventMergeGroup.String()+" so the queue build checks the entry that is actually landing")
 		}
 	}
 }
@@ -275,33 +275,15 @@ func (c *queueChecker) checkConcurrencyNode(workflow, job string, concurrency *y
 	case cancel == "", cancel == "false":
 	case cancel == "true":
 		c.emit(QueueRuleConcurrency, workflow, job,
-			scope+" sets cancel-in-progress true during merge-queue policy validation. Cancelling applies to the merge-group builds too; scope it to pull_request with ${{ github.event_name == 'pull_request' }} or drop it")
+			scope+" sets cancel-in-progress true during merge-queue policy validation. Cancelling applies to the merge-group builds too; scope it to "+pullRequestOnly+" or drop it")
 	default:
-		if !strings.Contains(cancel, "pull_request") {
+		if !strings.Contains(cancel, GitHubEventPullRequest.String()) {
 			c.emit(QueueRuleConcurrency, workflow, job,
-				scope+" cancel-in-progress expression "+strconv.Quote(cancel)+" is not scoped to pull_request during merge-queue policy validation. Scope the cancellation to ${{ github.event_name == 'pull_request' }} so merge-group builds are never cancelled")
+				scope+" cancel-in-progress expression "+strconv.Quote(cancel)+" is not scoped to "+GitHubEventPullRequest.String()+" during merge-queue policy validation. Scope the cancellation to "+pullRequestOnly+" so merge-group builds are never cancelled")
 		}
 	}
 }
 
-// hasTrigger reports whether the workflow's `on:` includes the named event,
-// in scalar, sequence, or mapping form.
-func hasTrigger(doc *yaml.Node, event string) bool {
-	on := mappingValue(doc, "on")
-	if on == nil {
-		return false
-	}
-	switch on.Kind {
-	case yaml.ScalarNode:
-		return on.Value == event
-	case yaml.SequenceNode:
-		for _, item := range on.Content {
-			if item.Value == event {
-				return true
-			}
-		}
-	case yaml.MappingNode:
-		return mappingValue(on, event) != nil
-	}
-	return false
-}
+// pullRequestOnly is the expression that scopes a setting to pull-request
+// runs, as the messages recommend it.
+var pullRequestOnly = "${{ github.event_name == '" + GitHubEventPullRequest.String() + "' }}"

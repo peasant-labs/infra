@@ -1,11 +1,12 @@
 package policy
 
 import (
-	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	regexp "github.com/wasilibs/go-re2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,19 +26,28 @@ func (c *queueChecker) checkUnfiltered() {
 		if doc == nil {
 			continue
 		}
-		on := mappingValue(doc, "on")
-		if on == nil || on.Kind != yaml.MappingNode {
-			continue
-		}
-		for _, event := range []string{"pull_request", "merge_group"} {
-			trigger := mappingValue(on, event)
-			if trigger == nil || trigger.Kind != yaml.MappingNode {
+		for _, event := range []GitHubEvent{GitHubEventPullRequest, GitHubEventMergeGroup} {
+			trigger, ok := findTrigger(doc, event)
+			if !ok {
 				continue
 			}
-			for _, key := range []string{"paths", "paths-ignore", "branches-ignore"} {
-				if mappingValue(trigger, key) != nil {
+			for _, key := range triggerFilterKeys {
+				if mappingValue(trigger.Config, key) != nil {
 					c.emit(QueueRuleUnfiltered, req.Workflow, req.Job,
-						"the "+event+" trigger filters with "+key+" during merge-queue policy validation, but the workflow owns required context "+req.Context+". Run on every event with no path filter, or a change that skips the check leaves the queue waiting forever")
+						"the "+event.String()+" trigger filters with "+key+" during merge-queue policy validation, but the workflow owns required context "+req.Context+". Run on every event with no path filter, or a change that skips the check leaves the queue waiting forever")
+				}
+			}
+			if event != GitHubEventPullRequest {
+				continue
+			}
+			actions, listed := activityTypes(trigger)
+			if !listed {
+				continue
+			}
+			for _, want := range DefaultPullRequestActions {
+				if !slices.Contains(actions, want) {
+					c.emit(QueueRuleUnfiltered, req.Workflow, req.Job,
+						"the "+event.String()+" trigger names "+triggerKeyTypes+" without "+want.String()+" during merge-queue policy validation, but the workflow owns required context "+req.Context+". Keep every default activity type ("+joinMembers(DefaultPullRequestActions)+") in the list, or drop the list: a head change that skips the check leaves the queue waiting forever")
 				}
 			}
 		}
@@ -124,9 +134,7 @@ func envText(step *yaml.Node) string {
 
 // cutLevels are the only levels the cut-release button may offer, from the
 // intent package: a level, never a number.
-func cutLevels() []string {
-	return []string{intent.LevelPatch.String(), intent.LevelMinor.String()}
-}
+var cutLevels = []intent.Level{intent.LevelPatch, intent.LevelMinor}
 
 // checkCutRelease (cut-release-is-dispatch-only) requires the cut-release job
 // to trigger only on workflow_dispatch, to take its level from a choice of
@@ -142,17 +150,18 @@ func (c *queueChecker) checkCutRelease() {
 		if doc == nil {
 			continue
 		}
-		on := mappingValue(doc, "on")
-		if on == nil {
+		if len(workflowTriggers(doc)) == 0 {
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"the cut-release workflow has no trigger during merge-queue policy validation. Trigger only on workflow_dispatch so a push can never cut a release")
+				"the cut-release workflow has no trigger during merge-queue policy validation. Trigger only on "+GitHubEventWorkflowDispatch.String()+" so a push can never cut a release")
 			continue
 		}
-		if !isDispatchOnly(on) {
+		dispatch, only := soleTrigger(doc, GitHubEventWorkflowDispatch)
+		if !only {
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"the cut-release workflow triggers on more than workflow_dispatch during merge-queue policy validation. Trigger only on workflow_dispatch so a push can never cut a release")
+				"the cut-release workflow triggers on more than "+GitHubEventWorkflowDispatch.String()+" during merge-queue policy validation. Trigger only on "+GitHubEventWorkflowDispatch.String()+" so a push can never cut a release")
+			dispatch, _ = findTrigger(doc, GitHubEventWorkflowDispatch)
 		}
-		c.checkCutLevel(bot.Workflow, bot.Job, on)
+		c.checkCutLevel(bot.Workflow, bot.Job, dispatch)
 		job := jobNode(doc, bot.Job)
 		if job == nil {
 			continue
@@ -167,39 +176,15 @@ func (c *queueChecker) checkCutRelease() {
 				continue
 			}
 			c.emit(QueueRuleCutRelease, bot.Workflow, bot.Job,
-				"a cut-release write step has no tag-mode gate during merge-queue policy validation. Test "+quoteTagMode()+" in the step if so the button writes nothing while tag mode is off")
+				"a cut-release write step has no tag-mode gate during merge-queue policy validation. Test "+tagModeComparison+" in the step if so the button writes nothing while tag mode is off")
 		}
-	}
-}
-
-// isDispatchOnly reports whether the on: trigger is exactly workflow_dispatch.
-func isDispatchOnly(on *yaml.Node) bool {
-	switch on.Kind {
-	case yaml.ScalarNode:
-		return on.Value == "workflow_dispatch"
-	case yaml.MappingNode:
-		if len(on.Content) != 2 {
-			return false
-		}
-		return on.Content[0].Value == "workflow_dispatch"
-	default:
-		return false
 	}
 }
 
 // checkCutLevel requires the cut-release level input to be a choice of exactly
 // patch and minor.
-func (c *queueChecker) checkCutLevel(workflow, job string, on *yaml.Node) {
-	inputs := func() *yaml.Node {
-		if on.Kind != yaml.MappingNode {
-			return nil
-		}
-		dispatch := mappingValue(on, "workflow_dispatch")
-		if dispatch == nil || dispatch.Kind != yaml.MappingNode {
-			return nil
-		}
-		return mappingValue(dispatch, "inputs")
-	}()
+func (c *queueChecker) checkCutLevel(workflow, job string, dispatch trigger) {
+	inputs := mappingValue(dispatch.Config, "inputs")
 	level := func() *yaml.Node {
 		if inputs == nil || inputs.Kind != yaml.MappingNode {
 			return nil
@@ -207,28 +192,38 @@ func (c *queueChecker) checkCutLevel(workflow, job string, on *yaml.Node) {
 		return mappingValue(inputs, "level")
 	}()
 	var typ string
-	var options []string
+	var options []intent.Level
+	closed := true
 	if level != nil && level.Kind == yaml.MappingNode {
 		if t := mappingValue(level, "type"); t != nil {
 			typ = t.Value
 		}
 		if o := mappingValue(level, "options"); o != nil && o.Kind == yaml.SequenceNode {
 			for _, item := range o.Content {
-				options = append(options, item.Value)
+				// An option that is not a level word is never read as one:
+				// it makes the choice wider than the closed pair.
+				option, err := intent.ParseLevel(item.Value)
+				if err != nil {
+					closed = false
+					continue
+				}
+				options = append(options, option)
 			}
 		}
 	}
-	if typ != "choice" || !sameStrings(options, cutLevels()) {
+	if typ != "choice" || !closed || !sameLevels(options, cutLevels) {
 		c.emit(QueueRuleCutRelease, workflow, job,
-			"the cut-release level input is not a choice of exactly patch and minor during merge-queue policy validation. Offer a closed level choice so the button can never cut a numbered release")
+			"the cut-release level input is not a choice of exactly "+cutLevels[0].String()+" and "+cutLevels[1].String()+" during merge-queue policy validation. Offer a closed level choice so the button can never cut a numbered release")
 	}
 }
 
-func sameStrings(a, b []string) bool {
+// sameLevels reports whether a and b hold the same levels, each the same
+// number of times, in any order.
+func sameLevels(a, b []intent.Level) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	seen := map[string]int{}
+	seen := map[intent.Level]int{}
 	for _, s := range a {
 		seen[s]++
 	}
@@ -315,7 +310,7 @@ func (c *queueChecker) checkClassify() {
 					for _, literal := range branchLiterals(field.value) {
 						if branchSet[literal] {
 							c.emit(QueueRuleClassify, name, stepID(step),
-								"a step "+field.key+" compares bot branch "+strconv.Quote(literal)+" during merge-queue policy validation. Call release-intent classify instead of comparing the branch: a literal in one workflow drifts from the release config the classifier reads")
+								"a step "+field.key+" compares bot branch "+strconv.Quote(literal)+" during merge-queue policy validation. Call "+intent.ProgramName+" "+intent.CommandClassify.String()+" instead of comparing the branch: a literal in one workflow drifts from the release config the classifier reads")
 						}
 					}
 				}
@@ -332,7 +327,7 @@ func (c *queueChecker) checkClassify() {
 		}
 		if !invokesClassify(doc) {
 			c.emit(QueueRuleClassify, req.Workflow, req.Job,
-				"the guard workflow never calls release-intent classify during merge-queue policy validation. Call classify to tell the release PR apart instead of comparing its head branch, so the protected-path exception follows the one classifier")
+				"the guard workflow never calls "+intent.ProgramName+" "+intent.CommandClassify.String()+" during merge-queue policy validation. Call "+intent.CommandClassify.String()+" to tell the release PR apart instead of comparing its head branch, so the protected-path exception follows the one classifier")
 		}
 	}
 }
@@ -348,7 +343,7 @@ var (
 	branchLiteralBeforeOp = regexp.MustCompile(`['"]?([A-Za-z0-9_./-]+)['"]?\s*(==|!=)`)
 
 	// classifyInvocation matches a release-intent classify call.
-	classifyInvocation = regexp.MustCompile(`release-intent\s+classify\b`)
+	classifyInvocation = regexp.MustCompile(toolCall(intent.CommandClassify))
 )
 
 // branchLiterals returns every literal compared with == or != in the text,

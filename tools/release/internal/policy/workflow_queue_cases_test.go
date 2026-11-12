@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -28,15 +29,15 @@ func TestCheckWorkflows_Cases(t *testing.T) {
 		t.Run(row.Name, func(t *testing.T) {
 			t.Parallel()
 			dir := materializeQueueFixture(t, row.Input.Overlay)
-			policy, err := LoadQueuePolicy(dir + "/policy.yml")
+			policy, err := LoadQueuePolicy(filepath.Join(dir, fixturePolicyFile))
 			if err != nil {
 				t.Fatalf("case %q policy does not load: %v", row.Name, err)
 			}
-			cfg, err := intent.LoadConfig(dir + "/release-intent.yaml")
+			cfg, err := intent.LoadConfig(filepath.Join(dir, fixtureConfigFile))
 			if err != nil {
 				t.Fatalf("case %q release config does not load: %v", row.Name, err)
 			}
-			diags, required := CheckWorkflows(policy, cfg, dir+"/workflows")
+			diags, required := CheckWorkflows(policy, cfg, filepath.Join(dir, fixtureWorkflowsDir))
 			assertQueueRule(t, row, policy, diags, required)
 		})
 	}
@@ -66,7 +67,7 @@ func assertQueueRule(t *testing.T, row queueCaseRow, policy QueuePolicy, diags [
 		}
 		return
 	}
-	rule := QueueRule(row.Expected.Rule)
+	rule := row.Expected.Rule
 	if len(row.Expected.WantContains) == 0 {
 		t.Fatalf("reject case %q declares no want_contains fragments (fixture error)", row.Name)
 	}
@@ -99,10 +100,10 @@ func TestCheckWorkflows_Coverage(t *testing.T) {
 	failRules := map[QueueRule]bool{}
 	for _, row := range fx.Rows {
 		if row.Classification == testcase.MustPass {
-			passRules[QueueRule(row.Expected.Rule)] = true
+			passRules[row.Expected.Rule] = true
 			continue
 		}
-		failRules[QueueRule(row.Expected.Rule)] = true
+		failRules[row.Expected.Rule] = true
 	}
 	for _, r := range AllQueueRules {
 		if !passRules[r] {

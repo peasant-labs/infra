@@ -1,0 +1,43 @@
+required_names:
+  - accept-command-and-flag
+  - accept-equals-and-expression
+  - accept-separated-invocations
+  - accept-attached-separator
+  - reject-command-typo
+  - reject-flag-typo
+  - reject-second-invocation-flag
+  - reject-attached-second-command
+  - reject-missing-command
+cases:
+  - name: accept-command-and-flag
+    run: release-intent group-pr --ref ref
+    problems: []
+  - name: accept-equals-and-expression
+    run: release-intent plan --branch=main --verdict ${{ steps.verify.outcome == 'success' && 'taggable' || 'rejected' }}
+    problems: []
+  - name: accept-separated-invocations
+    run: release-intent group-pr --ref ref && release-intent check-config --config config.yaml
+    problems: []
+  - name: accept-attached-separator
+    run: release-intent group-pr --ref ref;release-intent check-config --config config.yaml
+    problems: []
+  - name: reject-command-typo
+    run: release-intent group-pull --ref ref
+    problems: ['unknown command "group-pull"']
+    sibling: accept-command-and-flag
+  - name: reject-flag-typo
+    run: release-intent group-pr --refs ref
+    problems: ['unknown flag "--refs"']
+    sibling: accept-command-and-flag
+  - name: reject-second-invocation-flag
+    run: release-intent group-pr --ref ref && release-intent check-config --configs config.yaml
+    problems: ['unknown flag "--configs"']
+    sibling: accept-separated-invocations
+  - name: reject-attached-second-command
+    run: release-intent group-pr --ref ref;release-intent check-confg --config config.yaml
+    problems: ['unknown command "check-confg"']
+    sibling: accept-attached-separator
+  - name: reject-missing-command
+    run: release-intent
+    problems: ['missing command']
+    sibling: accept-command-and-flag
