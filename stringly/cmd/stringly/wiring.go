@@ -23,7 +23,7 @@ func wiredDeps() deps {
 		Explain:        catalog.Catalog.Explain,
 		Failure:        catalogFailure,
 		DocumentRule:   rules.ParseDocumentID,
-		LanguageGlobs:  map[string][]string{rules.LangTS.AstGrepLanguage(): rules.LangTS.FileGlobs()},
+		LanguageGlobs:  astgrep.DefaultLanguageGlobs(),
 	}
 }
 

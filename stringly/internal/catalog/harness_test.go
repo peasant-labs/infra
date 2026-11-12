@@ -19,7 +19,6 @@ import (
 	"github.com/peasant-labs/infra/stringly/internal/astgrep"
 	"github.com/peasant-labs/infra/stringly/internal/astgrep/astgreptest"
 	"github.com/peasant-labs/infra/stringly/internal/catalog"
-	"github.com/peasant-labs/infra/stringly/internal/rules"
 )
 
 // sgRunner is a test double for the ast-grep runner boundary: it runs the
@@ -36,15 +35,12 @@ func (r sgRunner) Version(ctx context.Context) (string, error) {
 	return strings.TrimPrefix(strings.TrimSpace(string(out)), "ast-grep "), err
 }
 
-// sgConfig is the scan config: the rule directory, and the TS file globs
-// mapped to the TS rules' ast-grep language, from the rules package (the same
-// values the command's scan config carries).
+// sgConfig is the scan config: the rule directory and the default
+// languageGlobs the command's scan config carries.
 func sgConfig() ([]byte, error) {
 	return yaml.Marshal(map[string]any{
-		"ruleDirs": []string{"rules"},
-		"languageGlobs": map[string][]string{
-			rules.LangTS.AstGrepLanguage(): rules.LangTS.FileGlobs(),
-		},
+		"ruleDirs":      []string{"rules"},
+		"languageGlobs": astgrep.DefaultLanguageGlobs(),
 	})
 }
 

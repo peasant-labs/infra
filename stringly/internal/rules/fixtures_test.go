@@ -285,20 +285,15 @@ func scanCase(t *testing.T, bin string, rule rules.Rule, files map[string]string
 	return got
 }
 
-// sgconfig maps every TS and JS extension to ast-grep's TSX parser, as the
-// tool's scan config does.
+// sgconfig is the tool's scan config: the rule directory and the default
+// languageGlobs, which parse every TS and JS extension with ast-grep's TSX
+// parser.
 func sgconfig() []byte {
-	var b strings.Builder
-	b.WriteString("ruleDirs: [rules]\nlanguageGlobs:\n")
-	fmt.Fprintf(&b, "  %s: [", rules.LangTS.AstGrepLanguage())
-	for i, g := range rules.LangTS.FileGlobs() {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		fmt.Fprintf(&b, "%q", g)
+	b, err := yaml.Marshal(map[string]any{"ruleDirs": []string{"rules"}, "languageGlobs": astgrep.DefaultLanguageGlobs()})
+	if err != nil {
+		panic(err)
 	}
-	b.WriteString("]\n")
-	return []byte(b.String())
+	return b
 }
 
 var (

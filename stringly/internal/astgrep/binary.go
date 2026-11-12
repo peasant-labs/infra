@@ -15,16 +15,22 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/peasant-labs/infra/stringly/internal/failure"
+	"github.com/peasant-labs/infra/stringly/internal/rules"
 )
 
 // DefaultCommand is the binary name looked up on PATH when no path is given.
 const DefaultCommand = "ast-grep"
 
 // DefaultLanguageGlobs returns the languageGlobs of a scan that sets none:
-// every TS and JS form is parsed as TSX, so one rule covers .ts .tsx .js .jsx
-// .mjs .cjs.
+// each language's file globs mapped to its ast-grep language, so every TS
+// and JS form is parsed as TSX and one rule covers .ts .tsx .js .jsx .mjs
+// .cjs.
 func DefaultLanguageGlobs() map[string][]string {
-	return map[string][]string{"tsx": {"*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"}}
+	globs := make(map[string][]string, len(rules.AllLangs))
+	for _, l := range rules.AllLangs {
+		globs[l.AstGrepLanguage()] = l.FileGlobs()
+	}
+	return globs
 }
 
 // InstallFix is the fix line every ast-grep version failure prints.

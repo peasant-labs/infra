@@ -46,12 +46,11 @@ func (generator) Generate(c Catalog) (rules.Rule, error) {
 		"utils":    utils,
 	}
 	values := c.Values()
+	doc["language"] = c.Lang.AstGrepLanguage()
 	switch c.Lang {
 	case rules.LangTS:
-		doc["language"] = "tsx"
 		doc["rule"] = tsClosedSetRule(values, excluded)
 	case rules.LangGo:
-		doc["language"] = "go"
 		doc["rule"] = goClosedSetRule(values, goSetTypeNames(c), excluded)
 	}
 	body, err := yaml.Marshal(doc)

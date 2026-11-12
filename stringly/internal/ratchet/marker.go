@@ -23,32 +23,35 @@ const MinReasonWords = 3
 // nativeIgnore is ast-grep's own suppression comment.
 const nativeIgnore = "ast-grep-ignore"
 
-// Comment rule ids. They are not rule ids of the tool: their matches are the
-// comments that may be markers, found by the same scan as the hits so a file
-// outside the scan cannot hide one.
-const (
-	commentRuleTS = "stringly-comment-ts"
-	commentRuleGo = "stringly-comment-go"
-)
+// commentRulePrefix opens the id of each comment rule; the language's wire
+// value closes it. The comment rules are not rules of the tool: their matches
+// are the comments that may be markers, found by the same scan as the hits so
+// a file outside the scan cannot hide one.
+const commentRulePrefix = "stringly-comment-"
 
 // commentRuleRegex selects the comments the checker reads.
 const commentRuleRegex = `stringly-allow|ast-grep-ignore`
 
+// commentRuleID returns the id of the comment rule for l's files.
+func commentRuleID(l rules.Lang) string { return commentRulePrefix + l.String() }
+
 // CommentRule returns the ast-grep rule that finds marker comments in one
 // language's files.
 func CommentRule(l rules.Lang) astgrep.RuleFile {
-	id, lang := commentRuleGo, "go"
-	if l == rules.LangTS {
-		id, lang = commentRuleTS, "tsx"
-	}
-	body := fmt.Sprintf("id: %s\nlanguage: %s\nseverity: warning\nrule:\n  kind: comment\n  regex: '%s'\n", id, lang, commentRuleRegex)
+	id := commentRuleID(l)
+	body := fmt.Sprintf("id: %s\nlanguage: %s\nseverity: warning\nrule:\n  kind: comment\n  regex: '%s'\n", id, l.AstGrepLanguage(), commentRuleRegex)
 	return astgrep.RuleFile{Name: id + ".yml", Body: []byte(body)}
 }
 
 // IsCommentRule reports whether an ast-grep record's rule id is one of the
 // comment rules.
 func IsCommentRule(ruleID string) bool {
-	return ruleID == commentRuleTS || ruleID == commentRuleGo
+	for _, l := range rules.AllLangs {
+		if ruleID == commentRuleID(l) {
+			return true
+		}
+	}
+	return false
 }
 
 // Comment is one comment the comment rule matched.
