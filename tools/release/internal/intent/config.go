@@ -48,7 +48,7 @@ func LoadConfig(path string) (Config, error) {
 			"intent.LoadConfig",
 			"loading the release config",
 			"no title, plan, or gate can be judged without the repo's contract",
-			"pass --config for a readable .github/release-intent.yaml, or add the file from the plan's shape",
+			"pass the path of a readable release config, or add the file at "+strconv.Quote(DefaultConfigPath),
 		)
 	}
 	return ParseConfig(data)
@@ -103,23 +103,23 @@ func checkConfig(cfg Config, where string) error {
 	if cfg.TagPrefix == "" {
 		return fail("the tag prefix is empty",
 			"the prefix tells release tags apart from other tags that share the repository",
-			"set tag_prefix, for example \"v\" or \"fairtrade-v\"")
+			"set tag_prefix to the text that opens this repository's release tags")
 	}
 	if cfg.AutomationAuthor == "" {
 		return fail("the automation author is empty",
 			"the author tells the release PR apart from author PRs that may not touch protected paths",
-			"set automation_author to the bot login, for example \"peasant-labs-releaser[bot]\"")
+			"set automation_author to the login of the bot that opens the release PR")
 	}
 	if cfg.Changelog == "" {
 		return fail("the changelog path is empty",
 			"the changelog is protected as a whole file and only the release PR may change it",
-			"set changelog, for example \"CHANGELOG.md\"")
+			"set changelog to the path of this repository's changelog file")
 	}
 	for i, vf := range cfg.VersionFiles {
 		if vf.Path == "" || vf.Field == "" {
 			return fail(fmt.Sprintf("version_files[%d] names path %q and field %q", i, vf.Path, vf.Field),
 				"a version file entry needs both the file and the one protected top-level field the release PR writes",
-				"set both path and field, for example \"{ path: package.json, field: version }\"")
+				"set both path and field to the version file and its top-level version key")
 		}
 	}
 	for name, stem := range cfg.Surfaces {
@@ -139,16 +139,16 @@ func checkConfig(cfg Config, where string) error {
 		if !configBotKinds[kind] {
 			return fail("bot_branches names unknown kind "+strconv.Quote(string(kind)),
 				"the bot PR kinds are closed so every workflow compares against the same names",
-				"use one of release, vendor-hash or cut-release as the key")
+				"use one of "+memberList(botKinds)+" as the key")
 		}
 		if branch == "" {
 			return fail("bot_branches entry "+strconv.Quote(string(kind))+" names an empty branch",
 				"each bot PR kind needs the one head branch its PR uses",
-				"set the branch, for example \"automation/release\" for the release kind")
+				"set the head branch that bot PR is opened from")
 		}
 		if first, dup := seenBranches[branch]; dup {
 			return fail("bot_branches names branch "+strconv.Quote(branch)+" for two kinds",
-				"one branch belongs to one bot PR: with two kinds on one branch the classifier gives the vendor-hash and cut-release PRs the release PR's exemption",
+				"one branch belongs to one bot PR: with two kinds on one branch the classifier gives another bot PR the "+PRKindRelease.String()+" PR's exemption",
 				"give "+string(first)+" and "+string(kind)+" their own head branches")
 		}
 		seenBranches[branch] = kind

@@ -6,19 +6,42 @@ package intent_test
 
 import (
 	_ "embed"
+	"fmt"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
 //go:embed testdata/versionfield_corpus.yaml
 var versionFieldCorpusYAML []byte
 
+// versionFieldOp is the closed set of operations a version-field row drives.
+type versionFieldOp string
+
+const (
+	opRead  versionFieldOp = "read"
+	opWrite versionFieldOp = "write"
+)
+
+var allVersionFieldOps = []versionFieldOp{opRead, opWrite}
+
+// UnmarshalText refuses any operation outside the closed set at load time.
+func (o *versionFieldOp) UnmarshalText(text []byte) error {
+	for _, known := range allVersionFieldOps {
+		if string(text) == string(known) {
+			*o = known
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown version-field op %q: want one of %v", text, allVersionFieldOps)
+}
+
 type versionFieldInput struct {
-	Op       string `yaml:"op"`
-	Document string `yaml:"document"`
-	Field    string `yaml:"field"`
-	Value    string `yaml:"value"`
+	Op       versionFieldOp `yaml:"op"`
+	Document string         `yaml:"document"`
+	Field    string         `yaml:"field"`
+	Value    string         `yaml:"value"`
 }
 
 type versionFieldExpected struct {
@@ -30,9 +53,9 @@ func TestVersionField(t *testing.T) {
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			switch c.Input.Op {
-			case "read":
+			case opRead:
 				got, err := intent.ReadVersionField([]byte(c.Input.Document), c.Input.Field)
-				if c.Classification == "must-fail" {
+				if c.Classification == testcase.MustFail {
 					if err == nil {
 						t.Fatalf("ReadVersionField: expected an error, got %q", got)
 					}
@@ -45,9 +68,9 @@ func TestVersionField(t *testing.T) {
 				if got != c.Expected.Output {
 					t.Errorf("ReadVersionField = %q, want %q", got, c.Expected.Output)
 				}
-			case "write":
+			case opWrite:
 				got, err := intent.WriteVersionField([]byte(c.Input.Document), c.Input.Field, c.Input.Value)
-				if c.Classification == "must-fail" {
+				if c.Classification == testcase.MustFail {
 					if err == nil {
 						t.Fatalf("WriteVersionField: expected an error, got %q", got)
 					}
@@ -61,7 +84,7 @@ func TestVersionField(t *testing.T) {
 					t.Errorf("WriteVersionField = %q, want %q", got, c.Expected.Output)
 				}
 			default:
-				t.Fatalf("unknown op %q: want read or write", c.Input.Op)
+				t.Fatalf("unknown op %q: want one of %v", c.Input.Op, allVersionFieldOps)
 			}
 		})
 	}

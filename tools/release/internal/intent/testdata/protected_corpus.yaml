@@ -65,7 +65,7 @@ cases:
       is_release_pr: false
       changes:
         - { path: "package.json", protected_field_changed: false }
-    expected: {code: ""}
+    expected: {}
     classification: must-pass
     provenance: {source: requirement, ref: "protected paths: a version file is protected by field, not by file"}
     mutation: {description: "an author edit to the same file outside the protected field"}
@@ -84,7 +84,7 @@ cases:
       is_release_pr: false
       changes:
         - { path: "src/graph.ts", protected_field_changed: false }
-    expected: {code: ""}
+    expected: {}
     classification: must-pass
     provenance: {source: requirement, ref: "protected paths: ordinary content is never protected"}
     mutation: {description: "an author edit to ordinary content"}
@@ -124,7 +124,7 @@ cases:
       changes:
         - { path: "CHANGELOG.md", protected_field_changed: false }
         - { path: "package.json", protected_field_changed: true }
-    expected: {code: ""}
+    expected: {}
     classification: must-pass
     provenance: {source: requirement, ref: "protected paths: the release PR is exempt"}
     mutation: {description: "the release PR writing its own content"}
@@ -169,7 +169,7 @@ cases:
         bot_branches: {}
       is_release_pr: false
       changes: []
-    expected: {code: ""}
+    expected: {}
     classification: must-pass
     provenance: {source: boundary, ref: "protected paths: an empty change touches nothing protected"}
     mutation: {description: "an empty change list"}

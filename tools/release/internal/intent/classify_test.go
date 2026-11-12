@@ -22,7 +22,7 @@ type classifierInput struct {
 }
 
 type classifierExpected struct {
-	Kind string `yaml:"kind"`
+	Kind intent.PRKind `yaml:"kind"`
 }
 
 func TestClassifyPR(t *testing.T) {
@@ -38,7 +38,7 @@ func TestClassifyPR(t *testing.T) {
 				},
 			}
 			got := intent.ClassifyPR(cfg, c.Input.Author, c.Input.HeadBranch)
-			if string(got) != c.Expected.Kind {
+			if got != c.Expected.Kind {
 				t.Errorf("ClassifyPR(%q, %q) = %q, want %q",
 					c.Input.Author, c.Input.HeadBranch, got, c.Expected.Kind)
 			}
