@@ -1,0 +1,57 @@
+# Catalog.Explain: the why names every declaring set, and the fix depends on
+# where the value is declared (design section 6.6). Each case lists text the
+# why and the fix must contain.
+cases:
+  - name: closed-member-is-the-fix
+    lang: ts
+    value: project
+    members:
+      - { value: project, source: ts-union, set: Scope, file: src/types.ts, line: 3 }
+      - { value: project, source: closed-call, set: GroupBy, name: Project, file: src/view.ts, line: 9 }
+    why: ['"project" is a member of', "the union Scope (src/types.ts:3)", "GroupBy (src/view.ts:9)"]
+    fix: ["GroupBy.Project (src/view.ts)", "accepts no allow marker"]
+
+  - name: schema-go-constant
+    lang: go
+    value: public
+    members:
+      - { value: public, source: schema-module, set: schema.TranscriptVisibility, name: VisibilityPublic, module: example.test/schema@v0.0.1, file: visibility.go, line: 10 }
+    why: ["schema.TranscriptVisibility (example.test/schema@v0.0.1)"]
+    fix: ["schema.VisibilityPublic from example.test/schema@v0.0.1"]
+
+  - name: repository-go-constant
+    lang: go
+    value: open
+    members:
+      - { value: open, source: go-typed-constant, set: status.Status, name: Open, file: status/status.go, line: 6 }
+    why: ["status.Status (status/status.go:6)"]
+    fix: ["status.Open (status/status.go)"]
+
+  - name: union-only-converts-the-union
+    lang: ts
+    value: ready
+    members:
+      - { value: ready, source: ts-union, set: ReadState, file: src/state.ts, line: 1 }
+      - { value: ready, source: ts-union, file: src/row.ts, line: 4 }
+    why: ["the union ReadState (src/state.ts:1)", "an inline union (src/row.ts:4)"]
+    fix: ["convert the union to a closed() set next to its owner", "(typeof X)[keyof typeof X]"]
+
+  - name: jsdoc-only-declares-a-closed-set
+    lang: ts
+    value: list
+    members:
+      - { value: list, source: jsdoc-union, set: ViewMode, file: src/view.js, line: 2 }
+    why: ["the union ViewMode (src/view.js:2)"]
+    fix: ["closed() from src/ui/closed-value.js"]
+
+  - name: many-sites-are-summarised
+    lang: ts
+    value: error
+    members:
+      - { value: error, source: ts-union, file: a.ts, line: 1 }
+      - { value: error, source: ts-union, file: b.ts, line: 1 }
+      - { value: error, source: ts-union, file: c.ts, line: 1 }
+      - { value: error, source: ts-union, file: d.ts, line: 1 }
+      - { value: error, source: ts-union, file: e.ts, line: 1 }
+    why: ["(c.ts:1), 2 more."]
+    fix: ["convert the union"]
