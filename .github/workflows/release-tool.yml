@@ -1,0 +1,55 @@
+name: Release tool
+
+# Build, vet and test the release tool module under tools/release. Consumer
+# repositories build release-intent from a pinned commit of this repository,
+# so every commit on main must keep the module green.
+
+on:
+  # No paths filter: this check is meant to be required, and a filtered
+  # required check never reports on a pull request outside the listed paths,
+  # which would leave that pull request blocked forever.
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  determine-runner:
+    uses: ./.github/workflows/runner-router.yml
+    with:
+      fallback: '["ubuntu-24.04"]'
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+
+  release-tool:
+    name: release-tool
+    needs: determine-runner
+    runs-on: ${{ fromJson(needs.determine-runner.outputs.runner) }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tools/release
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: tools/release/go.mod
+          cache-dependency-path: tools/release/go.sum
+
+      - name: Formatting
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
