@@ -101,30 +101,28 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 			"stringly scans only the roots the config names, so with none there is nothing to guard.",
 			"add `ts: {roots: [<dir>]}`, `go: {roots: [<dir>]}`, or both.")
 	}
-	for _, sec := range []struct {
-		key   string
-		roots *Roots
-	}{{"ts", c.TS}, {"go", c.Go}} {
-		if sec.roots == nil {
+	for _, lang := range rules.AllLangs {
+		key, roots := lang.String(), c.section(lang)
+		if roots == nil {
 			continue
 		}
-		if len(sec.roots.Roots) == 0 {
+		if len(roots.Roots) == 0 {
 			return fail(
-				fmt.Sprintf("the `%s` section of %s has no roots.", sec.key, name),
+				fmt.Sprintf("the `%s` section of %s has no roots.", key, name),
 				"a language section is scanned only under its roots.",
-				fmt.Sprintf("list at least one directory under `%s.roots`, or remove the section.", sec.key))
+				fmt.Sprintf("list at least one directory under `%s.roots`, or remove the section.", key))
 		}
-		for _, r := range sec.roots.Roots {
+		for _, r := range roots.Roots {
 			if msg := relativePathProblem(r); msg != "" {
 				return fail(
-					fmt.Sprintf("the %s root %q in %s %s.", sec.key, r, name, msg),
+					fmt.Sprintf("the %s root %q in %s %s.", key, r, name, msg),
 					"roots are relative to the config's directory, with `/` separators.",
 					"write the root relative to the config, for example `frontend` or `.`.")
 			}
 			info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(r)))
 			if err != nil || !info.IsDir() {
 				return fail(
-					fmt.Sprintf("the %s root %q in %s is not a directory under %s.", sec.key, r, name, dir),
+					fmt.Sprintf("the %s root %q in %s is not a directory under %s.", key, r, name, dir),
 					"a root that does not exist would scan nothing, and the baseline would silently cover less than intended.",
 					"correct the root, or remove it from the config.")
 			}
@@ -325,17 +323,23 @@ func relativePathProblem(p string) string {
 
 // RootsFor returns the configured roots of one language, or nil.
 func (c Config) RootsFor(l rules.Lang) []string {
-	var r *Roots
-	switch l {
-	case rules.LangTS:
-		r = c.TS
-	case rules.LangGo:
-		r = c.Go
-	}
+	r := c.section(l)
 	if r == nil {
 		return nil
 	}
 	return slices.Clone(r.Roots)
+}
+
+// section returns the config section of l's roots, keyed in the file by
+// l.String(); nil when the file has none or l is not in rules.AllLangs.
+func (c Config) section(l rules.Lang) *Roots {
+	switch l {
+	case rules.LangTS:
+		return c.TS
+	case rules.LangGo:
+		return c.Go
+	}
+	return nil
 }
 
 // Params returns the settings that shape the static rules.

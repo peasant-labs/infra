@@ -182,3 +182,35 @@ func TestMatchPath(t *testing.T) {
 		}
 	}
 }
+
+// TestSectionKeyIsLangWireValue pins that each language's config section is
+// keyed by the language's wire value, so `--lang X` and the `X:` section
+// name one language.
+func TestSectionKeyIsLangWireValue(t *testing.T) {
+	for _, l := range rules.AllLangs {
+		t.Run(l.String(), func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Mkdir(filepath.Join(dir, "src"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, config.DefaultPath)
+			body := "version: 1\n" + l.String() + ":\n  roots: [src]\n"
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			c, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("load a config with only the %q section: %v", l, err)
+			}
+			for _, other := range rules.AllLangs {
+				got := c.RootsFor(other)
+				if other == l && !slices.Equal(got, []string{"src"}) {
+					t.Errorf("RootsFor(%s) = %v, want [src]", other, got)
+				}
+				if other != l && got != nil {
+					t.Errorf("RootsFor(%s) = %v, want none", other, got)
+				}
+			}
+		})
+	}
+}
