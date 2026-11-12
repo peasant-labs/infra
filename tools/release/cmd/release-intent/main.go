@@ -9,7 +9,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -18,77 +17,90 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		usageErrorf("usage: release-intent <check-config|check-workflows|check-title|classify|group-pr|plan|release-pr|queue-gate> ...")
+		exitWith("", usageErr("usage: %s <%s> ...", intent.ProgramName, joinCommands("|")))
 	}
-	sub := os.Args[1]
-	args := os.Args[2:]
-
-	var err error
-	switch sub {
-	case "check-config":
-		err = runCheckConfig(args)
-	case "check-workflows":
-		err = runCheckWorkflows(args)
-	case "check-title":
-		err = runCheckTitle(args)
-	case "classify":
-		err = runClassify(args)
-	case "group-pr":
-		err = runGroupPR(args)
-	case "plan":
-		err = runPlan(args)
-	case "release-pr":
-		err = runReleasePR(args)
-	case "queue-gate":
-		err = runQueueGate(args)
-	default:
-		usageErrorf("unknown subcommand %q: expected check-config, check-workflows, check-title, classify, group-pr, plan, release-pr or queue-gate", sub)
-	}
+	command, err := parseCommand(os.Args[1])
 	if err != nil {
-		exitWith(err)
+		exitWith("", err)
 	}
+	if err := run(command, os.Args[2:]); err != nil {
+		exitWith(command, err)
+	}
+}
+
+// run dispatches one subcommand. The switch covers AllCommands; a member
+// with no handler is a programming error, reported as one.
+func run(command intent.Command, args []string) error {
+	flags, err := parseFlags(command, args)
+	if err != nil {
+		return err
+	}
+	switch command {
+	case intent.CommandCheckConfig:
+		return runCheckConfig(flags)
+	case intent.CommandCheckWorkflows:
+		return runCheckWorkflows(flags)
+	case intent.CommandCheckTitle:
+		return runCheckTitle(flags)
+	case intent.CommandClassify:
+		return runClassify(flags)
+	case intent.CommandGroupPR:
+		return runGroupPR(flags)
+	case intent.CommandPlan:
+		return runPlan(flags)
+	case intent.CommandReleasePR:
+		return runReleasePR(flags)
+	case intent.CommandQueueGate:
+		return runQueueGate(flags)
+	default:
+		return fmt.Errorf("%s: subcommand %q is in the closed command set but has no handler in run (cmd/release-intent/main.go). This is a programming error in %s, not a user input issue: add the handler", intent.ProgramName, command, intent.ProgramName)
+	}
+}
+
+// exitStatus is the process exit status. The zero value is acceptance.
+type exitStatus int
+
+const (
+	// exitAccepted means the input was judged and accepted.
+	exitAccepted exitStatus = 0
+	// exitFailure means a usage or internal error: nothing was judged.
+	exitFailure exitStatus = 1
+	// exitRejected means the input was judged and rejected.
+	exitRejected exitStatus = 2
+)
+
+// allExitStatuses is the canonical closed set of exit statuses.
+var allExitStatuses = []exitStatus{exitAccepted, exitFailure, exitRejected}
+
+// statusOf maps a handler result to its exit status. It is the one place
+// the exit contract is decided.
+func statusOf(err error) exitStatus {
+	if err == nil {
+		return exitAccepted
+	}
+	if _, ok := asReject(err); ok {
+		return exitRejected
+	}
+	return exitFailure
 }
 
 // exitWith maps a handler error to the process exit status and streams.
 //
-// Exit contract: 0 is accepted, 2 is rejected input, 1 is usage or internal
-// error. A rejection prints its machine channel (error=<code> and friends) on
+// A rejection prints its machine channel (error=<code> and friends) on
 // stdout and a six-part human message on stderr. A usage or internal failure
 // prints an actionable message on stderr and no machine line unless the
 // handler already emitted one.
-func exitWith(err error) {
+func exitWith(command intent.Command, err error) {
+	// A contract rejection a handler did not wrap still exits as a rejection,
+	// named after the dispatched command.
+	err = rejectAs(command, err)
 	if r, ok := asReject(err); ok {
-		for _, line := range r.machineLines() {
-			fmt.Println(line)
-		}
-		if path := os.Getenv("GITHUB_OUTPUT"); path != "" {
-			_ = appendOutputFile(path, r.machineLines())
-		}
+		// The step-output append is best effort here: the rejection already
+		// decides the exit status, and stdout carries the same lines.
+		_ = emit(r.machineLines()...)
 		fmt.Fprintf(os.Stderr, "%s\n", r.humanMessage())
-		os.Exit(2)
+	} else {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", intent.ProgramName, err)
 	}
-	var ie *intent.Error
-	if errors.As(err, &ie) {
-		if r, ok := asReject(rejectAs("release-intent", err)); ok {
-			for _, line := range r.machineLines() {
-				fmt.Println(line)
-			}
-			if path := os.Getenv("GITHUB_OUTPUT"); path != "" {
-				_ = appendOutputFile(path, r.machineLines())
-			}
-			fmt.Fprintf(os.Stderr, "%s\n", r.humanMessage())
-			os.Exit(2)
-		}
-	}
-	if u, ok := asUsage(err); ok {
-		fmt.Fprintf(os.Stderr, "release-intent: %s\n", u.Error())
-		os.Exit(1)
-	}
-	fmt.Fprintf(os.Stderr, "release-intent: %v\n", err)
-	os.Exit(1)
-}
-
-func usageErrorf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "release-intent: "+format+"\n", args...)
-	os.Exit(1)
+	os.Exit(int(statusOf(err)))
 }

@@ -7,12 +7,15 @@ required_names:
   - version-field-removed-rejected
   - group-shaped-base-passes
   - ordinary-scripts-edit-accepted
+  - adopting-pr-accepted
+  - version-document-corrupt-rejected
+  - release-pr-version-edit-accepted
 
 cases:
   cases:
     - name: base-read-failure-is-internal
-      input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "mock-base-failure"}
-      expected: {exit: 1, stdout: [], absent: ["error="]}
+      input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "base-read-failure"}
+      expected: {exit: 1, stdout: [], absent_keys: [error]}
       classification: must-fail
       sibling: ordinary-scripts-edit-accepted
       provenance: {source: requirement, ref: "a failed base config fetch exits 1 with no accept"}
@@ -26,13 +29,13 @@ cases:
       mutation: {description: "Removes the version-file protection in the head config and bumps the version."}
     - name: pr-behind-base-passes
       input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "pr-behind-base"}
-      expected: {exit: 0, code: "", stdout: ["error="]}
+      expected: {exit: 0, stdout: ["error="]}
       classification: must-pass
       provenance: {source: requirement, ref: "a PR behind its base diffs from the merge base"}
       mutation: {description: "Lands a commit on the base after the PR branched."}
     - name: scripts-only-after-release-passes
       input: {title: "fix(scripts)[patch]: quiet lint", author: "octocat", headBranch: "feature/work", setup: "scripts-only-after-release"}
-      expected: {exit: 0, code: "", stdout: ["error="]}
+      expected: {exit: 0, stdout: ["error="]}
       classification: must-pass
       provenance: {source: requirement, ref: "version fields compare at the merge base, not the base tip"}
       mutation: {description: "Lands a release after the PR branched, then edits only scripts."}
@@ -52,14 +55,32 @@ cases:
       mutation: {description: "Removes the version field from the version file in the head."}
     - name: group-shaped-base-passes
       input: {title: "feat(b)[minor]: entry b", author: "octocat", headBranch: "queue-b", setup: "group-shaped-base"}
-      expected: {exit: 0, code: "", stdout: ["error="]}
+      expected: {exit: 0, stdout: ["error="]}
       classification: must-pass
       provenance: {source: requirement, ref: "a merge-group base that is not an ancestor still diffs"}
       mutation: {description: "Diffs two divergent queue entries from their merge base."}
     - name: ordinary-scripts-edit-accepted
       input: {title: "fix(scripts)[patch]: quiet lint", author: "octocat", headBranch: "feature/work", setup: "ordinary-scripts-edit"}
-      expected: {exit: 0, code: "", stdout: ["error="]}
+      expected: {exit: 0, stdout: ["error="]}
       classification: must-pass
       provenance: {source: requirement, ref: "a scripts-only version-file edit is accepted"}
       mutation: {description: "Edits only unprotected fields of a version file."}
-
+    - name: adopting-pr-accepted
+      input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "adopting"}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "a PR that adds the config is judged on grammar alone, from the head config"}
+      mutation: {description: "Leaves the base without a config and adds it in the head."}
+    - name: version-document-corrupt-rejected
+      input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "raw-version-document", rawVersionDocument: "{not json"}
+      expected: {exit: 2, code: "protected-path", stdout: []}
+      classification: must-fail
+      sibling: ordinary-scripts-edit-accepted
+      provenance: {source: requirement, ref: "a version file that cannot be parsed fails closed"}
+      mutation: {description: "Replaces the version file in the head with bytes that are not JSON."}
+    - name: release-pr-version-edit-accepted
+      input: {title: "release[minor]: publish the pending changes", author: "SETUP_BOT_AUTHOR", headBranch: "SETUP_RELEASE_BRANCH", setup: "version-field-edit"}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "only the release PR may change the protected version field"}
+      mutation: {description: "Makes the same version edit as the bot author on the release bot branch."}

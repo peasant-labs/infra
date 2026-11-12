@@ -12,10 +12,10 @@ import (
 // per-commit freshness through intent.Generate. A read failure returns an
 // error so the caller exits 1 with no candidate_fresh line: a read error is
 // never reported as stale.
-func Gather(ctx context.Context, r GitRunner, branch, configPath, floor string, mode intent.Mode, verdict intent.Verdict) (intent.Facts, intent.Config, error) {
+func Gather(ctx context.Context, r GitRunner, command intent.Command, branch, configPath, floor string, mode intent.Mode, verdict intent.Verdict) (intent.Facts, intent.Config, error) {
 	cfgData, err := r.ReadFile(ctx, branch, configPath)
 	if err != nil {
-		return intent.Facts{}, intent.Config{}, fmt.Errorf("plan: cannot read release config %q at %q: %w. Confirm the branch has the config file", configPath, branch, err)
+		return intent.Facts{}, intent.Config{}, fmt.Errorf("%s: cannot read release config %q at %q: %w. Confirm the branch has the config file", command, configPath, branch, err)
 	}
 	cfg, err := intent.ParseConfig(cfgData)
 	if err != nil {
@@ -23,15 +23,15 @@ func Gather(ctx context.Context, r GitRunner, branch, configPath, floor string, 
 	}
 	commits, err := r.FirstParent(ctx, branch, cfg.Changelog)
 	if err != nil {
-		return intent.Facts{}, intent.Config{}, fmt.Errorf("plan: cannot list first-parent commits of %q: %w. Confirm the branch exists", branch, err)
+		return intent.Facts{}, intent.Config{}, fmt.Errorf("%s: cannot list first-parent commits of %q: %w. Confirm the branch exists", command, branch, err)
 	}
 	tags, err := r.Tags(ctx, cfg.TagPrefix)
 	if err != nil {
-		return intent.Facts{}, intent.Config{}, fmt.Errorf("plan: cannot list tags with prefix %q: %w", cfg.TagPrefix, err)
+		return intent.Facts{}, intent.Config{}, fmt.Errorf("%s: cannot list tags with prefix %q: %w", command, cfg.TagPrefix, err)
 	}
 	epoch, err := r.FirstCommitAdding(ctx, branch, configPath)
 	if err != nil {
-		return intent.Facts{}, intent.Config{}, fmt.Errorf("plan: cannot find the commit adding %q on %q: %w", configPath, branch, err)
+		return intent.Facts{}, intent.Config{}, fmt.Errorf("%s: cannot find the commit adding %q on %q: %w", command, configPath, branch, err)
 	}
 	base := intent.Facts{Branch: branch, Commits: commits, Tags: tags, Epoch: epoch, Floor: floor, Mode: mode, Verdict: verdict, Fresh: map[string]bool{}}
 	// Find the candidate with a first pass that carries no freshness, then
@@ -46,7 +46,7 @@ func Gather(ctx context.Context, r GitRunner, branch, configPath, floor string, 
 	if dec.Candidate == "" {
 		return base, cfg, nil
 	}
-	fresh, ferr := candidateFresh(ctx, r, cfg, commits, tags, dec, epoch)
+	fresh, ferr := candidateFresh(ctx, r, command, cfg, commits, tags, dec, epoch)
 	if ferr != nil {
 		return intent.Facts{}, intent.Config{}, ferr
 	}
@@ -82,7 +82,7 @@ func baseRevForRange(shas []string, tags map[string]string, rangeBaseTag, epoch 
 // what Generate produces for the candidate's own sub-range, which the planner
 // reports in Before. Any unreadable input is an error (exit 1, no
 // candidate_fresh), never stale.
-func candidateFresh(ctx context.Context, r GitRunner, cfg intent.Config, commits []intent.Commit, tags map[string]string, dec intent.Decision, epoch string) (bool, error) {
+func candidateFresh(ctx context.Context, r GitRunner, command intent.Command, cfg intent.Config, commits []intent.Commit, tags map[string]string, dec intent.Decision, epoch string) (bool, error) {
 	shas := make([]string, 0, len(commits))
 	for _, c := range commits {
 		shas = append(shas, c.SHA)
@@ -94,7 +94,7 @@ func candidateFresh(ctx context.Context, r GitRunner, cfg intent.Config, commits
 		if errors.As(err, &nf) {
 			baseData = nil
 		} else {
-			return false, fmt.Errorf("plan: cannot read changelog %q at base %q for the freshness comparison: %w. A read error is never reported as stale", cfg.Changelog, baseRev, err)
+			return false, fmt.Errorf("%s: cannot read changelog %q at base %q for the freshness comparison: %w. A read error is never reported as stale", command, cfg.Changelog, baseRev, err)
 		}
 	}
 	if len(dec.Before.Pending) == 0 {
@@ -102,13 +102,13 @@ func candidateFresh(ctx context.Context, r GitRunner, cfg intent.Config, commits
 	}
 	content, err := intent.Generate(cfg, intent.ContentInput{Pending: dec.Before.Pending, BaseChangelog: string(baseData), Version: dec.Before.Version, Tag: dec.Before.Tag, Date: dec.Before.Date})
 	if err != nil {
-		return false, fmt.Errorf("plan: cannot render the expected release content for the freshness comparison: %w. A read error is never reported as stale", err)
+		return false, fmt.Errorf("%s: cannot render the expected release content for the freshness comparison: %w. A read error is never reported as stale", command, err)
 	}
 	got, err := fileContent(func(path string) ([]byte, error) {
 		return r.ReadFile(ctx, dec.Candidate, path)
 	}, cfg, content)
 	if err != nil {
-		return false, fmt.Errorf("plan: cannot assemble the candidate content for the freshness comparison: %w. A read error is never reported as stale", err)
+		return false, fmt.Errorf("%s: cannot assemble the candidate content for the freshness comparison: %w. A read error is never reported as stale", command, err)
 	}
 	if err := intent.CompareContent(content, got); err != nil {
 		return false, nil

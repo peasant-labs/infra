@@ -1,75 +1,62 @@
 package main
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
-// fairtradeShapedPackageJSON is deliberately hostile to whole-file rewrites:
-// unsorted keys, scripts with shell operators the JSON escaper would mangle,
-// and the protected field in the middle.
-const fairtradeShapedPackageJSON = `{"name": "fairtrade",
+// hostileVersionDocument builds a version document that is deliberately
+// hostile to whole-file rewrites: unsorted keys, scripts with shell
+// operators the JSON escaper would mangle, and the protected field, named by
+// the config, in the middle.
+func hostileVersionDocument(vf intent.VersionFile, version intent.SemVer) string {
+	return `{"name": "fairtrade",
   "scripts": {"lint": "a && b > c", "build": "x || y"},
-  "version": "0.2.0",
+  ` + strconv.Quote(vf.Field) + `: ` + strconv.Quote(version.String()) + `,
   "dependencies": {"left-pad": "1.3.0"}
 }
 `
+}
+
+// hostileScriptsLine is the line of the hostile document a whole-file
+// rewrite would re-escape.
+const hostileScriptsLine = `"lint": "a && b > c"`
 
 // TestWriteReleaseContent_OnlyVersionLineChanges proves writeReleaseContent
-// splices only the protected version value: the fairtrade-shaped package.json
-// below is deliberately hostile to whole-file rewrites (unsorted keys, scripts
-// with shell operators the JSON escaper would mangle, and the protected field
-// in the middle). It runs in the repo dir (t.Chdir, restored automatically)
-// because writeReleaseContent resolves repo-relative paths like the binary
-// does when run from the repository root.
+// splices only the protected version value of a hostile version document. It
+// runs in the repo dir (t.Chdir, restored automatically) because
+// writeReleaseContent resolves repo-relative paths like the binary does when
+// run from the repository root.
 func TestWriteReleaseContent_OnlyVersionLineChanges(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
-	dir := t.TempDir()
-	runGit(t, dir, "init", "-q", "-b", "master")
-	runGit(t, dir, "config", "user.email", "t@t")
-	runGit(t, dir, "config", "user.name", "t@t")
-	writeFile(t, dir, "package.json", fairtradeShapedPackageJSON)
-	writeFile(t, dir, "CHANGELOG.md", "# changelog\n")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-q", "-m", "seed")
-	cfg := intent.Config{
-		Changelog:    "CHANGELOG.md",
-		VersionFiles: []intent.VersionFile{{Path: "package.json", Field: "version"}},
-	}
+	r := newTestRepo(t, repoStandard)
+	r.Seed()
+	cfg := r.Config()
+	vf := cfg.VersionFiles[0]
+	r.WriteVersionDocument(0, hostileVersionDocument(vf, r.fix.SeedVersion))
+	r.Commit(titleSeed)
+	next := laterVersion(t, r, intent.LevelPatch)
 	content := intent.Content{
-		Changelog: "# changelog\n",
-		Section:   "## 0.2.0\n",
-		Versions:  map[string]string{"package.json": "0.2.1"},
+		Changelog: r.ReadChangelog(),
+		Versions:  map[string]string{vf.Path: next.String()},
 	}
-	t.Chdir(dir)
+	t.Chdir(r.Dir())
 	if err := writeReleaseContent(cfg, content); err != nil {
 		t.Fatalf("writeReleaseContent: %v", err)
 	}
-	got, err := os.ReadFile(filepath.Join(dir, "package.json"))
-	if err != nil {
-		t.Fatalf("read rewritten package.json: %v", err)
+	got := r.ReadVersionDocument(0)
+	if got != hostileVersionDocument(vf, next) {
+		t.Fatalf("rewritten version document differs from the original beyond the version value:\n%s", got)
 	}
-	if strings.Contains(string(got), "\\u0026") || strings.Contains(string(got), "\\u003e") {
-		t.Fatalf("rewrote scripts with escapes, want byte-identical surrounding text:\n%s", got)
-	}
-	if !strings.Contains(string(got), `"lint": "a && b > c"`) {
+	if !strings.Contains(got, hostileScriptsLine) {
 		t.Fatalf("scripts line changed, want byte-identical:\n%s", got)
 	}
-	cmd := exec.Command("git", "diff", "--numstat", "--", "package.json")
-	cmd.Dir = dir
-	cmd.Env = hermeticGitEnv(t)
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git diff --numstat: %v", err)
+	if value := r.ReadVersionField(0); value != next.String() {
+		t.Fatalf("protected field = %q, want %q", value, next)
 	}
-	if strings.TrimSpace(string(out)) != "1\t1\tpackage.json" {
-		t.Fatalf("git diff --numstat = %q, want one added and one deleted line", out)
+	if changed := r.ChangedLines(0); changed != "1 added, 1 deleted" {
+		t.Fatalf("version document diff = %q, want one added and one deleted line", changed)
 	}
 }

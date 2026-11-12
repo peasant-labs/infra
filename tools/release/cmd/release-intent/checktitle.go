@@ -12,58 +12,9 @@ import (
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
-// runCheckTitle implements:
-// release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH
-// with the PR title on stdin.
-func runCheckTitle(args []string) error {
-	var base, head, author, headBranch string
-	var haveBase, haveHead, haveAuthor, haveBranch bool
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--base":
-			val, next, err := requireFlagValue(args, i, "--base")
-			if err != nil {
-				return err
-			}
-			base, haveBase = val, true
-			i = next
-		case "--head":
-			val, next, err := requireFlagValue(args, i, "--head")
-			if err != nil {
-				return err
-			}
-			head, haveHead = val, true
-			i = next
-		case "--author":
-			val, next, err := requireFlagValue(args, i, "--author")
-			if err != nil {
-				return err
-			}
-			author, haveAuthor = val, true
-			i = next
-		case "--head-branch":
-			val, next, err := requireFlagValue(args, i, "--head-branch")
-			if err != nil {
-				return err
-			}
-			headBranch, haveBranch = val, true
-			i = next
-		default:
-			return usageErr("unknown flag %q for check-title: expected --base REV --head REV --author LOGIN --head-branch BRANCH", args[i])
-		}
-	}
-	if !haveBase {
-		return usageErr("usage: release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH (missing required --base): pass the PR base revision")
-	}
-	if !haveHead {
-		return usageErr("usage: release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH (missing required --head): pass the PR head revision")
-	}
-	if !haveAuthor {
-		return usageErr("usage: release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH (missing required --author): pass the PR author login")
-	}
-	if !haveBranch {
-		return usageErr("usage: release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH (missing required --head-branch): pass the PR head branch name")
-	}
+// runCheckTitle implements the check-title command, with the PR title on
+// stdin.
+func runCheckTitle(flags flagValues) error {
 	title, err := readTitleStdin()
 	if err != nil {
 		return err
@@ -73,16 +24,23 @@ func runCheckTitle(args []string) error {
 	if err != nil {
 		return err
 	}
-	return checkTitle(ctx, runner, base, head, author, headBranch, title)
+	return checkTitle(ctx, runner, flags.Value(intent.FlagBase), flags.Value(intent.FlagHead), flags.Value(intent.FlagAuthor), flags.Value(intent.FlagHeadBranch), title)
+}
+
+// titleOnStdinHint is the one worked example of piping a title, built from
+// the grammar's own formatter so it cannot drift from what the check accepts.
+func titleOnStdinHint() string {
+	example := intent.FormatTitle(intent.Title{Type: intent.TypeFeat, Scopes: []string{"x"}, Level: intent.LevelMinor, Subject: "..."})
+	return "pipe the title, e.g. echo " + strconv.Quote(example) + " | " + strings.TrimPrefix(usageOf(intent.CommandCheckTitle), "usage: ")
 }
 
 func readTitleStdin() (string, error) {
 	info, err := os.Stdin.Stat()
 	if err != nil {
-		return "", fmt.Errorf("check-title: cannot stat stdin for the PR title: %v. Pipe the title, e.g. echo 'feat(x)[minor]: ...' | release-intent check-title --base A --head B --author U --head-branch H", err)
+		return "", fmt.Errorf("%s: cannot stat stdin for the PR title: %v. Fix: %s", intent.CommandCheckTitle, err, titleOnStdinHint())
 	}
 	if info.Mode()&os.ModeCharDevice != 0 {
-		return "", usageErr("usage: release-intent check-title reads the PR title on stdin (got a terminal): pipe the title, e.g. echo 'feat(x)[minor]: ...' | release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH")
+		return "", usageErr("%s reads the PR title on stdin (got a terminal): %s", intent.CommandCheckTitle, titleOnStdinHint())
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
@@ -91,33 +49,33 @@ func readTitleStdin() (string, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return "", fmt.Errorf("check-title: cannot read the PR title on stdin: %v", err)
+		return "", fmt.Errorf("%s: cannot read the PR title on stdin: %v", intent.CommandCheckTitle, err)
 	}
-	return "", usageErr("usage: release-intent check-title reads the PR title on stdin (got empty input): pipe the title, e.g. echo 'feat(x)[minor]: ...' | release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH")
+	return "", usageErr("%s reads the PR title on stdin (got empty input): %s", intent.CommandCheckTitle, titleOnStdinHint())
 }
 
 func checkTitle(ctx context.Context, runner GitRunner, base, head, author, headBranch, title string) error {
-	cfgData, err := runner.ReadFile(ctx, base, DefaultConfigPath)
+	cfgData, err := runner.ReadFile(ctx, base, intent.DefaultConfigPath)
 	adopting := false
 	if err != nil {
 		var nf *NotFoundError
 		if !errors.As(err, &nf) {
-			return fmt.Errorf("check-title: cannot read release config %q at base %q: %v. Confirm the base revision is readable; only a missing file means the adopting PR", DefaultConfigPath, base, err)
+			return fmt.Errorf("%s: cannot read release config %q at base %q: %v. Confirm the base revision is readable; only a missing file means the adopting PR", intent.CommandCheckTitle, intent.DefaultConfigPath, base, err)
 		}
-		headData, herr := runner.ReadFile(ctx, head, DefaultConfigPath)
+		headData, herr := runner.ReadFile(ctx, head, intent.DefaultConfigPath)
 		if herr != nil {
-			return fmt.Errorf("check-title: cannot read release config %q at base %q or head %q: base has no file; head read: %v. Confirm the head revision carries the config the adopting PR adds", DefaultConfigPath, base, head, herr)
+			return fmt.Errorf("%s: cannot read release config %q at base %q or head %q: base has no file; head read: %v. Confirm the head revision carries the config the adopting PR adds", intent.CommandCheckTitle, intent.DefaultConfigPath, base, head, herr)
 		}
 		cfgData = headData
 		adopting = true
 	}
 	cfg, err := intent.ParseConfig(cfgData)
 	if err != nil {
-		return rejectAs("check-title", err)
+		return rejectAs(intent.CommandCheckTitle, err)
 	}
 	tags, err := runner.Tags(ctx, cfg.TagPrefix)
 	if err != nil {
-		return fmt.Errorf("check-title: cannot list tags with prefix %q: %w. Confirm tags are fetched", cfg.TagPrefix, err)
+		return fmt.Errorf("%s: cannot list tags with prefix %q: %w. Confirm tags are fetched", intent.CommandCheckTitle, cfg.TagPrefix, err)
 	}
 	_, version, ok := intent.HighestFinalTag(tags, cfg.TagPrefix)
 	var current intent.SemVer
@@ -125,12 +83,12 @@ func checkTitle(ctx context.Context, runner GitRunner, base, head, author, headB
 		current = version
 	}
 	if _, perr := intent.ParseTitle(cfg, current, title); perr != nil {
-		return rejectAs("check-title", perr)
+		return rejectAs(intent.CommandCheckTitle, perr)
 	}
 	if !adopting {
 		mergeBase, paths, err := runner.ChangedPaths(ctx, base, head)
 		if err != nil {
-			return fmt.Errorf("check-title: cannot read the PR change between %q and %q: %w", base, head, err)
+			return fmt.Errorf("%s: cannot read the PR change between %q and %q: %w", intent.CommandCheckTitle, base, head, err)
 		}
 		changes, cerr := buildProtectedChanges(ctx, runner, cfg, mergeBase, head, paths)
 		if cerr != nil {
@@ -138,10 +96,10 @@ func checkTitle(ctx context.Context, runner GitRunner, base, head, author, headB
 		}
 		isReleasePR := intent.ClassifyPR(cfg, author, headBranch) == intent.PRKindRelease
 		if cerr := intent.CheckProtectedPaths(cfg, changes, isReleasePR); cerr != nil {
-			return rejectAs("check-title", cerr)
+			return rejectAs(intent.CommandCheckTitle, cerr)
 		}
 	}
-	return emitLines([]string{"error="})
+	return emit(out(intent.OutputError, ""))
 }
 
 // buildProtectedChanges reads the protected version field at the merge base
@@ -189,11 +147,11 @@ func readProtectedField(ctx context.Context, runner GitRunner, rev, path, field 
 		if errors.As(err, &nf) {
 			return "", nil
 		}
-		return "", fmt.Errorf("check-title: cannot read version file %q at %q: %v. Confirm the revision is readable; a failed fetch is never an accept", path, rev, err)
+		return "", fmt.Errorf("%s: cannot read version file %q at %q: %v. Confirm the revision is readable; a failed fetch is never an accept", intent.CommandCheckTitle, path, rev, err)
 	}
 	val, ferr := versionFieldValue(data, field)
 	if ferr != nil {
-		return "", rejectAs("check-title", protectedFieldError(path, rev, ferr))
+		return "", rejectAs(intent.CommandCheckTitle, protectedFieldError(path, rev, ferr))
 	}
 	return val, nil
 }
@@ -203,7 +161,7 @@ func protectedFieldError(path, rev string, cause error) error {
 		Code:  intent.ErrProtectedPath,
 		What:  "the protected field cannot be read from " + strconv.Quote(path) + " at " + strconv.Quote(rev) + ": " + firstLine(cause.Error()),
 		Why:   "the protected field cannot be compared when the file does not carry it, so the PR fails closed",
-		Where: "PR change, checked by release-intent check-title",
+		Where: "PR change, checked by " + intent.ProgramName + " " + intent.CommandCheckTitle.String(),
 		When:  "pull_request opened, edited, synchronize, reopened, or the merge-group build",
 		Means: "the title-guard check is red, so the merge queue will not accept this PR",
 		Fix:   "restore the protected field (only the release PR may change it)",

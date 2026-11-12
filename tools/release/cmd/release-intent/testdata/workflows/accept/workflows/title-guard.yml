@@ -1,0 +1,10 @@
+name: Title guard
+on:
+  pull_request:
+  merge_group:
+jobs:
+  title-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - run: release-intent classify --author x --head-branch y
+      - run: release-intent check-title --base x --head y --author z
