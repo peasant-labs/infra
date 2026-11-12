@@ -34,7 +34,7 @@ required_names:
   - reject-concurrency-cancel-true
   - reject-concurrency-job-cancel
   - reject-release-actions-write-no-if
-  - reject-release-actions-tag-second-job
+  - reject-release-actions-tag-second-step
   - reject-release-actions-verdict-missing-step
   - reject-release-actions-verdict-conclusion
   - reject-release-actions-pretag-or-true
@@ -74,6 +74,14 @@ required_names:
   - reject-unfiltered-types
   - reject-merge-gate-always
   - reject-titles-interpolated
+  - accept-tool-calls
+  - accept-no-push-release-tag-env
+  - reject-tool-calls-missing-required
+  - reject-tool-calls-unknown-flag
+  - reject-tool-calls-foreign-flag
+  - reject-no-push-unlisted-job
+  - reject-no-push-release-default-branch
+  - reject-no-push-release-tag-unproven
 cases:
   - name: accept-required-contexts
     input: { overlay: "" }
@@ -275,13 +283,13 @@ cases:
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-actions-gated" }
     mutation: { description: "strip the if from the branch-push step after an exit-0 write step" }
 
-  - name: reject-release-actions-tag-second-job
-    input: { overlay: "reject-release-actions-tag-second-job" }
+  - name: reject-release-actions-tag-second-step
+    input: { overlay: "reject-release-actions-tag-second-step" }
     expected: { rule: "release-actions-gated", want_contains: ["not gated on the tag action", "more than one step pushes a tag"] }
     sibling: accept-release-actions
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-actions-gated" }
-    mutation: { description: "push the tag from a second job with job-level needs and no action if" }
+    mutation: { description: "push the planner's tag again from a second release-job step with no action if" }
 
   - name: reject-release-actions-verdict-missing-step
     input: { overlay: "reject-release-actions-verdict-missing-step" }
@@ -413,7 +421,7 @@ cases:
 
   - name: reject-no-push-cross-push
     input: { overlay: "reject-no-push-cross-push" }
-    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["lists no such push"] }
+    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["may push only its own bot branch"] }
     sibling: accept-no-default-branch-push
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
@@ -594,3 +602,67 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy titles-never-interpolated" }
     mutation: { description: "interpolate the PR title via env, the release-pr.yml fault shape" }
+
+  - name: accept-tool-calls
+    input: { overlay: "" }
+    expected: { rule: "tool-calls-match-the-cli", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tool-calls-match-the-cli" }
+    mutation: { description: "base repo: every release-intent call names a command and passes exactly its required flags" }
+
+  - name: accept-no-push-release-tag-env
+    input: { overlay: "accept-no-push-release-tag-env" }
+    expected: { rule: "no-default-branch-push-from-workflows", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
+    mutation: { description: "the release tag step pushes refs/tags/$TAG through git -c, with TAG mapped from the planner's tag output" }
+
+  - name: reject-tool-calls-missing-required
+    input: { overlay: "reject-tool-calls-missing-required" }
+    expected: { rule: "tool-calls-match-the-cli", want_contains: ["missing required flag \"--rev\"", "classify takes --author, --head-branch, --rev and requires --author, --head-branch, --rev"] }
+    sibling: "accept-tool-calls"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tool-calls-match-the-cli" }
+    mutation: { description: "drop the required --rev from the guard's classify call, which then fails only at run time" }
+
+  - name: reject-tool-calls-unknown-flag
+    input: { overlay: "reject-tool-calls-unknown-flag" }
+    expected: { rule: "tool-calls-match-the-cli", want_contains: ["unknown flag \"--refs\"", "missing required flag \"--ref\""] }
+    sibling: "accept-tool-calls"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tool-calls-match-the-cli" }
+    mutation: { description: "misspell the group-pr flag" }
+
+  - name: reject-tool-calls-foreign-flag
+    input: { overlay: "reject-tool-calls-foreign-flag" }
+    expected: { rule: "tool-calls-match-the-cli", want_contains: ["flag \"--rev\" does not apply to group-pr"] }
+    sibling: "accept-tool-calls"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tool-calls-match-the-cli" }
+    mutation: { description: "pass classify's --rev to group-pr" }
+
+  - name: reject-no-push-unlisted-job
+    input: { overlay: "reject-no-push-unlisted-job" }
+    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["job \"sync\" pushes branch \"automation/release\"", "lists no push for this job"] }
+    sibling: "accept-no-default-branch-push"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
+    mutation: { description: "push the release branch through git -c from a job the policy does not list" }
+
+  - name: reject-no-push-release-default-branch
+    input: { overlay: "reject-no-push-release-default-branch" }
+    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["job \"release\" pushes branch \"main\"", "may push only its own bot branch \"automation/release\""] }
+    sibling: "accept-no-default-branch-push"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
+    mutation: { description: "point the release job's git -c push at the default branch, the shape that passed before" }
+
+  - name: reject-no-push-release-tag-unproven
+    input: { overlay: "reject-no-push-release-tag-unproven" }
+    expected: { rule: "no-default-branch-push-from-workflows", want_contains: ["variable TAG is not mapped from the planner's tag output"] }
+    sibling: "accept-no-push-release-tag-env"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy no-default-branch-push-from-workflows" }
+    mutation: { description: "push refs/tags/$TAG with TAG mapped from nothing" }

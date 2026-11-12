@@ -375,59 +375,6 @@ func (c *queueChecker) resolvePushes(rule QueueRule) []allowedPush {
 	return allowed
 }
 
-// pushTarget returns the branch a git push refspec targets, or "" when the
-// refspec names no branch (a tag, or an unresolvable expression).
-func pushTarget(refspec string) (string, bool) {
-	dst := refspec
-	if i := strings.LastIndex(dst, ":"); i >= 0 {
-		dst = dst[i+1:]
-	}
-	dst = strings.TrimSpace(dst)
-	if dst == "" || strings.HasPrefix(dst, intent.TagRefPrefix) {
-		return "", false
-	}
-	dst = strings.TrimPrefix(dst, intent.BranchRefPrefix)
-	if dst == "" || strings.ContainsAny(dst, "${} \t") {
-		return "", false
-	}
-	return dst, true
-}
-
-// splitPushArgs splits a git push command line into its bare refspec
-// operands, skipping flags and the remote name. Quoted spans and GitHub
-// expression spans stay one operand each.
-func splitPushArgs(rest string) []string {
-	var out []string
-	skipValue := map[string]bool{"--repo": true, "--remote": true}
-	remoteSkipped := false
-	words := shellWords(rest)
-	for i := 0; i < len(words); i++ {
-		w := bareWord(words[i])
-		if skipValue[w] {
-			i++
-			continue
-		}
-		if strings.HasPrefix(w, "-") {
-			continue
-		}
-		if !remoteSkipped {
-			remoteSkipped = true
-			continue
-		}
-		out = append(out, w)
-	}
-	return out
-}
-
-// pushSite is one push found in a run block: a branch push with its target,
-// a tag push, or a push the checker cannot resolve to a branch.
-type pushSite struct {
-	target     string
-	isTag      bool
-	unresolved bool
-	raw        string
-}
-
 var (
 	// shellSegments splits a run line into shell segments on ||, &&, ;, and
 	// pipes, so one push per segment is found.
@@ -435,35 +382,6 @@ var (
 	// prCreateHead extracts the --head branch of a gh pr create command.
 	prCreateHead = regexp.MustCompile(`\bgh\s+pr\s+create\b(.*?)(?:\|\||&&|;|$)`)
 )
-
-// gitPushSites returns every git push in the run text: branch targets, tag
-// pushes, and pushes with no parseable refspec. One push per shell segment is
-// assumed; a segment is split on ||, &&, ;, and pipes.
-func gitPushSites(run string) []pushSite {
-	var out []pushSite
-	for _, segment := range shellSegments.Split(run, -1) {
-		idx := strings.Index(segment, "git push")
-		if idx < 0 {
-			continue
-		}
-		refspecs := splitPushArgs(segment[idx+len("git push"):])
-		if len(refspecs) == 0 {
-			out = append(out, pushSite{raw: strings.TrimSpace(segment), unresolved: true})
-		}
-		for _, refspec := range refspecs {
-			if strings.Contains(refspec, intent.TagRefPrefix) {
-				out = append(out, pushSite{isTag: true, raw: refspec})
-				continue
-			}
-			if target, ok := pushTarget(refspec); ok {
-				out = append(out, pushSite{target: target, raw: refspec})
-			} else {
-				out = append(out, pushSite{raw: refspec, unresolved: true})
-			}
-		}
-	}
-	return out
-}
 
 // prHeadTarget extracts the --head branch of a gh pr create command, or "".
 func prHeadTarget(run string) (string, bool) {
@@ -506,15 +424,21 @@ func prTargets(run string) [][2]string {
 	return out
 }
 
-// checkNoPush (no-default-branch-push-from-workflows) allows exactly the
-// listed pushes: the release job pushes the release branch, each bot job
-// pushes its kind's branch, and tag publishes live only in the release job's
-// tag step. Every other push is reported: a branch push to any other branch
-// (including the default branch), an unresolvable push, a tag push outside
-// the tag step, a gh release creation outside the tag step (except the
-// tag-triggered publish, see tagPublishFault), a gh pr merge
-// outside an arm/hold step, a gh pr close or edit outside the release job, and
-// a gh pr create without --head or with a head that is not the job's branch.
+// checkNoPush (no-default-branch-push-from-workflows) holds every ref write
+// in every job to what that job may write:
+//
+//   - the release job: its own bot branch from the release config, and the
+//     release tag (the planner's tag output) only in its tag step;
+//   - each listed bot job: only its own bot branch;
+//   - every other job, the tag-triggered publish included: nothing.
+//
+// A write the reader cannot pin to one literal branch or one proven tag is
+// rejected (see stepRefWrites), so the default branch is never a permitted
+// target. The rule also reports a gh release creation outside the tag step
+// (except the tag-triggered publish, see tagPublishFault), a gh pr merge
+// outside an arm/hold step, a gh pr close or edit outside the release job,
+// and a gh pr create without --head or with a head that is not the job's
+// branch.
 func (c *queueChecker) checkNoPush() {
 	allowed := c.resolvePushes(QueueRuleNoPush)
 	byFile := map[string]map[string]string{}
@@ -539,25 +463,37 @@ func (c *queueChecker) checkNoPush() {
 	})
 }
 
-// checkPushStep applies the push allowlist to one step. listed tells whether
+// checkPushStep applies the write allowance to one step. listed tells whether
 // the policy lists this (file, job); branch is its branch when listed;
 // isReleaseJob tells whether this is the release job of the release workflow.
 func (c *queueChecker) checkPushStep(doc *yaml.Node, workflow, job string, step *yaml.Node, branch string, listed, isReleaseJob bool) {
 	run := stepRunText(step)
 	id := stepID(step)
-	for _, site := range gitPushSites(run) {
-		switch {
-		case site.isTag:
-			if !(workflow == releaseWorkflow(c) && isTagStep(step)) {
+	jobDoc := jobNode(doc, job)
+	for _, write := range stepRefWrites(step, jobDoc, doc) {
+		switch write.kind {
+		case refWriteTag:
+			if !isReleaseJob || !isTagStep(step) {
 				c.emit(QueueRuleNoPush, workflow, id,
-					"a step pushes a tag outside the release job's tag step during merge-queue policy validation ("+strconv.Quote(site.raw)+"). Tag publishes live only in the release tag step; move this push there or drop it")
+					"job "+strconv.Quote(job)+" pushes tag ref "+strconv.Quote(write.raw)+" outside the release job's tag step during merge-queue policy validation. Only the release job's tag step pushes a tag; move this push there or drop it")
+				continue
 			}
-		case site.unresolved:
+			if why := provenTagFault(write, step, jobDoc, doc); why != "" {
+				c.emit(QueueRuleNoPush, workflow, id,
+					"the release tag step pushes "+strconv.Quote(write.raw)+" during merge-queue policy validation, but "+why+". Push exactly "+intent.TagRefPrefix+"${{ "+stepOutput("<plan>", intent.OutputTag)+" }}, or \"$TAG\" with TAG mapped from that output in env, so only the planner's tag is ever written")
+			}
+		case refWriteBranch:
+			switch {
+			case !listed:
+				c.emit(QueueRuleNoPush, workflow, id,
+					"job "+strconv.Quote(job)+" pushes branch "+strconv.Quote(write.branch)+" ("+strconv.Quote(write.raw)+") during merge-queue policy validation, but the policy lists no push for this job. Only the release job and the listed bot jobs push, each to its own bot branch; nothing pushes to the default branch outside the merge queue")
+			case write.branch != branch:
+				c.emit(QueueRuleNoPush, workflow, id,
+					"job "+strconv.Quote(job)+" pushes branch "+strconv.Quote(write.branch)+" ("+strconv.Quote(write.raw)+") during merge-queue policy validation, but it may push only its own bot branch "+strconv.Quote(branch)+" from the release config. Point the push at that branch; nothing pushes to the default branch outside the merge queue")
+			}
+		default:
 			c.emit(QueueRuleNoPush, workflow, id,
-				"a step pushes without a parseable branch refspec during merge-queue policy validation ("+strconv.Quote(site.raw)+"). Name the branch explicitly so the checker can tell it is the job's own branch")
-		case !listed || site.target != branch:
-			c.emit(QueueRuleNoPush, workflow, id,
-				"a step pushes branch "+strconv.Quote(site.target)+" during merge-queue policy validation, but the policy lists no such push. Only the release job pushes the release branch and each bot job pushes its kind's branch; point the push at the job's own branch")
+				"job "+strconv.Quote(job)+" writes a ref the checker cannot prove during merge-queue policy validation: "+write.why+" ("+strconv.Quote(write.raw)+"). Push one literal branch the job owns (git push <remote> <branch> or HEAD:<branch>), or the planner's tag in the release tag step, so no write can reach the default branch")
 		}
 	}
 	if prCreate.FindStringSubmatch(run) != nil {
@@ -626,8 +562,7 @@ func (c *queueChecker) tagPublishFault(doc, job, step *yaml.Node, run string) st
 	}
 	for _, jobName := range jobNames(doc) {
 		for _, step := range stepsOf(jobNode(doc, jobName)) {
-			text := stepRunText(step)
-			if refOrPRWrite.MatchString(text) {
+			if refOrPRWrite.MatchString(stepRunText(step)) || hasRefWrite(step) {
 				return "the tag-triggered workflow also pushes a ref or writes a PR (job " + strconv.Quote(jobName) + ")"
 			}
 		}
@@ -719,9 +654,9 @@ func triggeringTag(word string, step, job, doc *yaml.Node) bool {
 // shellName matches a plain shell variable name.
 var shellName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// refOrPRWrite matches a run line that pushes a ref, writes a tag ref, or
-// writes a PR.
-var refOrPRWrite = regexp.MustCompile(`\bgit\s+push\b|` + regexp.QuoteMeta(intent.TagRefPrefix) + `|\bgit\s+tag\b|\bgh\s+pr\s+(create|edit|close|merge)\b`)
+// refOrPRWrite matches a run line that names a tag ref, creates a tag, or
+// writes a PR. Ref writes are read by stepRefWrites.
+var refOrPRWrite = regexp.MustCompile(regexp.QuoteMeta(intent.TagRefPrefix) + `|\bgit\s+tag\b|\bgh\s+pr\s+(create|edit|close|merge)\b`)
 
 // tagOnlyTriggerFault says why the workflow's on: is not exactly push: tags:
 // with every pattern under the tag prefix, or "" when it is.

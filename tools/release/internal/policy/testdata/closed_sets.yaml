@@ -28,6 +28,7 @@ sets:
       - cut-release-is-dispatch-only
       - tool-pin-is-a-sha
       - bot-branch-via-classify
+      - tool-calls-match-the-cli
     refused: ["", "no-such-rule", "Required-Contexts"]
 
   - name: github-event

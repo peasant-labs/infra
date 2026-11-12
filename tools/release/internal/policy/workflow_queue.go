@@ -21,7 +21,7 @@ import (
 // Required-contexts entries must resolve, and the operator compares the
 // printed list with the ruleset. The token rule and the classify rule keep
 // one classifier, no branch literals, and the ref checked before the App key
-// exists.
+// exists, and the tool-call rule holds every invocation to the CLI's flags.
 type QueueRule string
 
 const (
@@ -55,10 +55,13 @@ const (
 	// range to pass the recovery floor from its repository variable, so a
 	// subject the tool cannot parse leaves parsing everywhere at once.
 	QueueRuleRangeFloor QueueRule = "range-readers-take-the-floor"
-	// QueueRuleNoPush requires every branch push to be a listed job pushing
-	// its own branch: the release job pushes the release branch and each bot
-	// job pushes its own kind's branch, resolved from the release config.
-	// Anything else, including a second job on one bot kind, is reported.
+	// QueueRuleNoPush holds every ref write in every job to what that job may
+	// write: the release job pushes its own bot branch, and the planner's tag
+	// only in its tag step; each bot job pushes only its own kind's branch,
+	// resolved from the release config; every other job writes nothing. A
+	// write whose target cannot be proven is reported, so nothing reaches the
+	// default branch outside the merge queue. A second job on one bot kind is
+	// reported too.
 	QueueRuleNoPush QueueRule = "no-default-branch-push-from-workflows"
 	// QueueRuleTokenMint requires every job that mints the releaser App token
 	// to check that github.ref is the default branch, in a job-level or
@@ -89,6 +92,12 @@ const (
 	// != against a configured bot branch, and the guard workflow invokes the
 	// classifier to tell the release PR apart.
 	QueueRuleClassify QueueRule = "bot-branch-via-classify"
+	// QueueRuleToolCalls requires every release tool invocation in every
+	// workflow to name an implemented command, to pass only flags that
+	// command takes, and to pass every flag it requires, read from the shared
+	// CLI vocabulary the tool parses its own arguments with. A call that
+	// fails this fails at run time, after the check passed.
+	QueueRuleToolCalls QueueRule = "tool-calls-match-the-cli"
 )
 
 // AllQueueRules is the canonical ordered closed set, used by generators and
@@ -108,6 +117,7 @@ var AllQueueRules = []QueueRule{
 	QueueRuleCutRelease,
 	QueueRuleToolPin,
 	QueueRuleClassify,
+	QueueRuleToolCalls,
 }
 
 // String renders the rule for diagnostic messages and CLI output.

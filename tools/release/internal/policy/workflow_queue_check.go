@@ -54,6 +54,7 @@ func CheckWorkflows(policy QueuePolicy, cfg intent.Config, dir string) ([]Diagno
 	c.checkCutRelease()
 	c.checkToolPin()
 	c.checkClassify()
+	c.checkToolCalls()
 	return c.diagnostics, append([]RequiredContext(nil), policy.Queue.Required...)
 }
 

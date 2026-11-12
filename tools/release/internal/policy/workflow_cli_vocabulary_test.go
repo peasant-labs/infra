@@ -6,10 +6,11 @@ import (
 	"io/fs"
 	"path"
 	"slices"
-	"strings"
+	"strconv"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,89 +24,16 @@ type workflowCLIExample struct {
 	Sibling  string   `yaml:"sibling"`
 }
 
-// workflowCLIProblems checks the wire spellings in run blocks against the
-// shared CLI vocabulary. Expressions and quoted words remain intact through
-// the policy checker's shell-word splitter. A build's binary and package path
-// are arguments, not invocations, so only executable words are inspected.
+// workflowCLIProblems runs the production tool-call reader and checker over
+// one run block: whether it holds an invocation, and every problem the
+// tool-calls-match-the-cli rule reports for its invocations, in order.
 func workflowCLIProblems(run string) (bool, []string) {
-	joined := strings.ReplaceAll(strings.ReplaceAll(run, "\\\r\n", " "), "\\\n", " ")
-	found := false
+	calls, _ := toolCalls(run)
 	var problems []string
-	for _, text := range workflowShellSegments(joined) {
-		segment := shellWords(text)
-		for i, word := range segment {
-			if path.Base(bareWord(word)) != intent.ProgramName {
-				continue
-			}
-			// A bare executable, or one following a shell wrapper. A build
-			// or echo mentioning the program is not a tool invocation.
-			if i > 0 && (bareWord(segment[0]) == "go" || bareWord(segment[0]) == "echo") {
-				continue
-			}
-			found = true
-			if i+1 >= len(segment) {
-				problems = append(problems, "missing command")
-				continue
-			}
-			command := bareWord(segment[i+1])
-			if _, err := intent.ParseCommand(command); err != nil {
-				problems = append(problems, fmt.Sprintf("unknown command %q", command))
-			}
-			for _, arg := range segment[i+2:] {
-				arg = bareWord(arg)
-				if !strings.HasPrefix(arg, "-") {
-					continue
-				}
-				flag, _, _ := strings.Cut(arg, "=")
-				if _, err := intent.ParseFlag(flag); err != nil {
-					problems = append(problems, fmt.Sprintf("unknown flag %q", flag))
-				}
-			}
-			break
-		}
+	for _, call := range calls {
+		problems = append(problems, toolCallProblems(call)...)
 	}
-	return found, problems
-}
-
-// workflowShellSegments splits commands even when a separator touches a word.
-// Shell quotes and GitHub expressions can themselves contain separators.
-func workflowShellSegments(run string) []string {
-	var segments []string
-	var quote byte
-	start := 0
-	for i := 0; i < len(run); i++ {
-		if strings.HasPrefix(run[i:], "${{") && quote != '\'' {
-			end := strings.Index(run[i:], "}}")
-			if end < 0 {
-				break
-			}
-			i += end + 1
-			continue
-		}
-		ch := run[i]
-		if ch == '\\' && quote != '\'' && i+1 < len(run) {
-			i++
-			continue
-		}
-		if quote != 0 {
-			if ch == quote {
-				quote = 0
-			}
-			continue
-		}
-		if ch == '\'' || ch == '"' {
-			quote = ch
-			continue
-		}
-		if ch == ';' || ch == '|' || ch == '&' || ch == '\n' {
-			segments = append(segments, run[start:i])
-			if i+1 < len(run) && (ch == '|' || ch == '&') && run[i+1] == ch {
-				i++
-			}
-			start = i + 1
-		}
-	}
-	return append(segments, run[start:])
+	return len(calls) > 0, problems
 }
 
 func TestWorkflowCLIVocabularyExamples(t *testing.T) {
@@ -132,6 +60,40 @@ func TestWorkflowCLIVocabularyExamples(t *testing.T) {
 			t.Fatalf("required case %q is missing", name)
 		}
 	}
+	// Every command has an accepted call, and every command with a required
+	// flag has a reject that drops one, so a command added to the vocabulary
+	// reddens here until the corpus samples it.
+	accepted := map[intent.Command]bool{}
+	missing := map[intent.Command]bool{}
+	for _, row := range corpus.Cases {
+		calls, _ := toolCalls(row.Run)
+		for _, call := range calls {
+			if len(call) < 2 {
+				continue
+			}
+			command, err := intent.ParseCommand(call[1].bare)
+			if err != nil {
+				continue
+			}
+			problems := toolCallProblems(call)
+			if len(problems) == 0 {
+				accepted[command] = true
+			}
+			for _, flag := range command.RequiredFlags() {
+				if slices.Contains(problems, "missing required flag "+strconv.Quote(flag.String())) {
+					missing[command] = true
+				}
+			}
+		}
+	}
+	for _, command := range intent.AllCommands {
+		if !accepted[command] {
+			t.Errorf("no accepted call samples command %s", command)
+		}
+		if len(command.RequiredFlags()) > 0 && !missing[command] {
+			t.Errorf("no reject drops a required flag of command %s", command)
+		}
+	}
 	for _, row := range corpus.Cases {
 		if len(row.Problems) != 0 {
 			sibling, ok := byName[row.Sibling]
@@ -152,17 +114,26 @@ func TestWorkflowCLIVocabularyExamples(t *testing.T) {
 }
 
 // TestWorkflowFixturesUseCLIContract scans every base and overlay workflow,
-// including overlays not selected by the current corpus. An exemption must
-// name the specific must-fail row that deliberately misspells a CLI word;
-// no current workflow fixture needs an exemption.
+// including overlays not selected by the current corpus. The only exemption
+// is an overlay whose corpus row is a must-fail sample of the tool-call rule:
+// it misspells a CLI word on purpose.
 func TestWorkflowFixturesUseCLIContract(t *testing.T) {
 	t.Parallel()
+	exempt := map[string]bool{}
+	for _, row := range loadQueueWorkflowFixtures(t).Rows {
+		if row.Classification == testcase.MustFail && row.Expected.Rule == QueueRuleToolCalls {
+			exempt[row.Input.Overlay] = true
+		}
+	}
 	found := false
 	err := fs.WalkDir(workflowQueueFixtureFS, "testdata/workflow_queue", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if entry.IsDir() || path.Base(path.Dir(name)) != fixtureWorkflowsDir || (path.Ext(name) != ".yml" && path.Ext(name) != ".yaml") {
+			return nil
+		}
+		if overlay := path.Base(path.Dir(path.Dir(name))); exempt[overlay] {
 			return nil
 		}
 		data, err := workflowQueueFixtureFS.ReadFile(name)
