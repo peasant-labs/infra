@@ -77,7 +77,7 @@ func (b *builder) Build(ctx context.Context, req BuildRequest) (Catalog, error) 
 // generated TS. Both join the catalog of either language: they are the one
 // contract both sides compare against.
 func (b *builder) schemaMembers(ctx context.Context, req BuildRequest) ([]Member, map[schemaTSKey]string, error) {
-	version, err := pinnedSchemaVersion(req)
+	pin, err := pinnedSchema(req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,11 +89,11 @@ func (b *builder) schemaMembers(ctx context.Context, req BuildRequest) ([]Member
 			Fix:   "this is a defect in the command's wiring; report it to the infra maintainers.",
 		}
 	}
-	dir, err := b.deps.Modules.Resolve(ctx, req.SchemaModule, version, req.Env)
+	dir, err := b.deps.Modules.Resolve(ctx, pin.Module, pin.Version, req.Env)
 	if err != nil {
 		return nil, nil, err
 	}
-	module := req.SchemaModule + "@" + version
+	module := pin.String()
 
 	goMembers, err := harvestGo(dir, []string{"."}, true)
 	if err != nil {

@@ -165,6 +165,42 @@ func TestBuildCatalogFixtures(t *testing.T) {
 	}
 }
 
+// TestCatalogFixtureManifest fails when a case the manifest requires is
+// missing from its fixture file, or a case name is used twice in one file.
+func TestCatalogFixtureManifest(t *testing.T) {
+	const path = "testdata/catalog-manifest.yaml"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Required map[string][]string `yaml:"required"`
+	}
+	decodeStrict(t, path, data, &manifest)
+	fixtures := loadCatalogFixtures(t)
+	for file, f := range fixtures {
+		seen := map[string]bool{}
+		for _, tc := range f.Cases {
+			if seen[tc.Name] {
+				t.Errorf("testdata/catalog/%s.yaml has two cases named %q", file, tc.Name)
+			}
+			seen[tc.Name] = true
+		}
+	}
+	for file, names := range manifest.Required {
+		f, ok := fixtures[file]
+		if !ok {
+			t.Errorf("%s requires testdata/catalog/%s.yaml, which does not exist", path, file)
+			continue
+		}
+		for _, name := range names {
+			if !slices.ContainsFunc(f.Cases, func(c catalogCase) bool { return c.Name == name }) {
+				t.Errorf("%s requires case %q in testdata/catalog/%s.yaml", path, name, file)
+			}
+		}
+	}
+}
+
 // The fixtures must cover every source kind: a kind with no fixture member
 // could break unseen.
 func TestCatalogFixturesCoverEverySourceKind(t *testing.T) {

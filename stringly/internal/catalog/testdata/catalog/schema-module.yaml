@@ -45,6 +45,50 @@ cases:
     schema: *fixture-module
     members: *schema-members
 
+  - name: go-pin-from-versioned-replace
+    # go.mod requires v0.0.9 but replaces the module with v0.0.1, which is what
+    # the build compiles against; the fixture resolver holds only v0.0.1.
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.9
+
+        replace example.test/schema => example.test/schema v0.0.1
+    schema: *fixture-module
+    members: *schema-members
+
+  - name: go-replace-of-the-required-version-wins
+    # The go command applies a replace of the required version before a
+    # replace of every version.
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.9
+
+        replace (
+        	example.test/schema => example.test/schema v0.0.7
+        	example.test/schema v0.0.9 => example.test/schema v0.0.1
+        	example.test/schema v0.0.8 => example.test/schema v0.0.6
+        )
+    schema: *fixture-module
+    members: *schema-members
+
+  - name: go-directory-replace-is-refused
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.1
+
+        replace example.test/schema => ../schema
+    schema: *fixture-module
+    error: "replaces example.test/schema with the directory ../schema"
+
   - name: ts-pin-from-package-json
     lang: ts
     roots: [frontend]
