@@ -1,0 +1,429 @@
+package main
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/peasant-labs/infra/tools/release/internal/policy"
+)
+
+var testBinaryPath string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "release-intent-bin")
+	if err != nil {
+		os.Stderr.WriteString("TestMain: cannot create temp dir for the test binary: " + err.Error() + "\n")
+		os.Exit(1)
+	}
+	bin := filepath.Join(dir, "release-intent")
+	cmd := exec.Command("go", "build", "-o", bin, ".")
+	cmd.Dir = "."
+	if out, err := cmd.CombinedOutput(); err != nil {
+		os.Stderr.WriteString("TestMain: cannot build the release-intent binary once for process tests: " + err.Error() + "\n" + string(out))
+		os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	testBinaryPath = bin
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
+// childEnv builds the hermetic environment for the child process: it drops
+// ambient GITHUB_OUTPUT (unless the row sets it through extraEnv), GIT_DIR and
+// GIT_WORK_TREE so a caller running under git exec cannot redirect the binary
+// at the wrong repository, and pins the git identity the temp repos need.
+func childEnv(t *testing.T, extra []string) []string {
+	t.Helper()
+	home := t.TempDir()
+	var env []string
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		switch key {
+		case "GITHUB_OUTPUT", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_NAMESPACE", "HOME", "XDG_CONFIG_HOME":
+			continue
+		}
+		if strings.HasPrefix(key, "GIT_") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env,
+		"HOME="+home,
+		"XDG_CONFIG_HOME="+filepath.Join(home, "xdg"),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+	)
+	return append(env, extra...)
+}
+
+func runBinary(t *testing.T, dir string, argv []string, stdin string, extraEnv []string) (int, string, string) {
+	t.Helper()
+	cmd := exec.Command(testBinaryPath, argv...)
+	cmd.Dir = dir
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	} else {
+		cmd.Stdin = strings.NewReader("")
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	cmd.Env = childEnv(t, extraEnv)
+	err := cmd.Run()
+	exit := 0
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			exit = ee.ExitCode()
+		} else {
+			t.Fatalf("run binary %v: %v\nstderr: %s", argv, err, stderr.String())
+		}
+	}
+	return exit, stdout.String(), stderr.String()
+}
+
+func setupProcessCase(t *testing.T, setup, queueFile string) (string, map[string]string) {
+	t.Helper()
+	replace := map[string]string{}
+	switch setup {
+	case "none":
+		dir := t.TempDir()
+		return dir, replace
+	case "config-valid":
+		dir := t.TempDir()
+		cfg := "releases: true\ntag_prefix: v\nautomation_author: peasant-labs-releaser[bot]\nchangelog: CHANGELOG.md\nversion_files:\n  - {path: package.json, field: version}\nprotected_paths: []\n"
+		writeSetupFile(t, dir, "config.yaml", cfg)
+		replace["SETUP"] = dir
+		return dir, replace
+	case "config-unknown-key":
+		dir := t.TempDir()
+		cfg := "releases: true\ntag_prefix: v\nbogus_key: true\n"
+		writeSetupFile(t, dir, "bad.yaml", cfg)
+		replace["SETUP"] = dir
+		return dir, replace
+	case "queue":
+		repo := initIntentRepo(t)
+		data, err := queueJSONFS.ReadFile("testdata/queue/" + queueFile)
+		if err != nil {
+			t.Fatalf("read embedded queue file %q: %v", queueFile, err)
+		}
+		writeSetupFile(t, repo, "queue.json", string(data))
+		replace["SETUP"] = repo
+		return repo, replace
+	case "git-basic":
+		repo := initIntentRepo(t)
+		base := gitRev(t, repo, "HEAD~1")
+		head := gitRev(t, repo, "HEAD")
+		replace["SETUP_BASE"] = base
+		replace["SETUP_HEAD"] = head
+		replace["SETUP"] = repo
+		return repo, replace
+	case "git-bad-subject":
+		repo := newBareRepo(t)
+		writeFile(t, repo, ".github/release-intent.yaml", checkTitleTestConfig)
+		writeFile(t, repo, "CHANGELOG.md", "# changelog\n")
+		writeFile(t, repo, "package.json", "{\"version\": \"0.1.0\"}\n")
+		runGit(t, repo, "add", ".")
+		runGit(t, repo, "commit", "-q", "-m", "feat(init)[minor]: seed")
+		runGit(t, repo, "tag", "v0.1.0")
+		writeFile(t, repo, "work.txt", "try\n")
+		runGit(t, repo, "add", "work.txt")
+		runGit(t, repo, "commit", "-q", "-m", "wip(x): try")
+		replace["SETUP"] = repo
+		return repo, replace
+	case "git-empty-release":
+		repo := newBareRepo(t)
+		writeFile(t, repo, ".github/release-intent.yaml", checkTitleTestConfig)
+		writeFile(t, repo, "CHANGELOG.md", "# changelog\n")
+		writeFile(t, repo, "package.json", "{\"version\": \"0.1.0\"}\n")
+		runGit(t, repo, "add", ".")
+		runGit(t, repo, "commit", "-q", "-m", "feat(init)[minor]: seed")
+		runGit(t, repo, "tag", "v0.1.0")
+		runGit(t, repo, "commit", "-q", "--allow-empty", "-m", "release[patch]: cut it")
+		replace["SETUP"] = repo
+		return repo, replace
+	case "classify-repo":
+		repo := newBareRepo(t)
+		writeFile(t, repo, ".github/release-intent.yaml", "releases: true\ntag_prefix: v\nautomation_author: peasant-labs-releaser[bot]\nchangelog: CHANGELOG.md\nversion_files:\n  - {path: package.json, field: version}\nprotected_paths: []\nbot_branches:\n  release: automation/release\n  vendor-hash: automation/vendor-hash\n  cut-release: automation/cut-release\n")
+		runGit(t, repo, "add", ".")
+		runGit(t, repo, "commit", "-q", "-m", "feat(init)[minor]: seed")
+		replace["SETUP_REV"] = gitRev(t, repo, "HEAD")
+		replace["SETUP"] = repo
+		return repo, replace
+	case "classify-invalid":
+		repo := newBareRepo(t)
+		writeFile(t, repo, ".github/release-intent.yaml", "releases: true\ntag_prefix: v\nbogus_key: true\n")
+		runGit(t, repo, "add", ".")
+		runGit(t, repo, "commit", "-q", "-m", "feat(init)[minor]: seed")
+		replace["SETUP_REV"] = gitRev(t, repo, "HEAD")
+		replace["SETUP"] = repo
+		return repo, replace
+	case "classify-base":
+		repo := newBareRepo(t)
+		writeFile(t, repo, ".github/release-intent.yaml", "releases: true\ntag_prefix: v\nautomation_author: peasant-labs-releaser[bot]\nchangelog: CHANGELOG.md\nversion_files:\n  - {path: package.json, field: version}\nprotected_paths: []\nbot_branches:\n  release: automation/release\n")
+		writeFile(t, repo, "CHANGELOG.md", "# changelog\n")
+		writeFile(t, repo, "package.json", "{\"version\": \"0.1.0\"}\n")
+		runGit(t, repo, "add", ".")
+		runGit(t, repo, "commit", "-q", "-m", "feat(init)[minor]: seed")
+		replace["SETUP_BASE"] = gitRev(t, repo, "HEAD")
+		writeFile(t, repo, ".github/release-intent.yaml", "releases: true\ntag_prefix: v\nautomation_author: peasant-labs-releaser[bot]\nchangelog: CHANGELOG.md\nversion_files:\n  - {path: package.json, field: version}\nprotected_paths: []\nbot_branches:\n  release: feature/work\n")
+		runGit(t, repo, "add", ".github/release-intent.yaml")
+		runGit(t, repo, "commit", "-q", "-m", "feat(graph)[minor]: tamper")
+		replace["SETUP_HEAD"] = gitRev(t, repo, "HEAD")
+		replace["SETUP"] = repo
+		return repo, replace
+	case "workflows-accept", "workflows-default-policy":
+		dir := writeWorkflowsSetup(t, workflowsSetup(setup))
+		replace["SETUP"] = dir
+		return dir, replace
+	case "current-same":
+		dir := setupCurrentBranch(t, "same")
+		replace["SETUP"] = dir
+		return dir, replace
+	case "current-clean-tip":
+		dir := setupCurrentBranch(t, "clean-tip")
+		replace["SETUP"] = dir
+		return dir, replace
+	case "current-differs":
+		dir := setupCurrentBranch(t, "differs")
+		replace["SETUP"] = dir
+		return dir, replace
+	case "current-conflict":
+		dir := setupCurrentBranch(t, "conflict")
+		replace["SETUP"] = dir
+		return dir, replace
+	case "workflows-violation", "policy-only":
+		dir := writeWorkflowsSetup(t, workflowsSetup(setup))
+		replace["SETUP"] = dir
+		return dir, replace
+	default:
+		t.Fatalf("unknown process setup %q", setup)
+		return "", nil
+	}
+}
+
+// setupCurrentBranch builds a temp repo with an open release branch named
+// "release" holding the freshly written content: seed tagged v0.1.0, one
+// pending minor, content written then committed on the release branch while
+// the tip stays bare. The variant then moves one side: same leaves both
+// sides; clean-tip lands a docs commit on the tip; differs lands another
+// releasing commit on the tip; conflict edits shared.txt, a file outside the
+// release content, on both sides, so the content matches but the tip no
+// longer merges onto the release branch cleanly.
+func setupCurrentBranch(t *testing.T, variant string) string {
+	t.Helper()
+	dir := newBareRepo(t)
+	writeFile(t, dir, ".github/release-intent.yaml", checkTitleTestConfig)
+	writeFile(t, dir, "CHANGELOG.md", "# changelog\n")
+	writeFile(t, dir, "package.json", "{\"version\": \"0.1.0\"}\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "feat(init)[minor]: seed")
+	runGit(t, dir, "tag", "v0.1.0")
+	writeFile(t, dir, "work.txt", "more\n")
+	runGit(t, dir, "add", "work.txt")
+	runGit(t, dir, "commit", "-q", "-m", "feat(graph)[minor]: add facet")
+	if exit, stdout, _ := runBinary(t, dir, []string{"release-pr", "--branch", "HEAD", "--write"}, "", nil); exit != 0 {
+		t.Fatalf("setup release-pr --write exit = %d, want 0\nstdout: %q", exit, stdout)
+	}
+	runGit(t, dir, "checkout", "-q", "-b", "release")
+	runGit(t, dir, "add", "-A")
+	runGit(t, dir, "commit", "-q", "-m", "release content")
+	runGit(t, dir, "checkout", "-q", "master")
+	switch variant {
+	case "same":
+	case "clean-tip":
+		writeFile(t, dir, "docs.txt", "words\n")
+		runGit(t, dir, "add", "docs.txt")
+		runGit(t, dir, "commit", "-q", "-m", "docs(readme): touch docs")
+	case "differs":
+		writeFile(t, dir, "later.txt", "later\n")
+		runGit(t, dir, "add", "later.txt")
+		runGit(t, dir, "commit", "-q", "-m", "feat(graph)[minor]: later facet")
+	case "conflict":
+		// Both sides edit the same untracked-by-content file, so the content
+		// matches but the tip no longer merges onto the release branch.
+		runGit(t, dir, "checkout", "-q", "release")
+		writeFile(t, dir, "shared.txt", "release side\n")
+		runGit(t, dir, "add", "shared.txt")
+		runGit(t, dir, "commit", "-q", "-m", "docs(shared): release side")
+		runGit(t, dir, "checkout", "-q", "master")
+		writeFile(t, dir, "shared.txt", "tip side\n")
+		runGit(t, dir, "add", "shared.txt")
+		runGit(t, dir, "commit", "-q", "-m", "docs(shared): tip side")
+	default:
+		t.Fatalf("unknown current variant %q", variant)
+	}
+	return dir
+}
+
+// workflowsSetup names one check-workflows process setup.
+type workflowsSetup string
+
+const (
+	// workflowsAccept: an explicit policy file and workflows that satisfy it.
+	workflowsAccept workflowsSetup = "workflows-accept"
+	// workflowsDefaultPolicy: the same accepted tree, with the policy at the
+	// policy package's default path and nowhere else.
+	workflowsDefaultPolicy workflowsSetup = "workflows-default-policy"
+	// workflowsViolation: two required contexts (reversed, to prove sorting)
+	// that the empty workflows dir cannot satisfy.
+	workflowsViolation workflowsSetup = "workflows-violation"
+	// workflowsPolicyOnly: a loadable policy and an empty workflows dir.
+	workflowsPolicyOnly workflowsSetup = "policy-only"
+)
+
+// acceptedQueuePolicy is a queue policy the accepted workflows satisfy.
+const acceptedQueuePolicy = `queue:
+  required:
+    - {context: merge-gate, workflow: ci.yml, job: merge-gate, aggregator: true}
+    - {context: title-guard, workflow: title-guard.yml, job: title-guard, guard: true}
+`
+
+// acceptedWorkflows are the two workflow files acceptedQueuePolicy names, in
+// the smallest shape every queue rule accepts.
+var acceptedWorkflows = map[string]string{
+	"ci.yml":          "name: CI\non:\n  pull_request:\n  merge_group:\nconcurrency:\n  group: ci-${{ github.ref }}\njobs:\n  lib:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make lib\n  merge-gate:\n    if: always()\n    needs: [lib]\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo gate\n",
+	"title-guard.yml": "name: Title guard\non:\n  pull_request:\n  merge_group:\njobs:\n  title-guard:\n    runs-on: ubuntu-latest\n    steps:\n      - run: release-intent classify --author x --head-branch y\n      - run: release-intent check-title --base x --head y --author z\n",
+}
+
+// writeWorkflowsSetup writes a queue policy, a release config and a
+// workflows dir for one check-workflows setup. The release config is present
+// because the queue rules resolve bot branches from it.
+func writeWorkflowsSetup(t *testing.T, setup workflowsSetup) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeSetupFile(t, dir, ".github/release-intent.yaml", "releases: true\ntag_prefix: v\nautomation_author: peasant-labs-releaser[bot]\nchangelog: CHANGELOG.md\nversion_files:\n  - {path: package.json, field: version}\nprotected_paths: []\nbot_branches:\n  release: automation/release\n")
+	if err := os.MkdirAll(filepath.Join(dir, "workflows"), 0o755); err != nil {
+		t.Fatalf("mkdir workflows: %v", err)
+	}
+	policyFile := "policy.yml"
+	content := acceptedQueuePolicy
+	switch setup {
+	case workflowsAccept, workflowsPolicyOnly:
+	case workflowsDefaultPolicy:
+		policyFile = policy.DefaultPath
+	case workflowsViolation:
+		content = "queue:\n  required:\n    - {context: title-guard, workflow: title-guard.yml, job: title-guard}\n    - {context: lib, workflow: ci.yml, job: lib}\n"
+	default:
+		t.Fatalf("unknown workflows setup %q", setup)
+	}
+	writeSetupFile(t, dir, policyFile, content)
+	if setup == workflowsAccept || setup == workflowsDefaultPolicy {
+		for name, body := range acceptedWorkflows {
+			writeSetupFile(t, dir, filepath.Join("workflows", name), body)
+		}
+	}
+	return dir
+}
+
+func writeSetupFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("mkdir for %q: %v", name, err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatalf("write setup %q: %v", name, err)
+	}
+}
+
+func TestCLIExitCodes(t *testing.T) {
+	f := loadCLIFixtures(t)
+	for _, c := range f.Cases.Cases {
+		c := c
+		t.Run(c.Name, func(t *testing.T) {
+			dir, replace := setupProcessCase(t, c.Input.Setup, c.Input.QueueFile)
+			ordered := make([]string, 0, len(replace))
+			for k := range replace {
+				ordered = append(ordered, k)
+			}
+			sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
+			argv := make([]string, len(c.Input.Argv))
+			for i, a := range c.Input.Argv {
+				for _, k := range ordered {
+					a = strings.ReplaceAll(a, k, replace[k])
+				}
+				argv[i] = a
+			}
+			var extra []string
+			var githubOutput string
+			if c.Input.GithubOutput {
+				githubOutput = filepath.Join(t.TempDir(), "github_output")
+				if err := os.WriteFile(githubOutput, []byte("seed=1\n"), 0o644); err != nil {
+					t.Fatalf("seed $GITHUB_OUTPUT: %v", err)
+				}
+				extra = []string{"GITHUB_OUTPUT=" + githubOutput}
+			}
+			exit, stdout, stderr := runBinary(t, dir, argv, c.Input.Stdin, extra)
+			if exit != c.Expected.Exit {
+				t.Fatalf("%s: exit = %d, want %d\nstdout: %q\nstderr: %q", c.Name, exit, c.Expected.Exit, stdout, stderr)
+			}
+			lines := splitStdoutLines(stdout)
+			if len(lines) != len(c.Expected.Stdout) {
+				t.Fatalf("%s: stdout has %d lines %q, want %d %q (exact match, in order)", c.Name, len(lines), stdout, len(c.Expected.Stdout), c.Expected.Stdout)
+			}
+			for i := range c.Expected.Stdout {
+				if lines[i] != c.Expected.Stdout[i] {
+					t.Fatalf("%s: stdout line %d = %q, want %q (exact match)", c.Name, i, lines[i], c.Expected.Stdout[i])
+				}
+			}
+			for _, absent := range c.Expected.Absent {
+				if strings.Contains(stdout, absent) {
+					t.Fatalf("%s: stdout %q must not contain %q", c.Name, stdout, absent)
+				}
+			}
+			for _, want := range c.Expected.Stderr {
+				if !strings.Contains(stderr, want) {
+					t.Fatalf("%s: stderr %q does not contain %q", c.Name, stderr, want)
+				}
+			}
+			if c.Input.GithubOutput {
+				got, err := os.ReadFile(githubOutput)
+				if err != nil {
+					t.Fatalf("read $GITHUB_OUTPUT: %v", err)
+				}
+				if string(got) != "seed=1\n" {
+					t.Fatalf("$GITHUB_OUTPUT = %q, want the seed unchanged (print-required must not append step outputs)", string(got))
+				}
+			}
+		})
+	}
+}
+
+func splitStdoutLines(stdout string) []string {
+	trimmed := strings.TrimSuffix(stdout, "\n")
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "\n")
+}
+
+// TestGITHUBOutputAppend proves key=value lines append to $GITHUB_OUTPUT.
+// The output path travels through the child's environment, never t.Setenv.
+func TestGITHUBOutputAppend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "github_output")
+	if err := os.WriteFile(path, []byte("preexisting=1\n"), 0o644); err != nil {
+		t.Fatalf("seed $GITHUB_OUTPUT: %v", err)
+	}
+	exit, stdout, _ := runBinary(t, t.TempDir(), []string{"group-pr", "--ref", "refs/heads/gh-readonly-queue/main/pr-12-abc123"}, "", []string{"GITHUB_OUTPUT=" + path})
+	if exit != 0 {
+		t.Fatalf("group-pr exit = %d, want 0", exit)
+	}
+	if !strings.Contains(stdout, "pr=12") {
+		t.Fatalf("stdout %q missing pr=12", stdout)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read $GITHUB_OUTPUT: %v", err)
+	}
+	if string(got) != "preexisting=1\npr=12\n" {
+		t.Fatalf("$GITHUB_OUTPUT = %q, want %q (append, never truncate)", string(got), "preexisting=1\npr=12\n")
+	}
+}
