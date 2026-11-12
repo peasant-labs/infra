@@ -13,6 +13,7 @@
 # The closed sets of the command line, asserted by exact membership.
 commands: [check, update, init, show]
 showTopics: [catalog, rules, version]
+showFormats: [text, json]
 # Words neither ParseCommand nor ParseShowTopic may accept.
 invalidWords: ["", Show, VERSION, lint, help, " show"]
 
@@ -107,3 +108,65 @@ cases:
     linked: v0.1.0
     wantExit: 2
     wantStderr: ["unexpected argument \"extra\""]
+
+  - name: update-refused-in-dev-build
+    args: [update]
+    built: (devel)
+    devEnv: "1"
+    wantExit: 2
+    wantStderr: ["`stringly update` refuses to run in a development build", "-X main.version"]
+
+  - name: init-refused-in-dev-build
+    args: [init]
+    built: (devel)
+    devEnv: "1"
+    wantExit: 2
+    wantStderr: ["`stringly init` refuses to run in a development build"]
+
+  - name: check-unknown-lang
+    args: [check, --lang, rust, --config, /nonexistent/.stringly.yaml]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["unknown language \"rust\"", "--lang go or --lang ts"]
+
+  - name: check-unknown-format
+    args: [check, --format, sarif]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["unknown report format \"sarif\"", "--format github"]
+
+  - name: check-unknown-flag
+    args: [check, --baseline, x.yaml]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["flag provided but not defined: -baseline"]
+
+  - name: check-refuses-positional-argument
+    args: [check, web]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["unexpected argument \"web\""]
+
+  - name: check-without-config
+    args: [check, --config, /nonexistent/.stringly.yaml]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["no config file at /nonexistent/.stringly.yaml", "--config PATH"]
+
+  - name: init-without-config
+    args: [init, --config, /nonexistent/.stringly.yaml]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["no config file at /nonexistent/.stringly.yaml"]
+
+  - name: show-unknown-format
+    args: [show, version, --format, yaml]
+    linked: v0.1.0
+    wantExit: 2
+    wantStderr: ["unknown show format \"yaml\"", "--format json"]
+
+  - name: show-version-json
+    args: [show, version, --format, json]
+    linked: v0.1.0
+    wantExit: 0
+    wantStdout: "{\n  \"tool\": \"v0.1.0\",\n  \"astGrep\": \"0.51.2\"\n}\n"

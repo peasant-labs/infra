@@ -1,0 +1,7 @@
+{
+  "name": "app",
+  "private": true,
+  "dependencies": {
+    "@peasant-labs/schema": "0.0.1"
+  }
+}

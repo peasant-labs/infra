@@ -4,21 +4,25 @@
 // the hits with a committed per-file baseline, and fails on anything new.
 //
 //	stringly check   [--config PATH] [--lang go|ts] [--format text|github] [--ast-grep PATH]
-//	stringly update  [--config PATH] [--lang go|ts]
-//	stringly init    [--config PATH]
-//	stringly show    catalog|rules|version [--config PATH] [--format text|json]
+//	stringly update  [--config PATH] [--lang go|ts] [--ast-grep PATH]
+//	stringly init    [--config PATH] [--ast-grep PATH]
+//	stringly show    catalog|rules|version [--config PATH] [--format text|json] [--ast-grep PATH]
 //
-// Exit 0: clean. Exit 1: findings. Exit 2: the tool could not run.
+// Exit 0: clean. Exit 1: findings, or a refused update or init. Exit 2: the
+// tool could not run (config, ast-grep version, schema module, unreadable
+// baseline).
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
+	"strings"
 
-	"github.com/peasant-labs/infra/stringly/internal/astgrep"
+	"github.com/peasant-labs/infra/stringly/internal/failure"
 )
 
 // version is set at link time: -ldflags "-X main.version=v0.1.0". It overrides
@@ -37,12 +41,34 @@ func main() {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		built = info.Main.Version
 	}
-	os.Exit(run(os.Args[1:], version, built, os.Getenv, os.Stdout, os.Stderr))
+	os.Exit(run(context.Background(), os.Args[1:], version, built, os.Environ(), os.Stdout, os.Stderr, wiredDeps()))
+}
+
+// process is what one invocation runs with.
+type process struct {
+	ctx     context.Context
+	version toolVersion
+	environ []string
+	stdout  io.Writer
+	stderr  io.Writer
+	deps    deps
+}
+
+// getenv reads one variable from an os.Environ-form environment; the last
+// assignment wins, as in the process environment.
+func getenv(environ []string, key string) string {
+	v := ""
+	for _, kv := range environ {
+		if k, val, ok := strings.Cut(kv, "="); ok && k == key {
+			v = val
+		}
+	}
+	return v
 }
 
 // run is the whole command: main only gathers the process inputs.
-func run(args []string, linked, built string, getenv func(string) string, stdout, stderr io.Writer) int {
-	v, err := resolveVersion(linked, built, getenv(devEnvVar))
+func run(ctx context.Context, args []string, linked, built string, environ []string, stdout, stderr io.Writer, d deps) int {
+	v, err := resolveVersion(linked, built, getenv(environ, devEnvVar))
 	if err != nil {
 		why, fix := err.Error(), "report this to the infra maintainers with the command line you ran."
 		var verr *versionError
@@ -72,69 +98,21 @@ func run(args []string, linked, built string, getenv func(string) string, stdout
 			usageFix())
 	}
 
+	p := process{ctx: ctx, version: v, environ: environ, stdout: stdout, stderr: stderr, deps: d}
 	switch cmd {
 	case CommandShow:
-		return runShow(args[1:], v, stdout, stderr)
-	case CommandCheck, CommandUpdate, CommandInit:
-		return environmentFailure(stderr,
-			fmt.Sprintf("the %s command is not part of build %s.", cmd, v),
-			"this build carries only `stringly show version`; the scan, baseline and catalog are not in it.",
-			"command dispatch, before any file was read.",
-			"run a stringly release that includes the "+cmd.String()+" command.")
+		return p.runShow(args[1:])
+	case CommandCheck:
+		return p.runCheck(args[1:])
+	case CommandUpdate:
+		return p.runUpdate(args[1:])
+	case CommandInit:
+		return p.runInit(args[1:])
 	}
 	return environmentFailure(stderr,
 		fmt.Sprintf("command %q has no handler.", cmd),
 		"the command is in the closed set but this build does not dispatch it.",
 		"command dispatch, before any file was read.",
-		"report this to the infra maintainers with the command line you ran.")
-}
-
-func runShow(args []string, v toolVersion, stdout, stderr io.Writer) int {
-	topicFix := "run one of: " + joinNames(AllShowTopics, ", ") + ", for example `stringly show version`."
-	if len(args) == 0 {
-		return environmentFailure(stderr,
-			"`stringly show` needs a topic.",
-			"show prints exactly one of these topics: "+joinNames(AllShowTopics, ", ")+".",
-			"command-line parsing, before any file was read.",
-			topicFix)
-	}
-	topic, err := ParseShowTopic(args[0])
-	if err != nil {
-		return environmentFailure(stderr,
-			err.Error()+".",
-			"show prints exactly one of these topics: "+joinNames(AllShowTopics, ", ")+".",
-			"command-line parsing, before any file was read.",
-			topicFix)
-	}
-	if len(args) > 1 {
-		return environmentFailure(stderr,
-			fmt.Sprintf("unexpected argument %q after `stringly show %s`.", args[1], topic),
-			"this build accepts no flag or argument after the topic.",
-			"command-line parsing, before any file was read.",
-			fmt.Sprintf("run `stringly show %s` with nothing after it.", topic))
-	}
-
-	switch topic {
-	case TopicVersion:
-		if _, err := fmt.Fprintf(stdout, "stringly %s (requires ast-grep %s)\n", v, astgrep.RequiredVersion); err != nil {
-			return environmentFailure(stderr,
-				"the version could not be written.",
-				err.Error(),
-				"`stringly show version`, writing to standard output.",
-				"check that standard output is writable.")
-		}
-		return exitClean
-	case TopicCatalog, TopicRules:
-		return environmentFailure(stderr,
-			fmt.Sprintf("the %s topic is not part of build %s.", topic, v),
-			"this build carries only `stringly show version`.",
-			"`stringly show`, before any file was read.",
-			"run a stringly release that includes `stringly show "+topic.String()+"`.")
-	}
-	return environmentFailure(stderr,
-		fmt.Sprintf("topic %q has no handler.", topic),
-		"the topic is in the closed set but this build does not dispatch it.",
-		"`stringly show`, before any file was read.",
 		"report this to the infra maintainers with the command line you ran.")
 }
 
@@ -146,6 +124,24 @@ func usageFix() string {
 // environmentFailure prints a failure in the message contract's four parts and
 // returns the exit code for a run that could not happen.
 func environmentFailure(w io.Writer, what, why, where, fix string) int {
-	fmt.Fprintf(w, "stringly: %s\n  why    %s\n  where  %s\n  fix    %s\n", what, why, where, fix)
+	return fail(w, failure.New(what, why, where, fix))
+}
+
+// fail prints a failure and returns exit 2.
+func fail(w io.Writer, e *failure.Error) int {
+	failure.Render(w, e)
 	return exitEnvironment
+}
+
+// failErr prints err, which is a *failure.Error or is wrapped into one, and
+// returns exit 2.
+func failErr(w io.Writer, err error, where string) int {
+	var ferr *failure.Error
+	if errors.As(err, &ferr) {
+		return fail(w, ferr)
+	}
+	return environmentFailure(w, err.Error()+".",
+		"stringly could not complete the step named below.",
+		where,
+		"fix the cause named above and run the command again.")
 }
