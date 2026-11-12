@@ -1,0 +1,731 @@
+# Checker cases: pure inputs, no ast-grep binary.
+#
+# command        check, update or init.
+# lang           the --lang value; empty runs both languages.
+# running        the running tool and ast-grep versions (default v0.1.0, 0.51.2).
+# baseline       the baseline as entries, written with the header `header`
+#                (default: the running versions). Absent for init.
+# baselineText   the baseline file's exact text, instead of `baseline`.
+# hits           scan hits: rule, file, line, text.
+# comments       comment-rule matches: file, line (endLine defaults to line),
+#                text. The source line and column are read from `files`.
+# files          file contents, for marker placement.
+# renames        new path -> old path, as git reports them (update).
+# untracked      paths git does not track (update).
+#
+# Expected:
+# wantError      substrings of the failure that stops the run (exit 2).
+# wantExit       0 or 1.
+# wantKinds      the exact finding kinds, in report order.
+# wantText       substrings the rendered text report must contain.
+# wantNoText     substrings it must not contain.
+# wantWritten    false when nothing may be written (default: true exactly
+#                when wantExit is 0 and the command is update or init).
+# wantEntries    the written baseline's entries.
+# wantHeader     the written baseline's tool and ast-grep lines.
+# wantBaselineText  the written baseline's exact text.
+# repeat         run the command again on the written baseline: it must write
+#                the same bytes.
+
+cases:
+  # --- check: the comparison table ---------------------------------------
+  - name: check-clean-tree
+    command: check
+    baseline: {jsx-literal-testid: {web/a.tsx: 2}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 4, text: '"b"'}
+    wantExit: 0
+    wantKinds: []
+
+  - name: check-new-file
+    command: check
+    baseline: {jsx-literal-testid: {web/a.tsx: 1}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/b.tsx, line: 3, text: '"b"'}
+      - {rule: jsx-literal-testid, file: web/b.tsx, line: 7, text: '"c"'}
+    wantExit: 1
+    wantKinds: [new-file, new-file]
+    wantText: ["web/b.tsx:3", "web/b.tsx:7", "this file has no entry for this rule (allowed 0, found 2)"]
+
+  - name: check-raised-lists-every-line
+    command: check
+    baseline: {testid-query-literal: {web/a.test.tsx: 2}}
+    hits:
+      - {rule: testid-query-literal, file: web/a.test.tsx, line: 1, text: '"a"'}
+      - {rule: testid-query-literal, file: web/a.test.tsx, line: 2, text: '"b"'}
+      - {rule: testid-query-literal, file: web/a.test.tsx, line: 9, text: '"c"'}
+    wantExit: 1
+    wantKinds: [raised, raised, raised]
+    wantText: ["web/a.test.tsx:1", "web/a.test.tsx:2", "web/a.test.tsx:9", "allowed 2, found 3"]
+
+  - name: check-stale-lower
+    command: check
+    baseline: {jsx-literal-testid: {web/a.tsx: 3}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+    wantExit: 1
+    wantKinds: [stale-lower]
+    wantText: ["allowed 3, found 1", "stringly update"]
+
+  - name: check-stale-missing-file
+    command: check
+    baseline: {jsx-literal-testid: {web/gone.tsx: 2}}
+    hits: []
+    wantExit: 1
+    wantKinds: [stale-missing-file]
+    wantText: ["allowed 2, found 0", "stringly update"]
+
+  - name: check-dedupes-two-matches-on-one-line
+    command: check
+    baseline: {testid-query-literal: {web/a.test.tsx: 1}}
+    hits:
+      - {rule: testid-query-literal, file: web/a.test.tsx, line: 5, text: '"a"'}
+      - {rule: testid-query-literal, file: web/a.test.tsx, line: 5, text: '"b"'}
+    wantExit: 0
+    wantKinds: []
+
+  - name: check-rules-count-separately-in-one-file
+    command: check
+    baseline: {jsx-literal-testid: {web/a.tsx: 1}, testid-selector-string: {web/a.tsx: 1}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 5, text: '"a"'}
+      - {rule: testid-selector-string, file: web/a.tsx, line: 5, text: '"[data-testid=a]"'}
+    wantExit: 0
+    wantKinds: []
+
+  # --- markers --------------------------------------------------------------
+  - name: marker-trailing-removes-hit
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        func f(m map[string]any) { _ = m["k"].(string) } // stringly-allow: go-json-key-assert — walks untrusted raw json
+    comments:
+      - {file: srv/m.go, line: 3, text: "// stringly-allow: go-json-key-assert — walks untrusted raw json"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 3, text: 'm["k"].(string)'}
+    wantExit: 0
+    wantKinds: []
+
+  - name: marker-line-above-removes-hit
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        func f(m map[string]any) {
+        	// stringly-allow: go-json-key-assert — walks untrusted raw json
+        	_ = m["k"].(string)
+        }
+    comments:
+      - {file: srv/m.go, line: 4, text: "// stringly-allow: go-json-key-assert — walks untrusted raw json"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 5, text: 'm["k"].(string)'}
+    wantExit: 0
+    wantKinds: []
+
+  - name: marker-stacked-above-one-line
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        func f(m map[string]any) {
+        	// stringly-allow: go-json-key-assert — walks untrusted raw json
+        	// ast-grep-ignore: no-crammed-conditions -- a strict rule of the repository
+        	// stringly-allow: go-data-path-literal — the fixture path is the subject
+        	_ = m["testdata/a.yaml"].(string)
+        }
+    comments:
+      - {file: srv/m.go, line: 4, text: "// stringly-allow: go-json-key-assert — walks untrusted raw json"}
+      - {file: srv/m.go, line: 5, text: "// ast-grep-ignore: no-crammed-conditions -- a strict rule of the repository"}
+      - {file: srv/m.go, line: 6, text: "// stringly-allow: go-data-path-literal — the fixture path is the subject"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 7, text: 'm["testdata/a.yaml"].(string)'}
+      - {rule: go-data-path-literal, file: srv/m.go, line: 7, text: '"testdata/a.yaml"'}
+    wantExit: 0
+    wantKinds: []
+
+  - name: marker-jsx-comment
+    command: check
+    baseline: {}
+    files:
+      web/a.tsx: |
+        export const A = () => (
+          <div>
+            {/* stringly-allow: jsx-literal-testid — mirrors a third party id */}
+            <span data-testid="vendor-row" />
+          </div>
+        );
+    comments:
+      - {file: web/a.tsx, line: 3, text: "/* stringly-allow: jsx-literal-testid — mirrors a third party id */"}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 4, text: '"vendor-row"'}
+    wantExit: 0
+    wantKinds: []
+
+  - name: marker-block-comment-spanning-lines
+    command: check
+    baseline: {}
+    files:
+      web/a.ts: |
+        /* stringly-allow: endpoint-literal — the third party
+           documents this exact path */
+        const u = "/api/v1/vendor";
+    comments:
+      - {file: web/a.ts, line: 1, endLine: 2, text: "/* stringly-allow: endpoint-literal — the third party\n   documents this exact path */"}
+    hits:
+      - {rule: endpoint-literal, file: web/a.ts, line: 3, text: '"/api/v1/vendor"'}
+    wantExit: 0
+    wantKinds: []
+
+  - name: marker-removes-only-its-rule
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        // stringly-allow: go-json-key-assert — walks untrusted raw json
+        var v = m["testdata/a.yaml"].(string)
+    comments:
+      - {file: srv/m.go, line: 3, text: "// stringly-allow: go-json-key-assert — walks untrusted raw json"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 4, text: 'm["testdata/a.yaml"].(string)'}
+      - {rule: go-data-path-literal, file: srv/m.go, line: 4, text: '"testdata/a.yaml"'}
+    wantExit: 1
+    wantKinds: [new-file]
+
+  - name: marker-no-reason
+    command: check
+    baseline: {go-json-key-assert: {srv/m.go: 1}}
+    files:
+      srv/m.go: |
+        package srv
+
+        // stringly-allow: go-json-key-assert
+        var v = m["k"].(string)
+    comments:
+      - {file: srv/m.go, line: 3, text: "// stringly-allow: go-json-key-assert"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 4, text: 'm["k"].(string)'}
+    wantExit: 1
+    wantKinds: [marker-no-reason]
+    wantText: ["// stringly-allow: go-json-key-assert — <a reason of three or more words>"]
+
+  - name: marker-with-double-hyphen-is-no-reason
+    command: check
+    baseline: {go-json-key-assert: {srv/m.go: 1}}
+    files:
+      srv/m.go: |
+        package srv
+
+        // stringly-allow: go-json-key-assert -- walks untrusted raw json
+        var v = m["k"].(string)
+    comments:
+      - {file: srv/m.go, line: 3, text: "// stringly-allow: go-json-key-assert -- walks untrusted raw json"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 4, text: 'm["k"].(string)'}
+    wantExit: 1
+    wantKinds: [marker-no-reason]
+    wantText: ["write the marker exactly as: // stringly-allow: go-json-key-assert — walks untrusted raw json"]
+
+  - name: marker-with-hyphen-in-jsx-is-no-reason
+    command: check
+    baseline: {jsx-literal-testid: {web/a.tsx: 1}}
+    files:
+      web/a.tsx: |
+        const A = () => (<div>
+          {/* stringly-allow: jsx-literal-testid - mirrors a vendor id */}
+          <span data-testid="v" />
+        </div>);
+    comments:
+      - {file: web/a.tsx, line: 2, text: "/* stringly-allow: jsx-literal-testid - mirrors a vendor id */"}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 3, text: '"v"'}
+    wantExit: 1
+    wantKinds: [marker-no-reason]
+    wantText: ["/* stringly-allow: jsx-literal-testid — mirrors a vendor id */"]
+
+  - name: marker-reason-under-three-words
+    command: check
+    baseline: {go-json-key-assert: {srv/m.go: 1}}
+    files:
+      srv/m.go: |
+        package srv
+
+        var v = m["k"].(string) // stringly-allow: go-json-key-assert — raw json
+    comments:
+      - {file: srv/m.go, line: 3, text: "// stringly-allow: go-json-key-assert — raw json"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 3, text: 'm["k"].(string)'}
+    wantExit: 1
+    wantKinds: [marker-no-reason]
+
+  - name: marker-unused
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        // stringly-allow: go-json-key-assert — walks untrusted raw json
+        var v = m[key].(string)
+    comments:
+      - {file: srv/m.go, line: 3, text: "// stringly-allow: go-json-key-assert — walks untrusted raw json"}
+    hits: []
+    wantExit: 1
+    wantKinds: [marker-unused]
+    wantText: ["applies to line 4"]
+
+  - name: marker-on-a-blank-line-gap-is-unused
+    command: check
+    baseline: {go-json-key-assert: {srv/m.go: 1}}
+    files:
+      srv/m.go: |
+        package srv
+        // stringly-allow: go-json-key-assert — walks untrusted raw json
+
+        var v = m["k"].(string)
+    comments:
+      - {file: srv/m.go, line: 2, text: "// stringly-allow: go-json-key-assert — walks untrusted raw json"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 4, text: 'm["k"].(string)'}
+    wantExit: 1
+    wantKinds: [marker-unused]
+
+  - name: marker-unknown-rule
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        var v = 1 // stringly-allow: json-key-assert — walks untrusted raw json
+    comments:
+      - {file: srv/m.go, line: 3, text: "// stringly-allow: json-key-assert — walks untrusted raw json"}
+    hits: []
+    wantExit: 1
+    wantKinds: [marker-unknown-rule]
+    wantText: ["\"json-key-assert\"", "stringly show rules"]
+
+  - name: marker-not-accepted-closed-set
+    command: check
+    baseline: {closed-set-literal: {web/a.ts: 1}}
+    files:
+      web/a.ts: |
+        // stringly-allow: closed-set-literal — this value is one of ours
+        export const isReady = (s: string) => s === "ready";
+    comments:
+      - {file: web/a.ts, line: 1, text: "// stringly-allow: closed-set-literal — this value is one of ours"}
+    hits:
+      - {rule: closed-set-literal, file: web/a.ts, line: 2, text: '"ready"'}
+    wantExit: 1
+    wantKinds: [marker-not-accepted]
+    wantText: ["accepts no marker", "still counted"]
+
+  - name: marker-not-accepted-go-closed-set
+    command: check
+    baseline: {go-closed-set-literal: {srv/s.go: 1}}
+    files:
+      srv/s.go: |
+        package srv
+
+        func ready(s string) bool {
+        	return s == "ready" // stringly-allow: go-closed-set-literal — this value is one of ours
+        }
+    comments:
+      - {file: srv/s.go, line: 4, text: "// stringly-allow: go-closed-set-literal — this value is one of ours"}
+    hits:
+      - {rule: go-closed-set-literal, file: srv/s.go, line: 4, text: '"ready"'}
+    wantExit: 1
+    wantKinds: [marker-not-accepted]
+    wantNoText: ["stale-lower"]
+
+  - name: comment-mentioning-marker-is-not-a-marker
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        // Use a stringly-allow marker only for raw JSON walks.
+        var v = 1
+    comments:
+      - {file: srv/m.go, line: 3, text: "// Use a stringly-allow marker only for raw JSON walks."}
+    hits: []
+    wantExit: 0
+    wantKinds: []
+
+  # --- ast-grep's own suppressions -------------------------------------------
+  - name: native-ignore-on-guard-rule
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        // ast-grep-ignore: go-json-key-assert
+        var v = m["k"].(string)
+    comments:
+      - {file: srv/m.go, line: 3, text: "// ast-grep-ignore: go-json-key-assert"}
+    hits: []
+    wantExit: 1
+    wantKinds: [native-ignore-on-guard-rule]
+    wantText: ["// stringly-allow: go-json-key-assert — <a reason of three or more words>"]
+
+  - name: native-ignore-bare
+    command: check
+    baseline: {}
+    files:
+      web/a.ts: |
+        // ast-grep-ignore
+        const a = 1;
+    comments:
+      - {file: web/a.ts, line: 1, text: "// ast-grep-ignore"}
+    hits: []
+    wantExit: 1
+    wantKinds: [native-ignore-on-guard-rule]
+
+  - name: native-ignore-on-strict-rule-is-not-a-finding
+    command: check
+    baseline: {}
+    files:
+      srv/m.go: |
+        package srv
+
+        // ast-grep-ignore: no-migrating-store-open-in-tests -- the migration creates the table.
+        var v = 1
+    comments:
+      - {file: srv/m.go, line: 3, text: "// ast-grep-ignore: no-migrating-store-open-in-tests -- the migration creates the table."}
+    hits: []
+    wantExit: 0
+    wantKinds: []
+
+  # --- the baseline header ------------------------------------------------------
+  - name: baseline-header-check-still-compares
+    command: check
+    header: {tool: v0.0.9, astGrep: 0.51.2}
+    baseline: {jsx-literal-testid: {web/a.tsx: 1}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 2, text: '"b"'}
+    wantExit: 1
+    wantKinds: [baseline-header, raised, raised]
+    wantText: ["tool v0.0.9", "running tool is v0.1.0", "stringly update"]
+
+  - name: baseline-header-ast-grep-differs
+    command: check
+    header: {tool: v0.1.0, astGrep: 0.45.0}
+    baseline: {jsx-literal-testid: {web/a.tsx: 1}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+    wantExit: 1
+    wantKinds: [baseline-header]
+    wantText: ["ast-grep 0.45.0"]
+
+  - name: unknown-baseline-format-version
+    command: check
+    baselineText: |
+      version: 2
+      tool: v0.9.0
+      ast-grep: 0.51.2
+      rules: {}
+    wantError: ["`version: 2`", "only `version: 1`"]
+
+  - name: unknown-baseline-key
+    command: check
+    baselineText: |
+      version: 1
+      tool: v0.1.0
+      ast-grep: 0.51.2
+      total: 3
+      rules: {}
+    wantError: ["does not decode", "hand-merged"]
+
+  - name: unknown-baseline-rule
+    command: check
+    baselineText: |
+      version: 1
+      tool: v0.1.0
+      ast-grep: 0.51.2
+      rules:
+        no-such-rule: {web/a.ts: 1}
+    wantError: ["\"no-such-rule\""]
+
+  - name: baseline-with-merge-markers
+    command: check
+    baselineText: |
+      version: 1
+      tool: v0.1.0
+      ast-grep: 0.51.2
+      rules:
+      <<<<<<< HEAD
+        jsx-literal-testid: {web/a.tsx: 1}
+      =======
+        jsx-literal-testid: {web/a.tsx: 2}
+      >>>>>>> other
+    wantError: ["hand-merge"]
+
+  # --- update -----------------------------------------------------------------
+  - name: update-lowers-count
+    command: update
+    baseline: {jsx-literal-testid: {web/a.tsx: 3}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+    wantExit: 0
+    wantEntries: {jsx-literal-testid: {web/a.tsx: 1}}
+    repeat: true
+
+  - name: update-removes-entry
+    command: update
+    baseline: {jsx-literal-testid: {web/a.tsx: 1, web/b.tsx: 1}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+    wantExit: 0
+    wantEntries: {jsx-literal-testid: {web/a.tsx: 1}}
+
+  - name: update-removes-missing-file-entry
+    command: update
+    baseline: {jsx-literal-testid: {web/gone.tsx: 4}, ts-enum: {web/e.ts: 1}}
+    hits:
+      - {rule: ts-enum, file: web/e.ts, line: 1, text: "enum E {}"}
+    wantExit: 0
+    wantEntries: {ts-enum: {web/e.ts: 1}}
+
+  - name: update-refuses-raise
+    command: update
+    baseline: {jsx-literal-testid: {web/a.tsx: 1, web/b.tsx: 3}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 2, text: '"b"'}
+    wantExit: 1
+    wantKinds: [raised, raised]
+    wantWritten: false
+    wantText: ["allowed 1, found 2", "Nothing was written"]
+
+  - name: update-refuses-new-file
+    command: update
+    baseline: {jsx-literal-testid: {web/a.tsx: 1}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/new.tsx, line: 1, text: '"n"'}
+    wantExit: 1
+    wantKinds: [new-file]
+    wantWritten: false
+
+  - name: update-moves-entry-on-rename
+    command: update
+    baseline: {jsx-literal-testid: {web/old.tsx: 2}}
+    renames: {web/new.tsx: web/old.tsx}
+    hits:
+      - {rule: jsx-literal-testid, file: web/new.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/new.tsx, line: 2, text: '"b"'}
+    wantExit: 0
+    wantEntries: {jsx-literal-testid: {web/new.tsx: 2}}
+
+  - name: update-moves-entry-on-rename-with-lower-count
+    command: update
+    baseline: {jsx-literal-testid: {web/old.tsx: 2}, ts-enum: {web/old.tsx: 1}}
+    renames: {web/new.tsx: web/old.tsx}
+    hits:
+      - {rule: jsx-literal-testid, file: web/new.tsx, line: 1, text: '"a"'}
+      - {rule: ts-enum, file: web/new.tsx, line: 4, text: "enum E {}"}
+    wantExit: 0
+    wantEntries: {jsx-literal-testid: {web/new.tsx: 1}, ts-enum: {web/new.tsx: 1}}
+
+  - name: update-refuses-rename-with-higher-count
+    command: update
+    baseline: {jsx-literal-testid: {web/old.tsx: 1}}
+    renames: {web/new.tsx: web/old.tsx}
+    hits:
+      - {rule: jsx-literal-testid, file: web/new.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/new.tsx, line: 2, text: '"b"'}
+    wantExit: 1
+    wantKinds: [raised, raised]
+    wantWritten: false
+    wantText: ["renamed from web/old.tsx", "allowed 1, found 2"]
+
+  - name: update-refuses-unstaged-rename-with-staging-fix
+    command: update
+    baseline: {jsx-literal-testid: {web/old.tsx: 1}}
+    untracked: [web/new.tsx]
+    hits:
+      - {rule: jsx-literal-testid, file: web/new.tsx, line: 1, text: '"a"'}
+    wantExit: 1
+    wantKinds: [new-file]
+    wantWritten: false
+    wantText: ["stage the rename so git can confirm it"]
+
+  - name: update-rewrites-header-only
+    command: update
+    header: {tool: v0.0.9, astGrep: 0.45.0}
+    baseline: {jsx-literal-testid: {web/a.tsx: 1}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+    wantExit: 0
+    wantBaselineText: |
+      # Generated by `stringly update`. Do not edit and do not hand-merge.
+      # After a merge: take the incoming file, then run the repository's update command.
+      version: 1
+      tool: v0.1.0
+      ast-grep: 0.51.2
+      rules:
+        jsx-literal-testid:
+          web/a.tsx: 1
+
+  - name: update-rewrites-header-and-lowers
+    command: update
+    header: {tool: v0.0.9, astGrep: 0.51.2}
+    baseline: {jsx-literal-testid: {web/a.tsx: 2}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+    wantExit: 0
+    wantHeader: {tool: v0.1.0, astGrep: 0.51.2}
+    wantEntries: {jsx-literal-testid: {web/a.tsx: 1}}
+
+  - name: update-refuses-raise-leaves-header
+    command: update
+    header: {tool: v0.0.9, astGrep: 0.51.2}
+    baseline: {jsx-literal-testid: {web/a.tsx: 1}}
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 2, text: '"b"'}
+    wantExit: 1
+    wantKinds: [raised, raised]
+    wantWritten: false
+
+  - name: update-sorts-rules-and-paths
+    command: update
+    baseline:
+      ts-enum: {web/z.ts: 1, web/a.ts: 1}
+      go-json-key-assert: {srv/b.go: 1, srv/B.go: 1, srv/a.go: 1}
+      boundary-cast: {"web/odd name: yes.ts": 1}
+    hits:
+      - {rule: ts-enum, file: web/z.ts, line: 1, text: "enum Z {}"}
+      - {rule: ts-enum, file: web/a.ts, line: 1, text: "enum A {}"}
+      - {rule: go-json-key-assert, file: srv/b.go, line: 1, text: 'm["b"].(T)'}
+      - {rule: go-json-key-assert, file: srv/B.go, line: 1, text: 'm["B"].(T)'}
+      - {rule: go-json-key-assert, file: srv/a.go, line: 1, text: 'm["a"].(T)'}
+      - {rule: boundary-cast, file: "web/odd name: yes.ts", line: 1, text: "JSON.parse(x) as T"}
+    wantExit: 0
+    repeat: true
+    wantBaselineText: |
+      # Generated by `stringly update`. Do not edit and do not hand-merge.
+      # After a merge: take the incoming file, then run the repository's update command.
+      version: 1
+      tool: v0.1.0
+      ast-grep: 0.51.2
+      rules:
+        boundary-cast:
+          'web/odd name: yes.ts': 1
+        go-json-key-assert:
+          srv/B.go: 1
+          srv/a.go: 1
+          srv/b.go: 1
+        ts-enum:
+          web/a.ts: 1
+          web/z.ts: 1
+
+  - name: update-lang-go-keeps-ts-entries
+    command: update
+    lang: go
+    baseline: {go-json-key-assert: {srv/a.go: 2}, jsx-literal-testid: {web/a.tsx: 5}}
+    hits:
+      - {rule: go-json-key-assert, file: srv/a.go, line: 1, text: 'm["a"].(T)'}
+    wantExit: 0
+    wantEntries: {go-json-key-assert: {srv/a.go: 1}, jsx-literal-testid: {web/a.tsx: 5}}
+
+  - name: update-lang-keeps-header
+    command: update
+    lang: go
+    header: {tool: v0.0.9, astGrep: 0.51.2}
+    baseline: {go-json-key-assert: {srv/a.go: 1}}
+    hits:
+      - {rule: go-json-key-assert, file: srv/a.go, line: 1, text: 'm["a"].(T)'}
+    wantExit: 0
+    wantHeader: {tool: v0.0.9, astGrep: 0.51.2}
+
+  - name: check-lang-go-ignores-ts-entries
+    command: check
+    lang: go
+    baseline: {go-json-key-assert: {srv/a.go: 1}, jsx-literal-testid: {web/a.tsx: 5}}
+    hits:
+      - {rule: go-json-key-assert, file: srv/a.go, line: 1, text: 'm["a"].(T)'}
+    wantExit: 0
+    wantKinds: []
+
+  - name: update-refuses-native-ignore
+    command: update
+    baseline: {go-json-key-assert: {srv/m.go: 1}}
+    files:
+      srv/m.go: |
+        package srv
+
+        // ast-grep-ignore: go-json-key-assert
+        var v = m["k"].(string)
+    comments:
+      - {file: srv/m.go, line: 3, text: "// ast-grep-ignore: go-json-key-assert"}
+    hits: []
+    wantExit: 1
+    wantKinds: [native-ignore-on-guard-rule]
+    wantWritten: false
+
+  - name: update-accepts-marked-new-hit
+    command: update
+    header: {tool: v0.0.9, astGrep: 0.51.2}
+    baseline: {go-json-key-assert: {srv/m.go: 1}}
+    files:
+      srv/m.go: |
+        package srv
+
+        var a = m["a"].(string)
+        // stringly-allow: go-json-key-assert — walks untrusted raw json
+        var b = m["b"].(string)
+    comments:
+      - {file: srv/m.go, line: 4, text: "// stringly-allow: go-json-key-assert — walks untrusted raw json"}
+    hits:
+      - {rule: go-json-key-assert, file: srv/m.go, line: 3, text: 'm["a"].(string)'}
+      - {rule: go-json-key-assert, file: srv/m.go, line: 5, text: 'm["b"].(string)'}
+    wantExit: 0
+    wantHeader: {tool: v0.1.0, astGrep: 0.51.2}
+    wantEntries: {go-json-key-assert: {srv/m.go: 1}}
+
+  # --- init -------------------------------------------------------------------
+  - name: init-writes-full-baseline
+    command: init
+    hits:
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a"'}
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 1, text: '"a2"'}
+      - {rule: jsx-literal-testid, file: web/a.tsx, line: 3, text: '"b"'}
+      - {rule: go-json-key-assert, file: srv/a.go, line: 9, text: 'm["a"].(T)'}
+    wantExit: 0
+    wantBaselineText: |
+      # Generated by `stringly update`. Do not edit and do not hand-merge.
+      # After a merge: take the incoming file, then run the repository's update command.
+      version: 1
+      tool: v0.1.0
+      ast-grep: 0.51.2
+      rules:
+        go-json-key-assert:
+          srv/a.go: 1
+        jsx-literal-testid:
+          web/a.tsx: 2
+
+  - name: init-empty-tree
+    command: init
+    hits: []
+    wantExit: 0
+    wantBaselineText: |
+      # Generated by `stringly update`. Do not edit and do not hand-merge.
+      # After a merge: take the incoming file, then run the repository's update command.
+      version: 1
+      tool: v0.1.0
+      ast-grep: 0.51.2
+      rules: {}
