@@ -4,7 +4,9 @@ Shared infrastructure for Peasant Labs: **cloud control plane**, **reusable CI**
 and **container image maintenance**.
 
 Anything another `peasant-labs` repository calls as a workflow, trusts as a build
-input, or deploys through lives here.
+input, or deploys through lives here. New shared workflows and organization-wide
+automation belong here, not in `peasant-labs/.github`; the Discord pull request
+notifier remains in `.github` for now.
 
 ## Areas
 
@@ -14,6 +16,7 @@ input, or deploys through lives here.
 | Reusable CI | `.github/workflows/runner-router.yml` | the single source of truth for routing jobs to the self-hosted runner pool |
 | Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the `quay.io/peasant-labs/github-runner` recipe, its publishing, and its keyless signing |
 | Runner pool module | `modules/nixos/`, `flake.nix` | run your own pool by importing `nixosModules.default` |
+| Tracker automation | `scripts/tracker_epic_sync.py`, `.github/workflows/tracker-epic-sync.yml` | sweeps organization epics into the Peasant Labs Tracker project |
 
 ## Running your own pool
 
@@ -72,3 +75,26 @@ jobs:
 
 Never inline a runner-availability probe. See `AGENTS.md` for the full
 invariants and the image trust model.
+
+## Tracker automation
+
+`.github/workflows/tracker-epic-sync.yml` sweeps every open epic in the
+organization into the [Peasant Labs Tracker](https://github.com/orgs/peasant-labs/projects/4)
+project every 15 minutes. It runs on a hosted runner on purpose: it must work
+when the self-hosted pool is off, and it does not touch production.
+
+The native "Auto-add to project" workflow cannot cover the organization: GitHub
+Free allows one auto-add workflow, each workflow targets one repository, and its
+filters cannot match issue titles. The sweeper treats an issue as an epic when it
+has the `epic` label, its title starts with `[Epic]` / `Epic` / `EPIC`, or it has
+sub-issues. New epics get `Status = Backlog`, a size (`L`, or `XL` above ten
+sub-issues), the repository's team, and a priority parsed from a `[P0]`-`[P3]`
+title tag or an explicit severity/priority line in the body (P2 otherwise). An
+existing Priority set at issue creation is preserved; no existing value is
+overwritten. The sweep only fills empty fields, so it also repairs drift.
+
+The workflow needs the repository secret `PROJECT_TOKEN`, a fine-grained PAT
+owned by `peasant-labs` with **Issues: read and write** on all repositories and
+**Projects: read and write** on the organization. Without it the job fails
+closed and writes nothing. Run the workflow manually with `dry_run` enabled to
+inspect decisions first.
