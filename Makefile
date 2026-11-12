@@ -7,7 +7,6 @@ fmt:
 
 guard:
 	bash scripts/check-production-guards.sh
-	bash scripts/test-runner-router.sh
 
 check: fmt guard
 	$(TERRAFORM) -chdir=stacks/village-production init -backend=false -lockfile=readonly

@@ -20,12 +20,12 @@ name: Runner router
 #              '["self-hosted","linux","x64","microvm"]'). Returned unchanged when the
 #              pool is chosen.
 #   required_slots
-#              How many pool slots the calling run will use at once (default
-#              1). The pool is chosen only when max_capacity - assigned_jobs
+#              How many pool slots the calling run uses at once (default 1).
+#              The pool is chosen only when max_capacity - assigned_jobs
 #              leaves at least this many free slots. Must be a positive
 #              integer; anything else warns and falls back with reason
 #              'query-failed'. A caller whose jobs run at once passes its
-#              real demand (a matrix that places four jobs passes 4).
+#              demand (a matrix that places four jobs passes 4).
 # Outputs:
 #   runner     the label array for the caller's runs-on (pool set or fallback).
 #   pool       'true' when the pool was chosen, else 'false', so callers can
@@ -33,13 +33,10 @@ name: Runner router
 #   reason     'pool-online' | 'pool-busy' | 'pool-stale' | 'query-failed', so
 #              a silent regression to the fallback stays visible.
 #              'pool-busy' means the pool is healthy and fresh but has fewer
-#              free slots than 'required_slots' (assigned_jobs leaves less
-#              room than the run needs, or the request is larger than the
-#              pool's max_capacity and can never fit), so the caller would
-#              queue in the pool's queue; the router sends it to the fallback
-#              instead. With the default required_slots of 1 that is exactly
-#              today's meaning (every slot taken). A record without
-#              max_capacity keeps the pre-capacity behaviour.
+#              free slots than 'required_slots', including a request larger
+#              than the pool's max_capacity; with the default of 1 it means
+#              every slot is taken. A record without max_capacity keeps the
+#              pre-capacity behaviour.
 #              'pool-stale' means the pool-health record is older than the
 #              freshness window, unhealthy, or unparseable. 'query-failed'
 #              covers a missing token (expected on fork PRs, notice-level,
@@ -51,13 +48,12 @@ name: Runner router
 # any abort still yields a runnable label set. The pool is online when the
 # dispatcher's health record (repository variable RUNNER_POOL_HEALTH in
 # peasant-labs/infra) is healthy, fresher than 5 minutes, and has room for
-# the calling run: max_capacity - assigned_jobs is at least required_slots
-# (the capacity gate below). A record without max_capacity keeps the
-# pre-capacity behaviour and routes by health alone. This replaces probing for an online runner: a
-# scale set reports no registered runners while idle, so a runner list is not
-# a pool-availability signal. The check is bounded (timeout 30s); a failure
-# keeps the fallback and warns with the captured error, while a missing token
-# (expected on fork PRs) is notice-level.
+# the calling run. A record without max_capacity keeps the pre-capacity
+# behaviour and routes by health alone. This replaces probing for an online
+# runner: a scale set reports no registered runners while idle, so a runner
+# list is not a pool-availability signal. The check is bounded (timeout 30s);
+# a failure keeps the fallback and warns with the captured error, while a
+# missing token (expected on fork PRs) is notice-level.
 
 on:
   workflow_call:
@@ -155,12 +151,7 @@ jobs:
                   .listener_healthy == true
                   and ((($now - (.timestamp | fromdateiso8601)) | fabs) < 300)
                 ' >/dev/null 2>&1; then
-              # Healthy and fresh. Route only when the pool has room for the
-              # whole calling run: the dispatcher's max_capacity minus the
-              # scale-set statistics (assigned_jobs counts booting and
-              # running jobs) must leave at least required_slots free, or
-              # this run's jobs would sit in the queue. A record without
-              # max_capacity keeps the pre-capacity behaviour.
+              # Route only when enough slots stay free for required_slots.
               capacity="$(printf '%s' "${health}" | jq -r --argjson required "${REQUIRED_SLOTS}" \
                 '"assigned=\(.assigned_jobs // 0) max=\(.max_capacity // 0) required=\($required)"')"
               if printf '%s' "${health}" | jq -e --argjson required "${REQUIRED_SLOTS}" '
@@ -184,7 +175,7 @@ jobs:
                 echo "chosen: ${FALLBACK} (pool=false, reason=pool-busy)"
               else
                 echo "reason=pool-busy" >> "$GITHUB_OUTPUT"
-                echo "::notice::pool is full (${capacity}); using the fallback runner"
+                echo "::notice::pool has fewer free slots than required (${capacity}); using the fallback runner"
                 echo "chosen: ${FALLBACK} (pool=false, reason=pool-busy)"
               fi
             else

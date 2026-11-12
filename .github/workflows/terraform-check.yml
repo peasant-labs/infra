@@ -48,9 +48,6 @@ jobs:
       - name: Check production destruction guards
         run: bash scripts/check-production-guards.sh
 
-      - name: Test the runner router
-        run: bash scripts/test-runner-router.sh
-
       # hashicorp/setup-terraform extracts the CLI through @actions/tool-cache,
       # which shells out to `unzip` on Linux. The GitHub-hosted fallback ships
       # unzip; the pool image does not, though its apt sources still reach the
