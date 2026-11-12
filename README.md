@@ -14,6 +14,7 @@ input, or deploys through lives here.
 | Reusable CI | `.github/workflows/runner-router.yml` | the single source of truth for routing jobs to the self-hosted runner pool |
 | Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the `quay.io/peasant-labs/github-runner` recipe, its publishing, and its keyless signing |
 | Runner pool module | `modules/nixos/`, `flake.nix` | run your own pool by importing `nixosModules.default` |
+| Release tool | `tools/release/` | the `release-intent` CLI that plans and checks merge-queue releases in every repository |
 
 ## Running your own pool
 
@@ -72,3 +73,27 @@ jobs:
 
 Never inline a runner-availability probe. See `AGENTS.md` for the full
 invariants and the image trust model.
+
+## The release tool
+
+`tools/release` is its own Go module
+(`github.com/peasant-labs/infra/tools/release`). It builds `release-intent`,
+the CLI each repository's workflows run to check PR titles, plan the next
+version, write release content, and check the repository's workflows against
+its merge-queue policy (`.github/release-queue.policy.yml`).
+
+A repository does not import the module. Its workflows check out this
+repository at a full commit SHA and build the command from that checkout:
+
+```yaml
+- uses: actions/checkout@<sha>
+  with:
+    repository: peasant-labs/infra
+    ref: <40-hex infra commit>
+    path: infra-tool
+- run: go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
+  working-directory: infra-tool
+```
+
+Run its checks with `make release-tool-check` (gofmt, build, vet, test). The
+`Release tool` workflow runs the same steps on every pull request.

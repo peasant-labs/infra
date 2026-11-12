@@ -11,6 +11,7 @@ deploys through belongs here rather than in a personal repository.
 | Reusable CI | `.github/workflows/runner-router*.yml` | every routed repository |
 | Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the NixOS runner module, every routed job |
 | Runner pool module | `modules/nixos/`, `flake.nix` | any host that imports `nixosModules.default` |
+| Release tool | `tools/release/`, `.github/workflows/release-tool.yml` | every repository that releases through the merge queue |
 
 ## Cloud control plane
 
@@ -158,9 +159,29 @@ Run them inside a transient systemd unit (`systemd-run --user --wait --collect
 The unit's cgroup is the cleanup boundary: a parent death cannot leave load
 generators running on a pool host.
 
+## The release tool
+
+`tools/release` is a separate Go module that builds `release-intent`: the
+title grammar, version arithmetic, release planning, and the merge-queue
+workflow policy checker. Consumers check out this repository at a full commit
+SHA and build `./tools/release/cmd/release-intent`; they never import it.
+
+- **Every commit on `main` is a possible pin.** Keep the module building and
+  its tests green on each one; `release-tool.yml` has no path filter so it can
+  be a required check.
+- **The module depends on no other `peasant-labs` module.** Its test support
+  lives in `tools/release/internal/testcase`.
+- **The queue policy file is `.github/release-queue.policy.yml`, top-level key
+  `queue:` only.** `policy.DefaultPath` owns that path. Job-graph rules for a
+  tag-triggered release workflow stay in schema's release-guard and its own
+  policy file; do not define a rule in both.
+- Test cases live in `testdata/*.yaml` corpora with required-name manifests,
+  not inline tables.
+
 ## Validation
 
 - `make check` for anything under `stacks/` or `modules/`.
+- `make release-tool-check` for anything under `tools/release/`.
 - `actionlint` for any workflow change.
 - For an image change, actually build the Containerfile and assert the tool you
   added is present in the result. A pin that resolves in the apt index is not the
