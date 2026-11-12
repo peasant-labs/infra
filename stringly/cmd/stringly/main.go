@@ -117,8 +117,16 @@ func run(ctx context.Context, args []string, linked, built string, environ []str
 }
 
 func usageFix() string {
-	return "run `stringly check`, `stringly update`, `stringly init` or `stringly show " +
-		joinNames(AllShowTopics, "|") + "`."
+	runs := make([]string, len(AllCommands))
+	for i, c := range AllCommands {
+		runs[i] = "`stringly " + c.String()
+		if c == CommandShow {
+			runs[i] += " " + joinNames(AllShowTopics, "|")
+		}
+		runs[i] += "`"
+	}
+	last := len(runs) - 1
+	return "run " + strings.Join(runs[:last], ", ") + " or " + runs[last] + "."
 }
 
 // environmentFailure prints a failure in the message contract's four parts and

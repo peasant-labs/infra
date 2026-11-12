@@ -66,10 +66,10 @@ func (p process) runShow(args []string) int {
 			"command-line parsing, before any file was read.",
 			topicFix)
 	}
-	f, ok := p.parseFlags("show "+topic.String(), args[1:], func(fs *flag.FlagSet, f *flags) {
+	f, ok := p.parseFlags(CommandShow.String()+" "+topic.String(), args[1:], func(fs *flag.FlagSet, f *flags) {
 		configFlag(fs, f)
 		astGrepFlag(fs, f)
-		fs.StringVar(&f.format, "format", ShowText.String(), "output format: text or json")
+		fs.StringVar(&f.format, "format", ShowText.String(), "output format: "+joinNames(AllShowFormats, " or "))
 	})
 	if !ok {
 		return exitEnvironment
@@ -77,9 +77,9 @@ func (p process) runShow(args []string) int {
 	format, err := ParseShowFormat(f.format)
 	if err != nil {
 		return environmentFailure(p.stderr, err.Error()+".",
-			"show prints a text listing, or one JSON document with --format json.",
+			"show prints a text listing, or one JSON document with --format "+ShowJSON.String()+".",
 			"command-line parsing, before any file was read.",
-			"pass --format text or --format json.")
+			"pass --format "+joinNames(AllShowFormats, " or --format ")+".")
 	}
 
 	switch topic {

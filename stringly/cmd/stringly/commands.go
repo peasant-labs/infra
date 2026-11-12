@@ -57,7 +57,7 @@ func configFlag(fs *flag.FlagSet, f *flags) {
 }
 
 func langFlag(fs *flag.FlagSet, f *flags) {
-	fs.StringVar(&f.lang, "lang", "", "restrict the scan and the comparison to one language: go or ts")
+	fs.StringVar(&f.lang, "lang", "", "restrict the scan and the comparison to one language: "+joinNames(rules.AllLangs, " or "))
 }
 
 func astGrepFlag(fs *flag.FlagSet, f *flags) {
@@ -88,7 +88,7 @@ func (p process) open(f flags) (*session, bool) {
 
 // parseLang reads --lang. It prints the failure and returns false on an
 // unknown language.
-func (p process) parseLang(cmd, s string) (rules.Lang, bool) {
+func (p process) parseLang(cmd Command, s string) (rules.Lang, bool) {
 	if s == "" {
 		return "", true
 	}
@@ -98,7 +98,7 @@ func (p process) parseLang(cmd, s string) (rules.Lang, bool) {
 			fmt.Sprintf("`stringly %s --lang %s`: %v.", cmd, s, err),
 			"every rule belongs to exactly one language, and --lang selects the rules of one of them.",
 			"command-line parsing, before any file was read.",
-			"pass --lang go or --lang ts, or leave it out to run every language.")
+			"pass --lang "+joinNames(rules.AllLangs, " or --lang ")+", or leave it out to run every language.")
 		return "", false
 	}
 	return l, true
@@ -132,7 +132,7 @@ func (s *session) options(cmd ratchet.Command, langs []rules.Lang, langFlag bool
 }
 
 // noBaseline is the failure of check and update when there is no baseline.
-func (p process) noBaseline(s *session, cmd string) int {
+func (p process) noBaseline(s *session, cmd Command) int {
 	return environmentFailure(p.stderr,
 		fmt.Sprintf("there is no baseline at %s.", s.cfg.Baseline),
 		fmt.Sprintf("`stringly %s` compares the tree with the committed baseline, and there is none to compare with.", cmd),
@@ -142,11 +142,11 @@ func (p process) noBaseline(s *session, cmd string) int {
 }
 
 func (p process) runCheck(args []string) int {
-	f, ok := p.parseFlags("check", args, func(fs *flag.FlagSet, f *flags) {
+	f, ok := p.parseFlags(CommandCheck.String(), args, func(fs *flag.FlagSet, f *flags) {
 		configFlag(fs, f)
 		langFlag(fs, f)
 		astGrepFlag(fs, f)
-		fs.StringVar(&f.format, "format", ratchet.FormatText.String(), "report format: text or github")
+		fs.StringVar(&f.format, "format", ratchet.FormatText.String(), "report format: "+joinNames(ratchet.AllFormats, " or "))
 	})
 	if !ok {
 		return exitEnvironment
@@ -154,11 +154,11 @@ func (p process) runCheck(args []string) int {
 	format, err := ratchet.ParseFormat(f.format)
 	if err != nil {
 		return environmentFailure(p.stderr, err.Error()+".",
-			"check prints a text report, or GitHub Actions annotations with --format github.",
+			"check prints a text report, or GitHub Actions annotations with --format "+ratchet.FormatGitHub.String()+".",
 			"command-line parsing, before any file was read.",
-			"pass --format text or --format github.")
+			"pass --format "+joinNames(ratchet.AllFormats, " or --format ")+".")
 	}
-	lang, ok := p.parseLang("check", f.lang)
+	lang, ok := p.parseLang(CommandCheck, f.lang)
 	if !ok {
 		return exitEnvironment
 	}
@@ -171,7 +171,7 @@ func (p process) runCheck(args []string) int {
 		return failErr(p.stderr, err, "reading "+s.cfg.Baseline+", before the comparison.")
 	}
 	if !exists {
-		return p.noBaseline(s, "check")
+		return p.noBaseline(s, CommandCheck)
 	}
 	langs := s.languages(lang)
 	sc, err := s.runScan(langs)
@@ -188,7 +188,7 @@ func (p process) runCheck(args []string) int {
 
 // refuseDevBuild stops init and update in a build that names no release:
 // the header they write must say which tool verified the counts.
-func (p process) refuseDevBuild(cmd string) bool {
+func (p process) refuseDevBuild(cmd Command) bool {
 	if !p.version.Dev {
 		return false
 	}
@@ -202,10 +202,10 @@ func (p process) refuseDevBuild(cmd string) bool {
 }
 
 func (p process) runUpdate(args []string) int {
-	if p.refuseDevBuild("update") {
+	if p.refuseDevBuild(CommandUpdate) {
 		return exitEnvironment
 	}
-	f, ok := p.parseFlags("update", args, func(fs *flag.FlagSet, f *flags) {
+	f, ok := p.parseFlags(CommandUpdate.String(), args, func(fs *flag.FlagSet, f *flags) {
 		configFlag(fs, f)
 		langFlag(fs, f)
 		astGrepFlag(fs, f)
@@ -213,7 +213,7 @@ func (p process) runUpdate(args []string) int {
 	if !ok {
 		return exitEnvironment
 	}
-	lang, ok := p.parseLang("update", f.lang)
+	lang, ok := p.parseLang(CommandUpdate, f.lang)
 	if !ok {
 		return exitEnvironment
 	}
@@ -226,7 +226,7 @@ func (p process) runUpdate(args []string) int {
 		return failErr(p.stderr, err, "reading "+s.cfg.Baseline+", before the comparison.")
 	}
 	if !exists {
-		return p.noBaseline(s, "update")
+		return p.noBaseline(s, CommandUpdate)
 	}
 	langs := s.languages(lang)
 	sc, err := s.runScan(langs)
@@ -262,10 +262,10 @@ func (p process) runUpdate(args []string) int {
 }
 
 func (p process) runInit(args []string) int {
-	if p.refuseDevBuild("init") {
+	if p.refuseDevBuild(CommandInit) {
 		return exitEnvironment
 	}
-	f, ok := p.parseFlags("init", args, func(fs *flag.FlagSet, f *flags) {
+	f, ok := p.parseFlags(CommandInit.String(), args, func(fs *flag.FlagSet, f *flags) {
 		configFlag(fs, f)
 		astGrepFlag(fs, f)
 	})

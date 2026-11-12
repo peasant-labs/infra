@@ -39,7 +39,11 @@ func ParseFormat(s string) (Format, error) {
 	if f := Format(s); f.IsValid() {
 		return f, nil
 	}
-	return "", fmt.Errorf("unknown report format %q: check prints exactly text or github", s)
+	names := make([]string, len(AllFormats))
+	for i, f := range AllFormats {
+		names[i] = f.String()
+	}
+	return "", fmt.Errorf("unknown report format %q: check prints exactly %s", s, strings.Join(names, " or "))
 }
 
 // maxTextWidth bounds the source text printed on a finding's first line.
