@@ -6,6 +6,19 @@ jobs:
   freeze:
     runs-on: ubuntu-latest
     steps:
-      - run: nix develop -c release-intent freeze-plan --branch develop --floor "$FLOOR" --frozen surface=0.2.0 --ahead other
+      - uses: actions/checkout@v5
+        with:
+          repository: peasant-labs/infra
+          ref: 71e687cef7eede9a63659be98ce9adac3c563398
+          path: infra-tool
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+      - name: Build release-intent
+        working-directory: infra-tool
+        run: |
+          go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: release-intent freeze-plan --branch develop --floor "$FLOOR" --frozen surface=0.2.0 --ahead other
         env:
           FLOOR: ${{ vars.RELEASE_BATCH_FLOOR }}
