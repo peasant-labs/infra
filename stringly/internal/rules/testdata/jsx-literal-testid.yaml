@@ -1,0 +1,35 @@
+rule: jsx-literal-testid
+cases:
+  - name: flags-string-value
+    files:
+      src/Row.tsx: |
+        export const Row = () => <li data-testid="home-row">row</li>;
+    hits: {src/Row.tsx: [1]}
+  - name: flags-braced-string
+    files:
+      src/Row.tsx: |
+        export const Row = () => <li data-testid={"home-row"}>row</li>;
+    hits: {src/Row.tsx: [1]}
+  - name: flags-template-without-substitution
+    files:
+      src/Row.jsx: |
+        export const Row = () => (
+          <li
+            data-testid={`home-row`}
+          >
+            row
+          </li>
+        );
+    hits: {src/Row.jsx: [3]}
+  - name: passes-member-wire
+    files:
+      src/Row.tsx: |
+        export const Row = () => <li data-testid={HomeTestId.Row.wire}>row</li>;
+  - name: passes-template-with-substitution
+    files:
+      src/Row.tsx: |
+        export const Row = ({ id }: { id: string }) => <li data-testid={`row-${id}`}>row</li>;
+  - name: passes-other-attribute
+    files:
+      src/Row.tsx: |
+        export const Row = () => <li data-state="open" aria-label="row">row</li>;

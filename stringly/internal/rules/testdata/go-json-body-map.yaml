@@ -1,0 +1,97 @@
+rule: go-json-body-map
+cases:
+  - name: flags-literal-passed-to-encoder
+    files:
+      internal/api/status.go: |
+        package api
+
+        func status(w http.ResponseWriter) {
+        	writeJSON(w, http.StatusOK, map[string]any{"status": "removed"})
+        }
+    hits: {internal/api/status.go: [4]}
+  - name: flags-assigned-then-encoded
+    files:
+      internal/api/status.go: |
+        package api
+
+        func status(w http.ResponseWriter) {
+        	body := map[string]any{
+        		"status": "removed",
+        	}
+        	_ = json.NewEncoder(w).Encode(body)
+        }
+    hits: {internal/api/status.go: [4]}
+  - name: flags-returned-from-a-helper
+    files:
+      internal/api/status.go: |
+        package api
+
+        func statusBody(n int) map[string]any {
+        	return map[string]any{"removed": n}
+        }
+    hits: {internal/api/status.go: [4]}
+  - name: flags-argument-of-a-test-request-helper
+    files:
+      internal/api/groups_test.go: |
+        package api
+
+        func TestCreate(t *testing.T) {
+        	w.send(t, router, viewer, http.MethodPost, "/groups", map[string]any{"name": "acme"})
+        }
+    hits: {internal/api/groups_test.go: [4]}
+  - name: flags-slice-of-maps
+    files:
+      internal/api/rows.go: |
+        package api
+
+        var rows = []map[string]any{
+        	{"id": 1},
+        	{"id": 2},
+        }
+    hits: {internal/api/rows.go: [3]}
+  - name: flags-interface-value-type
+    files:
+      internal/api/status.go: |
+        package api
+
+        var body = map[string]interface{}{"ok": true}
+    hits: {internal/api/status.go: [3]}
+  - name: flags-nested-map-counts-once
+    files:
+      internal/api/status.go: |
+        package api
+
+        var body = map[string]any{
+        	"group": map[string]any{
+        		"name": "acme",
+        	},
+        }
+    hits: {internal/api/status.go: [3]}
+  - name: passes-empty-literal
+    files:
+      internal/api/decode.go: |
+        package api
+
+        func decode(b []byte) map[string]any {
+        	got := map[string]any{}
+        	_ = json.Unmarshal(b, &got)
+        	return got
+        }
+  - name: passes-keys-all-expressions
+    files:
+      internal/api/row.go: |
+        package api
+
+        func row(column string, value any) map[string]any { return map[string]any{column: value} }
+  - name: passes-string-valued-map
+    files:
+      internal/api/headers.go: |
+        package api
+
+        var headers = map[string]string{"Accept": "application/json"}
+  - name: passes-struct-literal
+    files:
+      internal/api/status.go: |
+        package api
+
+        var body = schema.VillageStatusResponse{Status: "removed"}

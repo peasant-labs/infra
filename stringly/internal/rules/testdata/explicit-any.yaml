@@ -1,0 +1,30 @@
+rule: explicit-any
+cases:
+  - name: flags-annotation
+    files:
+      src/a.ts: |
+        export function read(value: any): string {
+          return String(value);
+        }
+    hits: {src/a.ts: [1]}
+  - name: flags-as-any
+    files:
+      src/a.ts: |
+        const x = value as any;
+    hits: {src/a.ts: [1]}
+  - name: flags-generic-argument
+    files:
+      src/a.tsx: |
+        const rows: Array<any> = [];
+    hits: {src/a.tsx: [1]}
+  - name: passes-unknown
+    files:
+      src/a.ts: |
+        export function read(value: unknown): string {
+          return String(value);
+        }
+  - name: passes-word-in-string-or-comment
+    files:
+      src/a.ts: |
+        // any value is accepted here
+        const label = "any";
