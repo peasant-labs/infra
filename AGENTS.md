@@ -39,51 +39,7 @@ deploys through belongs here rather than in a personal repository.
 - Regenerate and commit every root's `.terraform.lock.hcl` when a provider pin
   changes.
 
-### Stringly guard
-
-`stringly/` is the static guard against stringly-typed values: one Go module
-holding the rules, the catalog generator and the ratchet checker. Consumers
-run it with `go run github.com/peasant-labs/infra/stringly/cmd/stringly@vX.Y.Z`
-at a version pinned in one place (their `Makefile` or `package.json`).
-
-### Invariants
-
-- ast-grep is exactly the version in `astgrep.RequiredVersion`; the tool refuses
-  any other. Moving it is a MINOR release, together with the flake and CI pins
-  of every consumer.
-- No command raises a baseline count after first adoption. `init` runs only
-  when no baseline exists; `update` only lowers, removes and moves entries.
-- The two closed-set rules accept no `stringly-allow` marker, and an `exempt`
-  entry for them must match generated files only. "This value is one of ours"
-  is not a reason on any rule.
-- The guard never edits a consumer's own ast-grep config and never passes
-  `--error=unused-suppression`.
-- Tests are fixtures with required-name manifests and run the real ast-grep;
-  without it they fail with the install command, never skip.
-
-### Versioning
-
-A change to what a rule matches, to the catalog sources, to deduplication, to
-the rule set or to the required ast-grep version is MINOR, and its release note
-lists each change, whether it can add or remove hits, and how many lines it
-matched on the three consumers' default branches. Message and fix text that
-changes no count is PATCH.
-
-### Release
-
-1. Merge to `main` with the `stringly` job green.
-2. Create and push the tag `stringly/vX.Y.Z` on the merge commit (the Go
-   convention for a module in a subdirectory).
-3. Confirm `go list -m github.com/peasant-labs/infra/stringly@vX.Y.Z` resolves
-   through the module proxy.
-4. Publish the release note with the per-rule changes and the measured line
-   counts.
-5. Each consumer bumps its pin in one pull request: run the new version's
-   `check` to preview, fix (or, where the rule accepts one, mark) every new hit,
-   change the pin, run the update command, and commit the pin, the fixes and
-   the baseline together.
-
-## Validation
+### Validation
 
 Run `make check` before committing. Tests must use Terraform mock providers and
 must not contact production services. Add separate `.tftest.hcl` fixtures for
