@@ -91,6 +91,13 @@ const (
 	// and the default branch. A tag push needs only a write to refs/tags/,
 	// so nothing may publish a tag before the tool has checked it.
 	QueueRuleTagVerified QueueRule = "tag-publish-verifies-the-tag"
+	// QueueRuleReleaseTagBoundary requires the release job that pushes a tag
+	// to run where its own condition proves the run is on the default branch,
+	// and to prove the tag's commit is the run's commit or an ancestor of it
+	// before the tag push, under the same if as the push. A tag-triggered
+	// publish workflow runs from the tagged commit, so the tag has to be
+	// checked before it leaves the only job that can write it.
+	QueueRuleReleaseTagBoundary QueueRule = "release-tag-checked-before-push"
 	// QueueRuleTokenMint requires every job that mints the releaser App token
 	// to check that github.ref is the default branch, in a job-level or
 	// mint-step if, and to mint only when tag mode is on. A dispatch on any
@@ -143,6 +150,7 @@ var AllQueueRules = []QueueRule{
 	QueueRuleCredentialTemplates,
 	QueueRuleCredentialJobShape,
 	QueueRuleTagVerified,
+	QueueRuleReleaseTagBoundary,
 	QueueRuleTokenMint,
 	QueueRuleUnfiltered,
 	QueueRuleMergeGate,

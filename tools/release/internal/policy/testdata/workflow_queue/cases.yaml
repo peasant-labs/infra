@@ -122,6 +122,8 @@ required_names:
   - reject-tag-verify-stub-binary
   - reject-credential-job-self-hosted
   - reject-credential-job-runner-expression
+  - accept-release-tag-guarded
+  - reject-release-tag-no-guard
 cases:
   - name: accept-required-contexts
     input: { overlay: "" }
@@ -901,7 +903,7 @@ cases:
 
   - name: reject-tag-verify-always
     input: { overlay: "reject-tag-verify-always" }
-    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag, but its if carries always()"] }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag, but its if calls the status function always()"] }
     sibling: "accept-tag-verified"
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
@@ -1026,3 +1028,19 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
     mutation: { description: "let the planning job pick the release job runner through an output" }
+
+  - name: accept-release-tag-guarded
+    input: { overlay: "" }
+    expected: { rule: "release-tag-checked-before-push", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-tag-checked-before-push" }
+    mutation: { description: "base repo: the release job's if proves the run is on the default branch, and the check step proves the fetched tag's commit is the run's commit or an ancestor before the tag push" }
+
+  - name: reject-release-tag-no-guard
+    input: { overlay: "reject-release-tag-no-guard" }
+    expected: { rule: "release-tag-checked-before-push", want_contains: ["no step proves the tag's commit"] }
+    sibling: "accept-release-tag-guarded"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-tag-checked-before-push" }
+    mutation: { description: "drop the tag-ancestor check so the tag leaves the runner for any commit the planning job named" }

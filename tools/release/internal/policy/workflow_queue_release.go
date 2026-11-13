@@ -225,6 +225,16 @@ func (r *releaseChecker) isTagStep(jobName string, step *yaml.Node) bool {
 	return r.c.isTemplateStep(r.workflow, jobName, step, TemplatePushReleaseTag)
 }
 
+// isTagCheckStep reports whether the release job runs the tag-ancestor
+// plumbing template: the step that proves the fetched tag's commit is on the
+// commit the run is on.
+func (r *releaseChecker) isTagCheckStep(jobName string, step *yaml.Node) bool {
+	if jobName != r.jobName {
+		return false
+	}
+	return r.c.plumbingTemplateOf(r.doc, r.job, step, r.c.creds[r.workflow][r.jobName]) == PlumbingCheckTagAncestor
+}
+
 // isBranchPushStep reports whether the step at place i pushes the release
 // branch.
 func (r *releaseChecker) isBranchPushStep(i int) bool {
@@ -477,6 +487,13 @@ func (r *releaseChecker) checkStatusFunctions() {
 	}
 	for i, step := range r.steps {
 		if i <= first {
+			continue
+		}
+		// The tag path must not carry the status function: the tag check's
+		// exit status is what has to stop the push, and always(), failure(),
+		// cancelled() or success() would switch GitHub's implicit success()
+		// check off. release-tag-checked-before-push owns that shape.
+		if r.isTagStep(r.stepJobs[i], step) || r.isTagCheckStep(r.stepJobs[i], step) {
 			continue
 		}
 		if !planRunner.MatchString(stepRunText(step)) && !strings.Contains(r.ifText(i), stepOutputSuffix(intent.OutputAction)) {
