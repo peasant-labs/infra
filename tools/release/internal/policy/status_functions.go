@@ -59,8 +59,18 @@ func ParseStatusFunction(raw string) (StatusFunction, error) {
 // case in function names and skips whitespace between tokens, so SUCCESS(),
 // Success (), and cancelled  ( ) are the same call as success(). Matching the
 // whole call, not the bare word, keeps a string value such as "success" from
-// being read as one.
-var statusFunctionCall = regexp.MustCompile(`(?i)\b(success|failure|always|cancelled)\s*\(`)
+// being read as one. The alternation is built from the closed set, so a new
+// member reaches this matcher with the set.
+var statusFunctionCall = regexp.MustCompile(`(?i)\b(` + statusFunctionAlternation() + `)\s*\(`)
+
+// statusFunctionAlternation renders the closed set as a regex alternation.
+func statusFunctionAlternation() string {
+	names := make([]string, 0, len(AllStatusFunctions))
+	for _, fn := range AllStatusFunctions {
+		names = append(names, regexp.QuoteMeta(fn.String()))
+	}
+	return strings.Join(names, "|")
+}
 
 // statusFunctionsIn returns the status functions a conditional calls, in
 // canonical order, or nil.
