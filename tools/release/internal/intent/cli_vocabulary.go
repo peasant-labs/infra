@@ -36,6 +36,9 @@ const (
 	CommandReleasePR Command = "release-pr"
 	// CommandQueueGate prints the merge-queue hold decision for the release PR.
 	CommandQueueGate Command = "queue-gate"
+	// CommandVerifyTag checks that a release tag is the prefix plus a version
+	// and that its commit is on a branch, before anything publishes it.
+	CommandVerifyTag Command = "verify-tag"
 )
 
 // AllCommands is the canonical closed set of subcommands the tool
@@ -50,6 +53,7 @@ var AllCommands = []Command{
 	CommandPlan,
 	CommandReleasePR,
 	CommandQueueGate,
+	CommandVerifyTag,
 }
 
 func (c Command) String() string { return string(c) }
@@ -105,6 +109,8 @@ const (
 	FlagQueue Flag = "--queue"
 	// FlagReleasePR carries the release PR number.
 	FlagReleasePR Flag = "--release-pr"
+	// FlagTag names the release tag to verify.
+	FlagTag Flag = "--tag"
 )
 
 // AllFlags is the canonical closed set of flags across every subcommand.
@@ -115,6 +121,7 @@ var AllFlags = []Flag{
 	FlagBranch, FlagMode, FlagFloor, FlagVerdict,
 	FlagWrite, FlagCheck, FlagCurrent,
 	FlagQueue, FlagReleasePR,
+	FlagTag,
 }
 
 func (f Flag) String() string { return string(f) }
@@ -156,6 +163,8 @@ func (c Command) Flags() []FlagUse {
 		return []FlagUse{{FlagBranch, true}, {FlagFloor, false}, {FlagWrite, false}, {FlagCheck, false}, {FlagCurrent, false}}
 	case CommandQueueGate:
 		return []FlagUse{{FlagQueue, true}, {FlagReleasePR, true}}
+	case CommandVerifyTag:
+		return []FlagUse{{FlagTag, true}, {FlagBranch, true}}
 	default:
 		return nil
 	}

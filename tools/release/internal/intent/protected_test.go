@@ -15,9 +15,9 @@ import (
 var protectedCorpusYAML []byte
 
 type protectedInput struct {
-	Config      intent.Config            `yaml:"config"`
-	IsReleasePR bool                     `yaml:"is_release_pr"`
-	Changes     []intent.ProtectedChange `yaml:"changes"`
+	Config  intent.Config            `yaml:"config"`
+	Kind    intent.PRKind            `yaml:"kind"`
+	Changes []intent.ProtectedChange `yaml:"changes"`
 }
 
 type protectedExpected struct {
@@ -28,7 +28,7 @@ func TestCheckProtectedPaths(t *testing.T) {
 	corpus := loadNamedCorpus[protectedInput, protectedExpected](t, protectedCorpusYAML)
 	for _, c := range corpus.Cases {
 		t.Run(c.Name, func(t *testing.T) {
-			err := intent.CheckProtectedPaths(c.Input.Config, c.Input.Changes, c.Input.IsReleasePR)
+			err := intent.CheckProtectedPaths(c.Input.Config, c.Input.Changes, c.Input.Kind)
 			if c.Classification == testcase.MustFail {
 				if err == nil {
 					t.Fatalf("CheckProtectedPaths: expected an error, got nil")

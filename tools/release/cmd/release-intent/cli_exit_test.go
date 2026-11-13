@@ -117,6 +117,17 @@ const (
 	setupCurrentCleanTip processSetup = "current-clean-tip"
 	setupCurrentDiffers  processSetup = "current-differs"
 	setupCurrentConflict processSetup = "current-conflict"
+	// The title-* setups are the bot PR shapes of buildBotPRRepo.
+	setupTitleReleaseContent    processSetup = "title-release-content"
+	setupTitleReleaseSourceEdit processSetup = "title-release-source-edit"
+	setupTitleCutReleaseEmpty   processSetup = "title-cut-release-empty"
+	setupTitleCutReleaseFile    processSetup = "title-cut-release-file"
+	// setupTagOnBranch is a released repository whose next release tag is
+	// annotated on the trunk tip.
+	setupTagOnBranch processSetup = "tag-on-branch"
+	// setupTagOffBranch puts the next release tag on a side branch commit
+	// the trunk does not reach.
+	setupTagOffBranch processSetup = "tag-off-branch"
 )
 
 var allProcessSetups = []processSetup{
@@ -125,6 +136,8 @@ var allProcessSetups = []processSetup{
 	setupClassifyAllBots, setupClassifyRawConfig, setupClassifyHeadTamper,
 	setupWorkflowsAccept, setupWorkflowsDefaultPolicy, setupWorkflowsViolation, setupWorkflowsPolicyOnly,
 	setupCurrentSame, setupCurrentCleanTip, setupCurrentDiffers, setupCurrentConflict,
+	setupTitleReleaseContent, setupTitleReleaseSourceEdit, setupTitleCutReleaseEmpty, setupTitleCutReleaseFile,
+	setupTagOnBranch, setupTagOffBranch,
 }
 
 func (s *processSetup) UnmarshalYAML(node *yaml.Node) error {
@@ -149,11 +162,15 @@ const (
 	phBotAuthor         placeholder = "SETUP_BOT_AUTHOR"
 	phReleaseBranch     placeholder = "SETUP_RELEASE_BRANCH"
 	phHeadReleaseBranch placeholder = "SETUP_HEAD_RELEASE_BRANCH"
+	phCutReleaseBranch  placeholder = "SETUP_CUT_RELEASE_BRANCH"
+	phTag               placeholder = "SETUP_TAG"
+	phTrunk             placeholder = "SETUP_TRUNK"
 )
 
 var allPlaceholders = []placeholder{
 	phDir, phBase, phHead, phRev, phConfig, phQueue, phPolicy, phWorkflows,
-	phBotAuthor, phReleaseBranch, phHeadReleaseBranch,
+	phBotAuthor, phReleaseBranch, phHeadReleaseBranch, phCutReleaseBranch,
+	phTag, phTrunk,
 }
 
 // placeholderPattern finds every placeholder-shaped token in an argv word.
@@ -337,6 +354,37 @@ func setupProcessCase(t *testing.T, in cliInput) processState {
 			phHead:              head,
 			phBotAuthor:         r.Config().AutomationAuthor,
 			phHeadReleaseBranch: tampered.BotBranches[intent.PRKindRelease],
+		}}
+	case setupTitleReleaseContent, setupTitleReleaseSourceEdit, setupTitleCutReleaseEmpty, setupTitleCutReleaseFile:
+		shape := map[processSetup]titleSetup{
+			setupTitleReleaseContent:    titleSetupReleaseContent,
+			setupTitleReleaseSourceEdit: titleSetupReleaseSourceEdit,
+			setupTitleCutReleaseEmpty:   titleSetupCutReleaseEmpty,
+			setupTitleCutReleaseFile:    titleSetupCutReleaseFileEdit,
+		}[in.Setup]
+		r, base, head := buildBotPRRepo(t, shape)
+		return processState{r.Dir(), map[placeholder]string{
+			phDir:              r.Dir(),
+			phBase:             base,
+			phHead:             head,
+			phBotAuthor:        r.Config().AutomationAuthor,
+			phReleaseBranch:    r.branchName(r.BotBranch(intent.PRKindRelease)),
+			phCutReleaseBranch: r.branchName(r.BotBranch(intent.PRKindCutRelease)),
+		}}
+	case setupTagOnBranch, setupTagOffBranch:
+		r := newPendingRepo(t, repoStandard)
+		next := laterVersion(t, r, intent.LevelMinor)
+		if in.Setup == setupTagOffBranch {
+			r.CreateBranch(r.Branch("side"))
+			r.WriteFile("side.txt", "side\n")
+			r.Commit(titled(intent.TypeFeat, "side", intent.LevelMinor, "side work"))
+		}
+		r.TagAnnotated(next)
+		r.Checkout(r.Trunk())
+		return processState{r.Dir(), map[placeholder]string{
+			phDir:   r.Dir(),
+			phTag:   r.TagName(next),
+			phTrunk: r.branchName(r.Trunk()),
 		}}
 	case setupWorkflowsAccept, setupWorkflowsDefaultPolicy, setupWorkflowsViolation, setupWorkflowsPolicyOnly:
 		return setupWorkflows(t, in.Setup, standard)

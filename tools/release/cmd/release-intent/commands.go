@@ -51,7 +51,7 @@ func shapeOf(f intent.Flag) flagShape {
 	case intent.FlagRef:
 		return flagShape{"REF", "the merge-group ref"}
 	case intent.FlagBranch:
-		return flagShape{"REF", "the branch to plan or build release content from"}
+		return flagShape{"REF", "the branch to plan, build release content from, or verify a tag against"}
 	case intent.FlagMode:
 		return flagShape{"MODE", "the job mode, one of " + closedset.Join(intent.AllModes, " or ")}
 	case intent.FlagFloor:
@@ -68,6 +68,8 @@ func shapeOf(f intent.Flag) flagShape {
 		return flagShape{"FILE", "the file holding the raw merge-queue response"}
 	case intent.FlagReleasePR:
 		return flagShape{"N", "the release PR number, a positive integer"}
+	case intent.FlagTag:
+		return flagShape{"TAG", "the release tag to verify"}
 	default:
 		return flagShape{}
 	}

@@ -89,6 +89,8 @@ func TestClosedSets(t *testing.T) {
 		intent.ErrReleaseContentStale,
 		intent.ErrConfigInvalid,
 		intent.ErrPolicyViolation,
+		intent.ErrReleaseContentScope,
+		intent.ErrTagUnverified,
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllErrorCodes = %v, want %v", got, want)
 	}
@@ -109,7 +111,7 @@ func TestErrorCodeCoverage(t *testing.T) {
 		planCorpusYAML, generateCorpusYAML,
 		queueDecodeCorpusYAML, queueGateCorpusYAML,
 		highestTagCorpusYAML, versionFieldCorpusYAML,
-		contentCorpusYAML, policyCorpusYAML,
+		contentCorpusYAML, policyCorpusYAML, verifyTagCorpusYAML,
 	} {
 		var doc struct {
 			Cases []struct {
