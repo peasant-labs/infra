@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -31,11 +32,18 @@ import (
 //     the tag push's own if. The tag push's if carries no status function, so
 //     a failed check skips the push through GitHub's implicit success() check
 //     instead of being overridden by always(), failure(), cancelled() or
-//     success(). Neither the check step nor the tag push sets the
-//     continue-on-error key: GitHub evaluates that key as a value, so an
-//     expression such as ${{ fromJSON('true') }} would make a failed check
-//     report success. The checker refuses the key, not a spelling of its
-//     value; release-actions-gated refuses it on the release job itself.
+//     success(). The shared if must also be time-invariant: it may compare
+//     only a completed planning job's outputs, never steps, env, job or a
+//     function over them. GitHub evaluates a step's if at that step's time,
+//     so the same text can be false when the check is evaluated (the check
+//     has no outcome yet) and true when the push is evaluated (the check is
+//     skipped). Restricting the condition to completed planning-job outputs
+//     makes both evaluations the same. Neither the check step nor the tag
+//     push sets the continue-on-error key: GitHub evaluates that key as a
+//     value, so an expression such as ${{ fromJSON('true') }} would make a
+//     failed check report success. The checker refuses the key, not a
+//     spelling of its value; release-actions-gated refuses it on the release
+//     job itself.
 //
 // For a push, github.sha is the pushed branch's tip; for a schedule, the
 // latest commit on the default branch; for a workflow_dispatch, the commit of
@@ -97,6 +105,14 @@ func (c *queueChecker) checkReleaseTagBoundary() {
 	}
 	tagIdx := tagSteps[0]
 	tagIf := strings.TrimSpace(stepIfText(steps[tagIdx]))
+	needs, _ := needsList(job)
+	if why := tagGateFault(tagIf, needs); why != "" {
+		c.emit(QueueRuleReleaseTagBoundary, rel.Workflow, rel.Job, violation(
+			"the check step and the tag push run under a condition that can mean different things at the two steps: "+why,
+			"the push runs only after the check succeeded; a condition that reads a step outcome, env, job status or a function over them can be false when the check is evaluated and true when the push is evaluated, so the check is skipped and the push is not",
+			rejected,
+			"keep the check and tag push ifs identical and compare only a completed planning job's output, for example `needs.<plan>.outputs.<name> == '<literal>'`; do not read steps, env, job or a function in these conditions. The documented self-reference `... && steps.check-tag.outcome == 'skipped'` is refused because the check step has no outcome when its own condition runs"))
+	}
 	for _, fn := range statusFunctionsIn(tagIf) {
 		c.emit(QueueRuleReleaseTagBoundary, rel.Workflow, rel.Job, violation(
 			"the tag push step "+stepRef(steps[tagIdx])+" has "+fn.Call()+" in its if",
@@ -159,6 +175,46 @@ func (c *queueChecker) checkReleaseTagBoundary() {
 			rejected,
 			"add `git merge-base --is-ancestor \"refs/tags/${"+TemplateEnvTag.String()+"}\" \"${"+runnerEnvSHA+"}\"` between the tag fetch and the tag push, under the tag push's own if"))
 	}
+}
+
+// tagGateComparison matches one whole conjunct of the tag path's condition:
+// a needed job's output compared with a literal. A needed job has completed
+// before the release job starts, so its outputs are fixed for the run; the
+// check step and the tag push evaluate the same comparison to the same value.
+var tagGateComparison = regexp.MustCompile(`(?i)^needs\s*\.\s*([A-Za-z0-9_-]+)\s*\.\s*outputs\s*\.\s*([A-Za-z0-9_-]+)\s*==\s*'[^']*'$`)
+
+// tagGateFault says why the shared check/tag-push condition can evaluate
+// differently at the check step and at the tag push, or "" when it is a
+// conjunction of completed planning-job output comparisons.
+//
+// GitHub evaluates each step's if when that step is about to run, against the
+// contexts of that moment. steps holds only the steps that have already run,
+// so steps.<check>.outcome is absent while the check's own if is evaluated and
+// "skipped" while a later push's if is evaluated. env and job.status move with
+// earlier steps, and a function can wrap either. A condition that reads any
+// of them can therefore skip the check and then satisfy the push. A completed
+// planning job's outputs do not change between the two steps, so a condition
+// built only from those comparisons means the same thing at both.
+func tagGateFault(cond string, needs []string) string {
+	expr := stripIfExpression(cond)
+	if strings.Contains(expr, "||") {
+		return "it holds a disjunction"
+	}
+	conjuncts := splitConjuncts(expr)
+	if len(conjuncts) == 0 || (len(conjuncts) == 1 && conjuncts[0] == "") {
+		return "it is empty"
+	}
+	for _, conjunct := range conjuncts {
+		c := trimOuterParens(conjunct)
+		m := tagGateComparison.FindStringSubmatch(c)
+		if m == nil {
+			return "the conjunct " + quote(conjunct) + " is not a comparison of a completed planning job's output with a literal; it can read a step outcome, env, job status or a function over them, which changes between the check and the push"
+		}
+		if !slices.Contains(needs, m[1]) {
+			return "the conjunct " + quote(conjunct) + " reads needs." + m[1] + ", which is not a job this release job needs"
+		}
+	}
+	return ""
 }
 
 // checkReleaseTagTriggers holds the release job's workflow to the events

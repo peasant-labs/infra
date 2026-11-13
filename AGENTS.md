@@ -198,7 +198,11 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   as one conjunct. Between the tag fetch and the tag push, the
   `check-tag-ancestor` plumbing template runs `git merge-base --is-ancestor
   "refs/tags/${TAG}" "${GITHUB_SHA}"` under the push's own `if`; the push's
-  `if` calls no status function, so a failed check skips it. A repository
+  `if` calls no status function, so a failed check skips it. The check and
+  push share one `if`, and it may compare only a completed planning job's
+  outputs: it may not read `steps`, `env`, `job` or a function, because GitHub
+  evaluates each step's `if` at that step's own time and the same text can
+  skip the check and then run the push. A repository
   ruleset that lets only the releaser App create release tags is the operator
   step, and it covers every releasing repository including fairtrade.
 - **A no-`continue-on-error` clause refuses the key, not a value.** The
