@@ -117,7 +117,7 @@ plan (no credential)                    release (credential), needs: [plan]
   read the merge queue, queue-gate        git -c http.extraheader=... push origin "refs/tags/${TAG}:refs/tags/${TAG}"
   upload-artifact release-bundles         git fetch bundles/release.bundle automation/release:automation/release
   outputs: tag, action, push, gate, ...   git -c http.extraheader=... push --force origin automation/release
-                                          gh pr create | edit | merge | close
+                                          gh pr create | edit | merge | close  -- automation/release
 ```
 
 The two jobs run on separate runners, so nothing the first job does (a
@@ -148,14 +148,28 @@ one artifact holding git bundles.
   `permission-pull-requests`), each pinned to a 40-hex commit. No setup action,
   no upload, no reusable workflow, no container.
 - **`credential-jobs-run-no-general-steps`.** Every run step of that job is one
-  plumbing template or one credential template. No service container, no
-  `working-directory`, and every step's env (workflow, job and step) holds only
-  `GH_TOKEN`, `GITHUB_TOKEN`, `APP_TOKEN`, `TAG`, `PR_NUMBER`, `TITLE`, `BODY`,
+  plumbing template or one credential template. The job runs on one literal
+  GitHub-hosted label (`ubuntu-latest`, `ubuntu-24.04`, `ubuntu-22.04`), never
+  an expression (a runner-router output included), `self-hosted`, a label list
+  or a group: a hosted runner is a fresh machine per job. No service container,
+  no `working-directory`, and every step's env (workflow, job and step) holds
+  only `GH_TOKEN`, `GITHUB_TOKEN`, `APP_TOKEN`, `TAG`, `TITLE`, `BODY`,
   `PRERELEASE` and `LATEST`. Every `needs.<job>` it reads is in its `needs:`,
   and every artifact it downloads is uploaded by a job in its `needs:`.
 - **`credential-steps-run-one-template`.** A step that receives a credential
   runs exactly one credential template, on the job's own bot branch from the
   release config.
+- **`tag-publish-verifies-the-tag`.** In every workflow that runs on pushed
+  tags, every job that can publish (`contents: write` or `id-token: write`)
+  needs a job without a credential that runs
+  `release-intent verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"`
+  (`DEFAULT_BRANCH` mapped from `${{ github.event.repository.default_branch }}`),
+  in a step with no `if` and no `continue-on-error`. The publish job's `if`
+  carries no `always()`, `cancelled()` or `failure()`. `verify-tag` exits 0 only
+  when the tag is the release prefix plus an X.Y.Z version and the default
+  branch reaches its commit, reading the release config from that branch. A tag
+  push needs only a write to `refs/tags/`, so nothing publishes a tag the tool
+  has not checked.
 
 | plumbing template (no credential) | command |
 |---|---|
@@ -167,8 +181,8 @@ one artifact holding git bundles.
 | `push-own-branch` | `git [-c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}"] push [--force-with-lease\|--force] [--no-verify] origin <own bot branch \| HEAD:<own bot branch>>` |
 | `push-release-tag` (release job) | `git [-c http.extraheader=...] push origin "refs/tags/${TAG}:refs/tags/${TAG}"` |
 | `pr-create` | `gh pr create --head <own bot branch> [--base <branch>] [--title <text>] [--body <text>]` |
-| `pr-edit`, `pr-close` | `gh pr edit\|close [--title\|--body\|--comment <text>] <own PR>` |
-| `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) <own PR>`; in the release job only in the arm and hold steps |
+| `pr-edit`, `pr-close` | `gh pr edit\|close [--title\|--body\|--comment <text>] [--] <own bot branch>` |
+| `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) [--] <own bot branch>`; in the release job only in the arm and hold steps |
 | `merge-queue-read` | `gh api graphql [-F name=literal]... -f query='<a mergeQueue query>' [> file]` |
 | `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`, and `create` passes `--verify-tag` |
 
@@ -180,9 +194,9 @@ The variable parts are typed:
   `"$GITHUB_REF_NAME"`. The tag refspec is written on both sides: git splits a
   refspec at its last `:`, so a `:` in `TAG` leaves a source that names no ref
   and the push fails, instead of retargeting it.
-- `<own PR>` is the own bot branch, a literal number, or `-- "${PR_NUMBER}"`,
-  mapped from one step output or one output of a needed job. The `--` keeps gh
-  from reading a value that starts with `-` as a flag.
+- A PR is named by the job's own bot branch, never by a number: a number from
+  the planning job's outputs could name any PR, and the App token would then
+  retitle, arm, disarm or close it.
 - `<text>` is literal, or double-quoted env names that carry no credential,
   such as `"${TITLE}"`.
 
@@ -194,3 +208,12 @@ refused.
 
 Bot branches sit under `automation/`, which the release config enforces, so no
 bot branch can name the default branch.
+
+**What the bot PRs may contain.** The release and cut-release branches are
+built by the job without a credential and land unreviewed, so `check-title`
+judges each bot PR by what that bot writes. The release PR may change only the
+changelog and the protected field of each version file; any other path, or
+any other change inside a version file, is `release-content-scope`. The
+cut-release PR is one empty commit and may change no path. A path in
+`protected_paths` is release content for no PR: unlist it in a reviewed config
+change before editing it.

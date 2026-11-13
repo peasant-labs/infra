@@ -184,7 +184,9 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   or by letting a general step back into the credential job: add a typed
   template, and say in the PR why the existing ones do not fit. The README's
   "What a consumer workflow may do with a credential" is the consumer-facing
-  summary; keep it in step.
+  summary; keep it in step. A credential job runs on a literal
+  `policy.AllRunnerLabels` label and names its PR by its bot branch; a
+  tag-triggered publish job needs the job that runs `verify-tag`.
 - Test cases live in `testdata/*.yaml` corpora with required-name manifests,
   not inline tables.
 
