@@ -185,8 +185,15 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   template, and say in the PR why the existing ones do not fit. The README's
   "What a consumer workflow may do with a credential" is the consumer-facing
   summary; keep it in step. A credential job runs on a literal
-  `policy.AllRunnerLabels` label and names its PR by its bot branch; a
-  tag-triggered publish job needs the job that runs `verify-tag`.
+  `policy.AllRunnerLabels` label and names its PR by its bot branch. A
+  tag-triggered publish job needs a tag-verify job, confined the same way: only
+  the `policy.AllVerifySteps` shapes, `policy.AllVerifyActions` with
+  `policy.AllVerifyInputs`, and `policy.AllVerifyEnvs` at their fixed values.
+- **Read a run step that must be exactly one command through
+  `singleCommand`** (`credential_command.go`). The credential templates, the
+  plumbing templates, the pre-tag checks and the tag-verify job all use it. Do
+  not add another way to read a run block for a step whose exit status or
+  effect the policy depends on.
 - Test cases live in `testdata/*.yaml` corpora with required-name manifests,
   not inline tables.
 
