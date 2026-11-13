@@ -228,14 +228,22 @@ one artifact holding git bundles.
     that branch's copy of the workflow.
   - After fetching the tag from its bundle and before pushing it, a
     `check-tag-ancestor` step runs `git merge-base --is-ancestor
-    "refs/tags/${TAG}" "${GITHUB_SHA}"` under the tag push's own `if`. Neither
-    the check step, the tag push, nor the release job may set the
-    `continue-on-error` key at all: GitHub evaluates the key as a value, so an
-    expression such as `${{ fromJSON('true') }}` would make a failed check
-    report success. The tag push's `if` calls no status function, so a failed
-    check skips the push through GitHub's implicit `success()` check instead
-    of being overridden by `always()`, `failure()`, `cancelled()` or
-    `success()`.
+    "refs/tags/${TAG}" "${GITHUB_SHA}"` under the tag push's own `if`. The
+    check and the push use the same `if`, and that condition may compare only
+    a completed planning job's outputs (for example
+    `needs.plan.outputs.tag-action == 'tag'`). It may not read `steps`, `env`,
+    `job` or a function: GitHub evaluates each step's `if` at that step's own
+    time, so `steps.check-tag.outcome` is absent while the check is evaluated
+    and `skipped` while the push is evaluated. That is how the same text can
+    skip the check and then run the push; the condition is therefore
+    time-invariant, and the push's implicit `success()` check is what makes
+    it run only after the check succeeded. Neither the check step, the tag
+    push, nor the release job may set the `continue-on-error` key at any
+    value: GitHub evaluates the key as a value, so an expression such as
+    `${{ fromJSON('true') }}` would make a failed check report success. The
+    tag push's `if` calls no status function either, so a failed check skips
+    the push through GitHub's implicit `success()` check instead of being
+    overridden by `always()`, `failure()`, `cancelled()` or `success()`.
 
   For a `push`, `github.sha` is the pushed branch's tip; for a `schedule`, the
   latest commit on the default branch; for a `workflow_dispatch`, the commit

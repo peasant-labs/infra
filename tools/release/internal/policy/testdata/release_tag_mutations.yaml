@@ -39,6 +39,13 @@ required_names:
   - tag-if-uppercase-success
   - tag-if-whitespace-success
   - tag-continue-on-error
+  - accept-planner-gate
+  - accept-extra-gate-conjunct
+  - accept-guard-without-id
+  - self-reference-both
+  - push-only-guard-outcome
+  - guard-id-mismatch
+  - dynamic-index-both
 cases:
   - name: unmodified
     find: "      - id: check-tag\n"
@@ -171,4 +178,46 @@ cases:
     replace: "      - id: tag\n        continue-on-error: true\n"
     rules: ["release-tag-checked-before-push", "release-actions-gated"]
     want_contains: ["sets continue-on-error"]
+    sibling: "unmodified"
+  - name: accept-planner-gate
+    find: "      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-extra-gate-conjunct
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: check-tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && needs.plan.outputs.proceed == 'true'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && needs.plan.outputs.proceed == 'true'\"\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-guard-without-id
+    find: "      - id: check-tag\n"
+    replace: "      - name: Check the release tag is on the run's commit\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: self-reference-both
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: check-tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps.check-tag.outcome == 'skipped'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps.check-tag.outcome == 'skipped'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["can mean different things at the two steps", "not a comparison"]
+    sibling: "unmodified"
+  - name: push-only-guard-outcome
+    find: "      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps.check-tag.outcome == 'skipped'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["not a comparison"]
+    sibling: "unmodified"
+  - name: guard-id-mismatch
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: check-tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps.other-step.outcome == 'success'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps.other-step.outcome == 'success'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["not a comparison"]
+    sibling: "unmodified"
+  - name: dynamic-index-both
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: check-tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps['check-tag'].outcome == 'skipped'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps['check-tag'].outcome == 'skipped'\"\n"
+    rules: ["release-tag-checked-before-push", "credentials-stay-in-listed-jobs", "credential-steps-run-one-template"]
+    want_contains: ["not a comparison", "reads the whole steps context"]
     sibling: "unmodified"
