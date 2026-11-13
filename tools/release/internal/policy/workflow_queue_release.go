@@ -546,11 +546,15 @@ func (r *releaseChecker) checkPushOutputs() {
 }
 
 // checkContinueOnError (clause 7) forbids the continue-on-error key on every
-// step the earlier clauses flag: a masked failure would make outcome lie to
-// the verdict. The key is refused whatever its value, because GitHub
-// evaluates it as a value and the documented fromJSON form can make it true
-// at run time.
+// step the earlier clauses flag and on the release job itself: a masked
+// failure would make outcome lie to the verdict. The key is refused whatever
+// its value, because GitHub evaluates it as a value and the documented
+// fromJSON form can make it true at run time.
 func (r *releaseChecker) checkContinueOnError() {
+	if hasContinueOnError(r.job) {
+		r.c.emit(QueueRuleReleaseActions, r.workflow, r.jobName,
+			"jobs."+r.jobName+" sets continue-on-error during merge-queue policy validation. Drop the key so a failed write, check, or tag fails the run; GitHub evaluates it as a value, and an expression such as ${{ fromJSON('true') }} makes it true")
+	}
 	for i, step := range r.steps {
 		if !r.flagged[i] {
 			continue

@@ -100,14 +100,14 @@ cases:
     workflow: "release-batch.yml"
     find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
     replace: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n    continue-on-error: ${{ fromJSON('true') }}\n"
-    rules: ["release-tag-checked-before-push"]
+    rules: ["release-actions-gated"]
     want_contains: ["jobs.release sets continue-on-error"]
     sibling: "unmodified-release-batch"
   - name: release-job-continue-literal-false
     workflow: "release-batch.yml"
     find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
     replace: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n    continue-on-error: false\n"
-    rules: ["release-tag-checked-before-push"]
+    rules: ["release-actions-gated"]
     want_contains: ["jobs.release sets continue-on-error"]
     sibling: "unmodified-release-batch"
   - name: pretag-continue-fromjson-true

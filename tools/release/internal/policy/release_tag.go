@@ -31,11 +31,11 @@ import (
 //     the tag push's own if. The tag push's if carries no status function, so
 //     a failed check skips the push through GitHub's implicit success() check
 //     instead of being overridden by always(), failure(), cancelled() or
-//     success(). Neither the check step, the tag push, nor the release job
-//     sets the continue-on-error key: GitHub evaluates that key as a value,
-//     so an expression such as ${{ fromJSON('true') }} would make a failed
-//     check report success. The checker refuses the key, not a spelling of
-//     its value.
+//     success(). Neither the check step nor the tag push sets the
+//     continue-on-error key: GitHub evaluates that key as a value, so an
+//     expression such as ${{ fromJSON('true') }} would make a failed check
+//     report success. The checker refuses the key, not a spelling of its
+//     value; release-actions-gated refuses it on the release job itself.
 //
 // For a push, github.sha is the pushed branch's tip; for a schedule, the
 // latest commit on the default branch; for a workflow_dispatch, the commit of
@@ -187,18 +187,8 @@ func (c *queueChecker) checkReleaseTagTriggers(workflow, job string, doc *yaml.N
 // checkReleaseTagRunRef requires the release job's if to prove the run is on
 // the default branch. The comparison has to be one conjunct of a conjunction:
 // a disjunction, a negation or a second comparison around it opens the job on
-// another ref while the text still contains the comparison. The job also
-// carries no continue-on-error: GitHub evaluates that key as a value, so an
-// expression can make a failed release job report success, and the tag push
-// must fail with the check.
+// another ref while the text still contains the comparison.
 func (c *queueChecker) checkReleaseTagRunRef(workflow, jobName string, job *yaml.Node) {
-	if hasContinueOnError(job) {
-		c.emit(QueueRuleReleaseTagBoundary, workflow, jobName, violation(
-			"jobs."+jobName+" sets continue-on-error",
-			"GitHub evaluates that key as a value, and an expression such as ${{ fromJSON('true') }} makes the key true; a failed release job then reports success",
-			rejected,
-			"drop the continue-on-error key from the release job, whatever its value"))
-	}
 	cond := mappingValue(job, "if")
 	if cond == nil {
 		c.emit(QueueRuleReleaseTagBoundary, workflow, jobName, violation(
