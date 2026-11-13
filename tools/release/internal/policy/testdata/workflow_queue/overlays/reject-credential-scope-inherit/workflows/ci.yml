@@ -1,0 +1,29 @@
+name: CI
+on:
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  lib:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: make lib
+  merge-gate:
+    if: always()
+    needs: [lib]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: echo gate
+  notify:
+    permissions:
+      contents: read
+    uses: peasant-labs/.github/.github/workflows/notify.yml@main
+    secrets: inherit

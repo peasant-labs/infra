@@ -1,0 +1,256 @@
+# Merge-queue policy loader corpus: one inline policy document per case. A
+# must-pass case must load; a must-fail case must fail with every want_contains
+# fragment in the error. These rows are the reject samples for the loader's
+# strict fields and value checks, plus the one accepted shape: a file whose
+# only top-level key is 'queue:'.
+required_names:
+  - strict-unknown-queue-key
+  - strict-unknown-required-key
+  - strict-unknown-release-key
+  - empty-required
+  - required-without-context
+  - required-without-workflow
+  - required-without-job
+  - duplicate-context
+  - release-without-workflow
+  - release-without-job
+  - empty-pre-tag-step
+  - bot-without-kind
+  - bot-with-release-kind
+  - bot-with-ordinary-kind
+  - jobs-key-rejected
+  - no-queue-section
+  - empty-document
+  - queue-only
+cases:
+  - name: strict-unknown-queue-key
+    input:
+      policy: |
+        queue:
+          require: []
+    expected: { want_contains: ["cannot parse"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "typo the queue key so strict fields reject it" }
+
+  - name: strict-unknown-required-key
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard, gare: true }
+    expected: { want_contains: ["cannot parse"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "typo a required entry key so strict fields reject it" }
+
+  - name: strict-unknown-release-key
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          release_job:
+            workflow: release-batch.yml
+            job: release
+            brunch: automation/release
+    expected: { want_contains: ["cannot parse"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "typo a release job key so strict fields reject it" }
+
+  - name: empty-required
+    input:
+      policy: |
+        queue:
+          required: []
+    expected: { want_contains: ["declares no required contexts"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "leave the required list empty" }
+
+  - name: required-without-context
+    input:
+      policy: |
+        queue:
+          required:
+            - { workflow: title-guard.yml, job: title-guard }
+    expected: { want_contains: ["has an empty context"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "drop the context from a required entry" }
+
+  - name: required-without-workflow
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, job: title-guard }
+    expected: { want_contains: ["has an empty workflow"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "drop the workflow from a required entry" }
+
+  - name: required-without-job
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml }
+    expected: { want_contains: ["has an empty job"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "drop the job from a required entry" }
+
+  - name: duplicate-context
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: a.yml, job: title-guard }
+            - { context: title-guard, workflow: b.yml, job: title-guard }
+    expected: { want_contains: ['declares context "title-guard" twice'] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "declare one required context twice" }
+
+  - name: release-without-workflow
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          release_job:
+            job: release
+    expected: { want_contains: ["has an empty workflow"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "drop the workflow from the release job" }
+
+  - name: release-without-job
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          release_job:
+            workflow: release-batch.yml
+    expected: { want_contains: ["has an empty job"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "drop the job from the release job" }
+
+  - name: empty-pre-tag-step
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          release_job:
+            workflow: release-batch.yml
+            job: release
+            pre_tag_steps: [""]
+    expected: { want_contains: ["pre_tag_steps[0] is empty"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "leave a pre-tag step id empty" }
+
+  - name: bot-without-kind
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          bot_jobs:
+            - { workflow: cut-release.yml, job: cut }
+    expected: { want_contains: ["names kind"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "drop the kind from a bot job" }
+
+  - name: bot-with-release-kind
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          bot_jobs:
+            - { workflow: release-batch.yml, job: release, kind: release }
+    expected: { want_contains: ["names kind"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "claim the release kind from a bot job" }
+
+  - name: bot-with-ordinary-kind
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          bot_jobs:
+            - { workflow: ci.yml, job: lib, kind: ordinary }
+    expected: { want_contains: ["names kind"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "claim the ordinary kind from a bot job" }
+
+  - name: jobs-key-rejected
+    input:
+      policy: |
+        jobs:
+          - name: guard
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard, guard: true }
+    expected: { want_contains: ["cannot parse", "field jobs not found"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: requirement, ref: "the queue policy file carries a queue section only; job-graph rules live in the release-guard policy file" }
+    mutation: { description: "add a top-level jobs key, which belongs to the release-guard policy file" }
+
+  - name: no-queue-section
+    input:
+      policy: |
+        {}
+    expected: { want_contains: ["has no 'queue:' section"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: boundary, ref: "a policy file without a queue section checks nothing and must not load" }
+    mutation: { description: "drop the queue section, leaving an empty mapping" }
+
+  - name: empty-document
+    input:
+      policy: "# nothing here\n"
+    expected: { want_contains: ["has no 'queue:' section"] }
+    sibling: queue-only
+    classification: must-fail
+    provenance: { source: boundary, ref: "an empty policy file checks nothing and must not load" }
+    mutation: { description: "leave the file with a comment and no document" }
+
+  - name: queue-only
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard, guard: true }
+          bot_jobs:
+            - { workflow: cut-release.yml, job: cut, kind: cut-release }
+    expected: { want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy loader" }
+    mutation: { description: "a file whose only top-level key is queue loads" }

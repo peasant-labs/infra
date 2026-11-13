@@ -1,0 +1,170 @@
+name: Release batch
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+  schedule:
+    - cron: "7,37 * * * *"
+concurrency:
+  group: release-batch
+  cancel-in-progress: false
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      tag-action: ${{ steps.verdict.outputs.action }}
+      tag: ${{ steps.verdict.outputs.tag }}
+      action: ${{ steps.decide.outputs.action }}
+      push: ${{ steps.write.outputs.push }}
+      number: ${{ steps.find.outputs.number }}
+      gate: ${{ steps.gate.outputs.gate }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: peasant-labs/infra
+          ref: 71e687cef7eede9a63659be98ce9adac3c563398
+          path: infra-tool
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+      - name: Build release-intent
+        working-directory: infra-tool
+        run: |
+          go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - id: plan
+        run: release-intent plan --branch develop --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+      - id: verify-config
+        if: steps.plan.outputs.action == 'verify'
+        run: release-intent check-config
+      - id: verify-workflows
+        if: "!cancelled() && steps.plan.outputs.action == 'verify'"
+        run: release-intent check-workflows --dir workflows
+      - id: verdict
+        if: "!cancelled() && steps.plan.outputs.action == 'verify'"
+        run: release-intent plan --branch develop --verdict ${{ (steps.verify-config.outcome == 'success' && steps.verify-workflows.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+      - id: annotate
+        if: "!cancelled() && steps.verdict.outputs.action == 'tag'"
+        env:
+          TAG: ${{ steps.verdict.outputs.tag }}
+          CANDIDATE: ${{ steps.verdict.outputs.candidate }}
+        run: |
+          mkdir -p bundles
+          git tag -a "${TAG}" "${CANDIDATE}" -m "release: ${TAG}"
+          git bundle create bundles/tag.bundle "refs/tags/${TAG}"
+      - id: decide
+        if: "!cancelled()"
+        run: release-intent plan --branch develop --verdict ${{ (steps.verify-config.outcome == 'success' && steps.verify-workflows.outcome == 'success') && 'taggable' || 'rejected' }} --mode "${{ vars.RELEASE_BATCH_MODE }}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+      - id: write
+        if: "!cancelled() && steps.decide.outputs.action == 'open-pr'"
+        run: release-intent release-pr --branch develop --current automation/release --write --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+      - id: bundle
+        if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push == 'true'"
+        run: |
+          mkdir -p bundles
+          git bundle create bundles/release.bundle refs/heads/automation/release
+      - id: find
+        if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "number=$(gh pr list --head automation/release --state open --json number --jq '.[0].number // empty')" >> "$GITHUB_OUTPUT"
+      - id: queue
+        if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api graphql -F owner='{owner}' -F repo='{repo}' -F branch=develop -f query='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){totalCount nodes{position pullRequest{number title}}}}}}}' > queue.json
+      - id: gate
+        if: "!cancelled() && steps.decide.outputs.action == 'open-pr' && steps.write.outputs.push"
+        run: release-intent queue-gate --queue queue.json --release-pr 7
+      - id: handoff
+        if: "!cancelled()"
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-bundles
+          path: bundles
+          if-no-files-found: ignore
+  release:
+    needs: [plan]
+    runs-on: ubuntu-latest
+    if: "!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-bundles
+          path: bundles
+      - id: mint
+        if: vars.RELEASE_BATCH_MODE == 'tag'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          app-id: ${{ vars.RELEASER_APP_ID }}
+          private-key: ${{ secrets.RELEASER_APP_KEY }}
+      - id: fetch-tag
+        if: "!cancelled() && needs.plan.outputs.tag-action == 'tag'"
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: git fetch --no-tags bundles/tag.bundle "refs/tags/${TAG}:refs/tags/${TAG}"
+      - id: check-tag
+        if: needs.plan.outputs.tag-action == 'tag'
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: git merge-base --is-ancestor "refs/tags/${TAG}" "${GITHUB_SHA}"
+      - id: tag
+        if: needs.plan.outputs.tag-action == 'tag'
+        env:
+          APP_TOKEN: ${{ steps.mint.outputs.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push origin "refs/tags/${TAG}:refs/tags/${TAG}"
+      - id: fetch-branch
+        if: "!cancelled() && needs.plan.outputs.action == 'open-pr' && needs.plan.outputs.push == 'true'"
+        run: git fetch --no-tags bundles/release.bundle automation/release:automation/release
+      - id: push
+        if: "!cancelled() && needs.plan.outputs.action == 'open-pr' && needs.plan.outputs.push == 'true'"
+        env:
+          APP_TOKEN: ${{ steps.mint.outputs.token }}
+        run: |
+          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push --force-with-lease origin automation/release
+      - id: open
+        if: "!cancelled() && needs.plan.outputs.action == 'open-pr' && needs.plan.outputs.push && needs.plan.outputs.number == ''"
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+          TITLE: "release[minor]: v0.2.0"
+        run: gh pr create --head automation/release --base develop --title "${TITLE}" --body "bot"
+      - id: edit
+        if: "!cancelled() && needs.plan.outputs.action == 'open-pr' && needs.plan.outputs.push && needs.plan.outputs.number != ''"
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+          TITLE: "release[minor]: v0.2.0"
+        run: gh pr edit --title "${TITLE}" --body "bot" -- automation/release
+      - id: arm
+        if: "!cancelled() && needs.plan.outputs.gate == 'arm'"
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+        run: gh pr merge --auto --squash -- automation/release
+      - id: hold
+        if: "!cancelled() && needs.plan.outputs.gate == 'hold'"
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+        run: gh pr merge --disable-auto -- automation/release
+      - id: close
+        if: "!cancelled() && needs.plan.outputs.action == 'close-pr'"
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+        run: gh pr close automation/release

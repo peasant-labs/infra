@@ -1,0 +1,58 @@
+# Output-line corpus: rows of intent.ParseOutputLine, the inverse of
+# intent.OutputKey.Line. An accept row names the typed key and the value; a
+# reject row is a line no key can be read from.
+required_names:
+  - key-and-value
+  - empty-value
+  - value-holding-the-separator
+  - no-separator
+  - unknown-key
+  - empty-key
+  - padded-key
+cases:
+  - name: key-and-value
+    input: {line: "action=open-pr"}
+    expected: {key: "action", value: "open-pr"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "output lines: a line is a key, the separator, then the value"}
+    mutation: {description: "a plan action line"}
+  - name: empty-value
+    input: {line: "error="}
+    expected: {key: "error", value: ""}
+    classification: must-pass
+    provenance: {source: requirement, ref: "output lines: a key may carry an empty value"}
+    mutation: {description: "a line that reports no error"}
+  - name: value-holding-the-separator
+    input: {line: "tag=v=1"}
+    expected: {key: "tag", value: "v=1"}
+    classification: must-pass
+    provenance: {source: boundary, ref: "output lines: only the first separator splits the line"}
+    mutation: {description: "put the separator inside the value"}
+  - name: no-separator
+    input: {line: "action"}
+    expected: {}
+    classification: must-fail
+    sibling: key-and-value
+    provenance: {source: boundary, ref: "output lines: a line with no separator carries no value"}
+    mutation: {description: "dropped the separator and the value"}
+  - name: unknown-key
+    input: {line: "actions=open-pr"}
+    expected: {}
+    classification: must-fail
+    sibling: key-and-value
+    provenance: {source: boundary, ref: "output lines: a key outside the closed set is refused"}
+    mutation: {description: "misspelled the key"}
+  - name: empty-key
+    input: {line: "=open-pr"}
+    expected: {}
+    classification: must-fail
+    sibling: key-and-value
+    provenance: {source: boundary, ref: "output lines: the empty string is no key"}
+    mutation: {description: "dropped the key"}
+  - name: padded-key
+    input: {line: "action =open-pr"}
+    expected: {}
+    classification: must-fail
+    sibling: key-and-value
+    provenance: {source: boundary, ref: "output lines: spelling is exact, so a padded key is refused"}
+    mutation: {description: "put a space after the key"}

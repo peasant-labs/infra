@@ -1,0 +1,60 @@
+# Cases for the checker's shell-word splitter, which reads flag values in one
+# command line. words is the split with quotes kept; bare is the same words
+# with delimiting quotes removed, the form the PR rules read. Whole run blocks
+# (separators, substitutions, here-documents) are lexed by the shell lexer and
+# covered by shell_commands.yaml.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - plain-words
+  - double-quoted-span
+  - single-quoted-span
+  - unquoted-expression
+  - quoted-expression
+  - expression-inside-word
+  - unterminated-expression
+  - newline-and-tab
+  - quoted-refspec
+  - flags-and-values
+cases:
+  - name: plain-words
+    input: "origin HEAD:automation/release"
+    words: ["origin", "HEAD:automation/release"]
+    bare: ["origin", "HEAD:automation/release"]
+  - name: double-quoted-span
+    input: '--title "a b" x'
+    words: ["--title", '"a b"', "x"]
+    bare: ["--title", "a b", "x"]
+  - name: single-quoted-span
+    input: "--match 'v* x' y"
+    words: ["--match", "'v* x'", "y"]
+    bare: ["--match", "v* x", "y"]
+  - name: unquoted-expression
+    input: "origin ${{ steps.plan.outputs.branch }}"
+    words: ["origin", "${{ steps.plan.outputs.branch }}"]
+    bare: ["origin", "${{ steps.plan.outputs.branch }}"]
+  - name: quoted-expression
+    input: '--floor "${{ vars.RELEASE_BATCH_FLOOR }}" next'
+    words: ["--floor", '"${{ vars.RELEASE_BATCH_FLOOR }}"', "next"]
+    bare: ["--floor", "${{ vars.RELEASE_BATCH_FLOOR }}", "next"]
+  - name: expression-inside-word
+    input: "origin HEAD:refs/heads/${{ env.BRANCH }} tail"
+    words: ["origin", "HEAD:refs/heads/${{ env.BRANCH }}", "tail"]
+    bare: ["origin", "HEAD:refs/heads/${{ env.BRANCH }}", "tail"]
+  - name: unterminated-expression
+    input: "origin ${{ never closed"
+    words: ["origin", "${{ never closed"]
+    bare: ["origin", "${{ never closed"]
+  - name: newline-and-tab
+    input: "a\tb\nc"
+    words: ["a", "b", "c"]
+    bare: ["a", "b", "c"]
+  - name: quoted-refspec
+    input: 'origin "HEAD:automation/release"'
+    words: ["origin", '"HEAD:automation/release"']
+    bare: ["origin", "HEAD:automation/release"]
+  - name: flags-and-values
+    input: "--force-with-lease --repo o/r origin HEAD:automation/cut-release"
+    words: ["--force-with-lease", "--repo", "o/r", "origin", "HEAD:automation/cut-release"]
+    bare: ["--force-with-lease", "--repo", "o/r", "origin", "HEAD:automation/cut-release"]

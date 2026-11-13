@@ -11,6 +11,7 @@ deploys through belongs here rather than in a personal repository.
 | Reusable CI | `.github/workflows/runner-router*.yml` | every routed repository |
 | Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the NixOS runner module, every routed job |
 | Runner pool module | `modules/nixos/`, `flake.nix` | any host that imports `nixosModules.default` |
+| Release tool | `tools/release/`, `.github/workflows/release-tool.yml` | every repository that releases through the merge queue |
 
 ## Cloud control plane
 
@@ -158,9 +159,71 @@ Run them inside a transient systemd unit (`systemd-run --user --wait --collect
 The unit's cgroup is the cleanup boundary: a parent death cannot leave load
 generators running on a pool host.
 
+## The release tool
+
+`tools/release` is a separate Go module that builds `release-intent`: the
+title grammar, version arithmetic, release planning, and the merge-queue
+workflow policy checker. Consumers check out this repository at a full commit
+SHA and build `./tools/release/cmd/release-intent`; they never import it.
+
+- **Every commit on `main` is a possible pin.** Keep the module building and
+  its tests green on each one; `release-tool.yml` has no path filter so it can
+  be a required check.
+- **The module depends on no other `peasant-labs` module.** Its test support
+  lives in `tools/release/internal/testcase`.
+- **The queue policy file is `.github/release-queue.policy.yml`, top-level key
+  `queue:` only.** `policy.DefaultPath` owns that path. Job-graph rules for a
+  tag-triggered release workflow stay in schema's release-guard and its own
+  policy file; do not define a rule in both.
+- **The workflow checker confines credentials; it does not read shell.** A
+  job that may hold a credential runs only `policy.AllAllowedActions`, the
+  plumbing templates (`policy.AllPlumbingTemplates`) and the credential
+  templates (`policy.AllCredentialTemplates`); all other work runs in an
+  earlier job without a credential and hands over through job outputs and an
+  artifact. Never widen it by teaching a reader another spelling of a write,
+  or by letting a general step back into the credential job: add a typed
+  template, and say in the PR why the existing ones do not fit. The README's
+  "What a consumer workflow may do with a credential" is the consumer-facing
+  summary; keep it in step. A credential job runs on a literal
+  `policy.AllRunnerLabels` label and names its PR by its bot branch. A
+  tag-triggered publish job needs a tag-verify job, confined the same way: only
+  the `policy.AllVerifySteps` shapes, `policy.AllVerifyActions` with
+  `policy.AllVerifyInputs`, and `policy.AllVerifyEnvs` at their fixed values.
+  A tag-triggered publish job's `if` calls no status function and reads no
+  `needs.<job>.result`, and the tag-verify job carries no job-level `if`.
+- **A release tag is checked before it leaves the release job.** The release
+  workflow triggers only on push, schedule and workflow_dispatch, and the
+  release job's `if` proves the run is on the default branch with
+  `github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`
+  as one conjunct. Between the tag fetch and the tag push, the
+  `check-tag-ancestor` plumbing template runs `git merge-base --is-ancestor
+  "refs/tags/${TAG}" "${GITHUB_SHA}"` under the push's own `if`; the push's
+  `if` calls no status function, so a failed check skips it. The check and
+  push share one `if`, and it may compare only a completed planning job's
+  outputs: it may not read `steps`, `env`, `job` or a function, because GitHub
+  evaluates each step's `if` at that step's own time and the same text can
+  skip the check and then run the push. A repository
+  ruleset that lets only the releaser App create release tags is the operator
+  step, and it covers every releasing repository including fairtrade.
+- **A no-`continue-on-error` clause refuses the key, not a value.** The
+  title-guard job and its steps, every step `release-actions-gated` gates, the
+  tag-verify job, and the tag path (the ancestry check, the tag push and the
+  release job) refuse the `continue-on-error` key whatever its value. GitHub
+  evaluates the key as a value, and the documented
+  `continue-on-error: ${{ fromJSON('true') }}` form makes a failed check or
+  job report success, so a literal comparison would be a bypass.
+- **Read a run step that must be exactly one command through
+  `singleCommand`** (`credential_command.go`). The credential templates, the
+  plumbing templates, the pre-tag checks and the tag-verify job all use it. Do
+  not add another way to read a run block for a step whose exit status or
+  effect the policy depends on.
+- Test cases live in `testdata/*.yaml` corpora with required-name manifests,
+  not inline tables.
+
 ## Validation
 
 - `make check` for anything under `stacks/` or `modules/`.
+- `make release-tool-check` for anything under `tools/release/`.
 - `actionlint` for any workflow change.
 - For an image change, actually build the Containerfile and assert the tool you
   added is present in the result. A pin that resolves in the apt index is not the

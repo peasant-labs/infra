@@ -14,6 +14,7 @@ input, or deploys through lives here.
 | Reusable CI | `.github/workflows/runner-router.yml` | the single source of truth for routing jobs to the self-hosted runner pool |
 | Container images | `runner-image/`, `.github/workflows/runner-image.yml` | the `quay.io/peasant-labs/github-runner` recipe, its publishing, and its keyless signing |
 | Runner pool module | `modules/nixos/`, `flake.nix` | run your own pool by importing `nixosModules.default` |
+| Release tool | `tools/release/` | the `release-intent` CLI that plans and checks merge-queue releases in every repository |
 
 ## Running your own pool
 
@@ -72,3 +73,249 @@ jobs:
 
 Never inline a runner-availability probe. See `AGENTS.md` for the full
 invariants and the image trust model.
+
+## The release tool
+
+`tools/release` is its own Go module
+(`github.com/peasant-labs/infra/tools/release`). It builds `release-intent`,
+the CLI each repository's workflows run to check PR titles, plan the next
+version, write release content, and check the repository's workflows against
+its merge-queue policy (`.github/release-queue.policy.yml`).
+
+A repository does not import the module. Its workflows check out this
+repository at a full commit SHA and build the command from that checkout:
+
+```yaml
+- uses: actions/checkout@<sha>
+  with:
+    repository: peasant-labs/infra
+    ref: <40-hex infra commit>
+    path: infra-tool
+- run: go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
+  working-directory: infra-tool
+```
+
+Run its checks with `make release-tool-check` (gofmt, build, vet, test). The
+`Release tool` workflow runs the same steps on every pull request.
+
+### What a consumer workflow may do with a credential
+
+`release-intent check-workflows` does not try to read every way a shell can
+write a ref. It confines the credentials instead, and rejects anything it does
+not list.
+
+**Every release, bot and publish job is two jobs.** A job without a
+credential does the work. A job with the credential only pushes or calls
+`gh`, and takes everything it pushes from the first job:
+
+```
+plan (no credential)                    release (credential), needs: [plan]
+  build release-intent, plan, verify      checkout          persist-credentials: false
+  release-pr --write, commit              download-artifact name: release-bundles, path: bundles
+  git tag -a <tag>                        create-github-app-token
+  git bundle create bundles/*.bundle      git fetch bundles/tag.bundle "refs/tags/${TAG}:refs/tags/${TAG}"
+  read the merge queue, queue-gate        git -c http.extraheader=... push origin "refs/tags/${TAG}:refs/tags/${TAG}"
+  upload-artifact release-bundles         git fetch bundles/release.bundle automation/release:automation/release
+  outputs: tag, action, push, gate, ...   git -c http.extraheader=... push --force origin automation/release
+                                          gh pr create | edit | merge | close  -- automation/release
+```
+
+The two jobs run on separate runners, so nothing the first job does (a
+`$GITHUB_ENV` or `$GITHUB_PATH` entry, a git config or hook, a rewritten
+action) can reach the job that holds the credential. The handoff is job
+outputs, read into the step env (`TAG: ${{ needs.plan.outputs.tag }}`), and
+one artifact holding git bundles.
+
+**The rules:**
+
+- **`default-token-read-only`.** Every workflow and every job declares
+  `permissions:`. Every scope is `read` or `none`, except `id-token: write`
+  (OIDC publishing) anywhere, and `contents: write` only in the workflow that
+  runs on nothing but a pushed release tag. Every `actions/checkout` sets
+  `persist-credentials: false`.
+- **`credentials-stay-in-listed-jobs`.** A credential is the App token that
+  `actions/create-github-app-token` mints (and every output of that step), the
+  secrets a mint step reads, and the default token where it may write. Only the
+  policy's release job, its bot jobs and the tag-triggered publish jobs may
+  mint or read one, and there only in the mint step's inputs and in the
+  step-level `env:` of a run step, under `GH_TOKEN`, `GITHUB_TOKEN` or
+  `APP_TOKEN`.
+- **`credential-jobs-use-pinned-actions`.** A job that may hold a credential
+  uses only `actions/checkout` (`persist-credentials`, `fetch-depth`,
+  `fetch-tags`), `actions/download-artifact` (`name`, and `path` set to a
+  literal subdirectory) and `actions/create-github-app-token` (`app-id`,
+  `client-id`, `private-key`, `owner`, `repositories`, `permission-contents`,
+  `permission-pull-requests`), each pinned to a 40-hex commit. No setup action,
+  no upload, no reusable workflow, no container.
+- **`credential-jobs-run-no-general-steps`.** Every run step of that job is one
+  plumbing template or one credential template. The job runs on one literal
+  GitHub-hosted label (`ubuntu-latest`, `ubuntu-24.04`, `ubuntu-22.04`), never
+  an expression (a runner-router output included), `self-hosted`, a label list
+  or a group: a hosted runner is a fresh machine per job. No service container,
+  no `working-directory`, and every step's env (workflow, job and step) holds
+  only `GH_TOKEN`, `GITHUB_TOKEN`, `APP_TOKEN`, `TAG`, `TITLE`, `BODY`,
+  `PRERELEASE` and `LATEST`. Every `needs.<job>` it reads is in its `needs:`,
+  and every artifact it downloads is uploaded by a job in its `needs:`.
+- **`credential-steps-run-one-template`.** A step that receives a credential
+  runs exactly one credential template, on the job's own bot branch from the
+  release config.
+- **`tag-publish-verifies-the-tag`.** In every workflow that runs on pushed
+  tags, every job that can publish (`contents: write` or `id-token: write`)
+  needs a **tag-verify job**, and its `if` calls no status function
+  (`success()`, `failure()`, `always()` or `cancelled()`, in any case and with
+  any spacing before the `(`) and reads no `needs.<job>.result`. GitHub adds
+  its implicit `success()` check only when the expression calls no status
+  function, so those are the spellings that would run the publish job after a
+  failed or skipped verify job. `verify-tag` exits 0 only when the tag is the
+  release prefix plus an X.Y.Z version and the default branch reaches its
+  commit, reading the release config from that branch. A tag push needs only a
+  write to `refs/tags/`, so nothing publishes a tag the tool has not checked.
+
+  The tag-verify job's success is the verdict on the tag, so it is confined
+  the way a credential job is. It holds no credential and no write, runs on
+  one literal GitHub-hosted label, carries no job-level `if` (a skipped verify
+  job must skip every job that needs it), and runs only these steps:
+
+  | step | shape |
+  |---|---|
+  | `repo-checkout` | `actions/checkout@<40-hex>` with `persist-credentials: false` and optionally `fetch-depth`, `fetch-tags` |
+  | `tool-checkout` | `actions/checkout@<40-hex>` with `repository: peasant-labs/infra`, `ref: <40-hex>`, `path: <dir>`, `persist-credentials: false`, and optionally `sparse-checkout` |
+  | `setup-go` | `actions/setup-go@<40-hex>` with `go-version-file: <dir>/tools/release/go.mod` and `cache: false` |
+  | `build` | `go build -C <dir>/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent`, with `GOWORK: "off"` |
+  | `verify` | `"${RUNNER_TEMP}/release-intent" verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"` (`--branch` may also be `"${DEFAULT_BRANCH}"` or `"refs/remotes/origin/${DEFAULT_BRANCH}"`) |
+
+  Every input is a literal. The env (workflow, job and step) holds only
+  `DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}` and
+  `GOWORK: "off"`. No step sets `shell`, `working-directory`, `if` or the
+  `continue-on-error` key, and the job sets no `defaults`, `container`,
+  `services`, `strategy` or the `continue-on-error` key. The workflow sets no
+  `defaults` either. Each run step is exactly one command, read by the same
+  reader as a credential step, so the step exits with the command's status.
+
+  The policy refuses the `continue-on-error` **key**, not a spelling of its
+  value: GitHub evaluates the key as a value, and the documented
+  `continue-on-error: ${{ fromJSON('true') }}` form makes it true at run time.
+  A literal-only comparison would be a bypass, so an absent key is the only
+  shape the checker accepts wherever this or another rule says
+  "no `continue-on-error`".
+
+  Each limit closes one way the job could succeed without the tool's yes:
+  - The single-command reading refuses `|| true`, `; exit 0`, `| cat`, a
+    second line, `set +e`, `& wait` and a custom shell such as `bash {0}`.
+  - The tool runs by its absolute path, and the env refuses `PATH`, so neither
+    a `PATH` entry nor a stub on `PATH` can answer in its place.
+  - `GOWORK=off` stops a `go.work` file in the tag's checkout, which sits in a
+    parent directory of the tool, from replacing the tool's modules.
+  - `cache: false` keeps setup-go from restoring a build cache written by
+    another run.
+  - The env refuses `BASH_ENV`, `GOFLAGS`, `GOTOOLCHAIN` and `GOPROXY`, each
+    of which can change what runs or what the build compiles.
+
+  The pre-tag checks of `release-actions-gated` are read through the same
+  single-command reader.
+
+- **`release-tag-checked-before-push`.** The release job is the only job that
+  can write a tag, and a tag-triggered workflow runs the workflow files of the
+  tagged commit, so the tag has to be checked before it leaves that job.
+  - The release workflow triggers only on `push`, `schedule` and
+    `workflow_dispatch`: never on a pushed tag, a `workflow_run`, or another
+    event without its own proof for a release job.
+  - The release job's `if` proves the run is on the default branch: the
+    comparison `github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`
+    is one conjunct of a conjunction. A disjunction, a negation, a second
+    comparison, or a literal branch name is refused: the checker cannot prove
+    a literal names the default branch, and a run on another branch executes
+    that branch's copy of the workflow.
+  - After fetching the tag from its bundle and before pushing it, a
+    `check-tag-ancestor` step runs `git merge-base --is-ancestor
+    "refs/tags/${TAG}" "${GITHUB_SHA}"` under the tag push's own `if`. The
+    check and the push use the same `if`, and that condition may compare only
+    a completed planning job's outputs (for example
+    `needs.plan.outputs.tag-action == 'tag'`). It may not read `steps`, `env`,
+    `job` or a function: GitHub evaluates each step's `if` at that step's own
+    time, so `steps.check-tag.outcome` is absent while the check is evaluated
+    and `skipped` while the push is evaluated. That is how the same text can
+    skip the check and then run the push; the condition is therefore
+    time-invariant, and the push's implicit `success()` check is what makes
+    it run only after the check succeeded. Neither the check step, the tag
+    push, nor the release job may set the `continue-on-error` key at any
+    value: GitHub evaluates the key as a value, so an expression such as
+    `${{ fromJSON('true') }}` would make a failed check report success. The
+    tag push's `if` calls no status function either, so a failed check skips
+    the push through GitHub's implicit `success()` check instead of being
+    overridden by `always()`, `failure()`, `cancelled()` or `success()`.
+
+  For a `push`, `github.sha` is the pushed branch's tip; for a `schedule`, the
+  latest commit on the default branch; for a `workflow_dispatch`, the commit
+  of the selected ref. With the job `if` above, each is a default-branch
+  commit, so the check means the tag names a commit that is already on the
+  default branch, or is that commit. A run that executes another branch's copy
+  of the workflow is outside this checked tree: the copy is unreviewed, and no
+  check of the default branch can see it. The release job's repository
+  checkout must keep full history (`fetch-depth: 0`): the check reads the
+  tag's local ancestry, and a shallow checkout fails closed instead of proving
+  anything.
+
+- **Every no-`continue-on-error` clause refuses the key, not a value.** The
+  title-guard job and every step of it, every step `release-actions-gated`
+  gates, the tag-verify job, the tag ancestry check, the tag push and the
+  release job all refuse the `continue-on-error` key whatever its value:
+  GitHub evaluates the key as a value, and the documented
+  `${{ fromJSON('true') }}` form makes a failed check or job report success.
+  Drop the key; a literal `false` is refused too, because the checker cannot
+  tell a literal from an expression it cannot evaluate.
+
+**Release-tag ruleset (maintainer step).** A repository that turns tag mode on
+must restrict release-tag creation to the releaser App with a repository
+ruleset targeting the release tag prefix, whose only bypass actor is that App.
+That includes fairtrade, whose `npm-publish.yml` trusts every tag under its
+prefix. The checker cannot read repository settings, so this is a recorded
+operator step per repository; it does not replace any check above.
+
+| plumbing template (no credential) | command |
+|---|---|
+| `fetch-bundle-branch` | `git fetch [--no-tags] <file>.bundle <own bot branch>:<own bot branch>` |
+| `fetch-bundle-tag` (release job) | `git fetch [--no-tags] <file>.bundle "refs/tags/${TAG}:refs/tags/${TAG}"` |
+| `check-tag-ancestor` (release job) | `git merge-base --is-ancestor "refs/tags/${TAG}" "${GITHUB_SHA}"` |
+
+| credential template | command |
+|---|---|
+| `push-own-branch` | `git [-c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}"] push [--force-with-lease\|--force] [--no-verify] origin <own bot branch \| HEAD:<own bot branch>>` |
+| `push-release-tag` (release job) | `git [-c http.extraheader=...] push origin "refs/tags/${TAG}:refs/tags/${TAG}"` |
+| `pr-create` | `gh pr create --head <own bot branch> [--base <branch>] [--title <text>] [--body <text>]` |
+| `pr-edit`, `pr-close` | `gh pr edit\|close [--title\|--body\|--comment <text>] [--] <own bot branch>` |
+| `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) [--] <own bot branch>`; in the release job only in the arm and hold steps |
+| `merge-queue-read` | `gh api graphql [-F name=literal]... -f query='<a mergeQueue query>' [> file]` |
+| `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`, and `create` passes `--verify-tag` |
+
+The variable parts are typed:
+
+- `TAG` is mapped from the planner's `tag` output: `steps.<plan>.outputs.tag`,
+  or a `needs.<job>.outputs.<name>` that job maps from it. In the publish
+  workflow it is mapped from `${{ github.ref_name }}`, or the command reads
+  `"$GITHUB_REF_NAME"`. The tag refspec is written on both sides: git splits a
+  refspec at its last `:`, so a `:` in `TAG` leaves a source that names no ref
+  and the push fails, instead of retargeting it.
+- A PR is named by the job's own bot branch, never by a number: a number from
+  the planning job's outputs could name any PR, and the App token would then
+  retitle, arm, disarm or close it.
+- `<text>` is literal, or double-quoted env names that carry no credential,
+  such as `"${TITLE}"`.
+
+No run text in such a job holds a `${{ }}` expression: an expression is
+pasted into the script before the shell runs, so a value from the planning job
+could end a quote and add a command. A second line, a separator, a pipe, a
+substitution, a here-document, an interpreter or a repository script is
+refused.
+
+Bot branches sit under `automation/`, which the release config enforces, so no
+bot branch can name the default branch.
+
+**What the bot PRs may contain.** The release and cut-release branches are
+built by the job without a credential and land unreviewed, so `check-title`
+judges each bot PR by what that bot writes. The release PR may change only the
+changelog and the protected field of each version file; any other path, or
+any other change inside a version file, is `release-content-scope`. The
+cut-release PR is one empty commit and may change no path. A path in
+`protected_paths` is release content for no PR: unlist it in a reviewed config
+change before editing it.
