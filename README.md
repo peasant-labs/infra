@@ -212,7 +212,7 @@ one artifact holding git bundles.
   tagged commit, so the tag has to be checked before it leaves that job.
   - The release workflow triggers only on `push`, `schedule` and
     `workflow_dispatch`: never on a pushed tag, a `workflow_run`, or another
-    event whose `github.sha` the job's own condition cannot pin.
+    event without its own proof for a release job.
   - The release job's `if` proves the run is on the default branch: the
     comparison `github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`
     is one conjunct of a conjunction. A disjunction, a negation, a second
@@ -233,7 +233,10 @@ one artifact holding git bundles.
   commit, so the check means the tag names a commit that is already on the
   default branch, or is that commit. A run that executes another branch's copy
   of the workflow is outside this checked tree: the copy is unreviewed, and no
-  check of the default branch can see it.
+  check of the default branch can see it. The release job's repository
+  checkout must keep full history (`fetch-depth: 0`): the check reads the
+  tag's local ancestry, and a shallow checkout fails closed instead of proving
+  anything.
 
 **Release-tag ruleset (maintainer step).** A repository that turns tag mode on
 must restrict release-tag creation to the releaser App with a repository

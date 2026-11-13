@@ -174,7 +174,7 @@ func (c *queueChecker) checkReleaseTagTriggers(workflow, job string, doc *yaml.N
 		}
 		c.emit(QueueRuleReleaseTagBoundary, workflow, job, violation(
 			"the workflow triggers on "+strconv.Quote(t.Name),
-			"only "+eventNames(releaseTagTriggers)+" let the release job's own condition prove github.sha is the default-branch commit",
+			"the release job is supported on "+eventNames(releaseTagTriggers)+" only; a fourth event needs its own proof before it can hold the App credential",
 			rejected,
 			"drop the trigger, or move the work that does not push a tag into its own workflow"))
 	}
