@@ -128,10 +128,14 @@ const (
 	// PlumbingFetchBundleTag fetches the planner's tag from a git bundle
 	// into the local tag of the same name; release job only.
 	PlumbingFetchBundleTag PlumbingTemplate = "fetch-bundle-tag"
+	// PlumbingCheckTagAncestor proves the fetched tag's commit is the run's
+	// commit or an ancestor of it, so a tag pushed from here names a commit
+	// that is already on the branch the run is on; release job only.
+	PlumbingCheckTagAncestor PlumbingTemplate = "check-tag-ancestor"
 )
 
 // AllPlumbingTemplates is the canonical closed set of plumbing templates.
-var AllPlumbingTemplates = []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag}
+var AllPlumbingTemplates = []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag, PlumbingCheckTagAncestor}
 
 func (t PlumbingTemplate) String() string { return string(t) }
 
@@ -153,6 +157,8 @@ func (t PlumbingTemplate) Shape() string {
 		return `git fetch [--no-tags] <file>` + bundleSuffix + ` <own bot branch>:<own bot branch>`
 	case PlumbingFetchBundleTag:
 		return `git fetch [--no-tags] <file>` + bundleSuffix + ` "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}:` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}"`
+	case PlumbingCheckTagAncestor:
+		return `git merge-base --is-ancestor "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}" "${` + runnerEnvSHA + `}"`
 	}
 	return "<unknown plumbing template>"
 }
@@ -161,7 +167,7 @@ func (t PlumbingTemplate) Shape() string {
 func plumbingFor(class credentialJobClass) []PlumbingTemplate {
 	switch class {
 	case credentialJobRelease:
-		return []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag}
+		return []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag, PlumbingCheckTagAncestor}
 	case credentialJobBot:
 		return []PlumbingTemplate{PlumbingFetchBundleBranch}
 	}
@@ -187,6 +193,8 @@ const (
 	gitConfigOption   = "-c"
 	gitPush           = "push"
 	gitFetch          = "fetch"
+	gitMergeBase      = "merge-base"
+	gitIsAncestor     = "--is-ancestor"
 	gitRemote         = "origin"
 	headRef           = "HEAD"
 	authHeaderKey     = "http.extraheader="
@@ -328,7 +336,20 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 // against the plumbing templates its class may run. It returns the template
 // and "" when the command is exactly one of them, or the reason it is not.
 func matchPlumbing(words []templateWord, s templateStep) (PlumbingTemplate, string) {
-	if literalAt(words, 0) != cmdGit || literalAt(words, 1) != gitFetch {
+	if literalAt(words, 0) != cmdGit {
+		return "", "the command is none of the plumbing templates"
+	}
+	if literalAt(words, 1) == gitMergeBase {
+		tmpl := PlumbingCheckTagAncestor
+		if !slices.Contains(plumbingFor(s.class), tmpl) {
+			return tmpl, "a " + s.class.String() + " may not run the " + tmpl.String() + " plumbing template"
+		}
+		if literalAt(words, 2) != gitIsAncestor {
+			return tmpl, "git merge-base runs " + quote(literalAt(words, 2)) + ", and the template takes only " + gitIsAncestor
+		}
+		return tmpl, s.matchCheckTag(words)
+	}
+	if literalAt(words, 1) != gitFetch {
 		return "", "the command is none of the plumbing templates"
 	}
 	rest := words[2:]
@@ -368,6 +389,21 @@ func matchPlumbing(words []templateWord, s templateStep) (PlumbingTemplate, stri
 		}
 	}
 	return tmpl, "the refspec " + quote(spec) + " does not fetch the job's own bot branch " + quote(s.branch) + " into itself"
+}
+
+// matchCheckTag checks one command against the tag-ancestor template: the
+// fetched tag on one side and the commit the run checked out on the other.
+func (s templateStep) matchCheckTag(words []templateWord) string {
+	if len(words) != 5 {
+		return "the command names " + strconv.Itoa(len(words)) + " words, and the template takes git merge-base " + gitIsAncestor + " and exactly two operands"
+	}
+	if !words[3].params(intent.TagRefPrefix, TemplateEnvTag.String(), "") {
+		return "the tag operand " + quote(words[3].raw) + " is not \"refs/tags/${" + TemplateEnvTag.String() + "}\""
+	}
+	if !words[4].params("", runnerEnvSHA, "") {
+		return "the run operand " + quote(words[4].raw) + " is not \"${" + runnerEnvSHA + "}\""
+	}
+	return s.plannerOutput(TemplateEnvTag, intent.OutputTag)
 }
 
 // matchPush checks a git push: the optional authorization header, the

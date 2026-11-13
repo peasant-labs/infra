@@ -64,6 +64,17 @@ required_names:
   - repo-checkout-other-ref
   - second-tool-checkout
   - no-verify-step
+  - verify-job-continue-fromjson
+  - accept-publish-if-or-no-status
+  - accept-publish-if-ref-type
+  - publish-if-success-or
+  - publish-if-cancelled-and-success-or
+  - publish-if-uppercase-success
+  - publish-if-spaced-success
+  - publish-if-result-skipped-or-success
+  - publish-if-result-bare
+  - publish-if-result-index
+  - verify-job-if-false
 cases:
   - name: unmodified
     find: "      - id: verify\n"
@@ -340,4 +351,70 @@ cases:
     replace: "          \"${RUNNER_TEMP}/release-intent\" check-config\n"
     rules: ["tag-publish-verifies-the-tag"]
     want_contains: ["step \"verify\", which runs neither the build template"]
+    sibling: "unmodified"
+  - name: accept-publish-if-or-no-status
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: github.event_name == 'push' || true\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-publish-if-ref-type
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: github.ref_type == 'tag'\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: publish-if-success-or
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: ${{ success() || true }}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.release can publish for a pushed tag", "status function success()"]
+    sibling: "unmodified"
+  - name: publish-if-cancelled-and-success-or
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: ${{ !cancelled() && success() || true }}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.release can publish for a pushed tag", "status function success()"]
+    sibling: "unmodified"
+  - name: publish-if-uppercase-success
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: ${{ SUCCESS() || true }}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.release can publish for a pushed tag", "status function success()"]
+    sibling: "unmodified"
+  - name: publish-if-spaced-success
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: ${{ success () || true }}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.release can publish for a pushed tag", "status function success()"]
+    sibling: "unmodified"
+  - name: publish-if-result-skipped-or-success
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: ${{ needs.verify.result == 'skipped' || success() }}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.release can publish for a pushed tag", "status function success()"]
+    sibling: "unmodified"
+  - name: publish-if-result-bare
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: ${{ needs.verify.result == 'success' }}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.release can publish for a pushed tag", "reads a needed job's result"]
+    sibling: "unmodified"
+  - name: publish-if-result-index
+    find: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n"
+    replace: "    needs: [guard, contract-gates, notes, verify]\n    runs-on: ubuntu-latest\n    if: ${{ needs['verify'].result == 'success' }}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.release can publish for a pushed tag", "reads a needed job's result"]
+    sibling: "unmodified"
+  - name: verify-job-if-false
+    find: "  verify:\n    name: verify the tag\n    needs: guard\n    runs-on: ubuntu-latest\n"
+    replace: "  verify:\n    name: verify the tag\n    needs: guard\n    runs-on: ubuntu-latest\n    if: false\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.release can publish for a pushed tag", "sets a job-level if"]
+    sibling: "unmodified"
+  - name: verify-job-continue-fromjson
+    find: "  verify:\n    name: verify the tag\n    needs: guard\n    runs-on: ubuntu-latest\n"
+    replace: "  verify:\n    name: verify the tag\n    needs: guard\n    runs-on: ubuntu-latest\n    continue-on-error: ${{ fromJSON('true') }}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.verify sets continue-on-error"]
     sibling: "unmodified"

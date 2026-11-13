@@ -341,10 +341,12 @@ func ParseRunnerLabel(raw string) (RunnerLabel, error) {
 }
 
 // The environment names the runner sets that a template's typed parts may
-// read: the repository and the triggering ref's short name.
+// read: the repository, the triggering ref's short name, and the commit the
+// run is on.
 const (
 	runnerEnvRepository = "GITHUB_REPOSITORY"
 	runnerEnvRefName    = "GITHUB_REF_NAME"
+	runnerEnvSHA        = "GITHUB_SHA"
 )
 
 // credentialJobClass is why a job may hold a credential. The zero value is

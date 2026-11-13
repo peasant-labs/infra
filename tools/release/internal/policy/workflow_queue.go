@@ -47,10 +47,10 @@ const (
 	// stop the next step.
 	QueueRuleReleaseActions QueueRule = "release-actions-gated"
 	// QueueRuleTitleGuard keeps the title guard honest: the guard job carries
-	// no job-level if and no continue-on-error, and the guard workflow never
-	// reads the pull-request action or the changed-file list. A run that ends
-	// green without checking would replace a red run, and a body edit does not
-	// change the head commit.
+	// no job-level if and no continue-on-error key at the job or on any step,
+	// and the guard workflow never reads the pull-request action or the
+	// changed-file list. A run that ends green without checking would replace
+	// a red run, and a body edit does not change the head commit.
 	QueueRuleTitleGuard QueueRule = "title-guard-no-early-success"
 	// QueueRuleRangeFloor requires every workflow step that reads a commit
 	// range to pass the recovery floor from its repository variable, so a
@@ -91,6 +91,13 @@ const (
 	// and the default branch. A tag push needs only a write to refs/tags/,
 	// so nothing may publish a tag before the tool has checked it.
 	QueueRuleTagVerified QueueRule = "tag-publish-verifies-the-tag"
+	// QueueRuleReleaseTagBoundary requires the release job that pushes a tag
+	// to run where its own condition proves the run is on the default branch,
+	// and to prove the tag's commit is the run's commit or an ancestor of it
+	// before the tag push, under the same if as the push. A tag-triggered
+	// publish workflow runs from the tagged commit, so the tag has to be
+	// checked before it leaves the only job that can write it.
+	QueueRuleReleaseTagBoundary QueueRule = "release-tag-checked-before-push"
 	// QueueRuleTokenMint requires every job that mints the releaser App token
 	// to check that github.ref is the default branch, in a job-level or
 	// mint-step if, and to mint only when tag mode is on. A dispatch on any
@@ -143,6 +150,7 @@ var AllQueueRules = []QueueRule{
 	QueueRuleCredentialTemplates,
 	QueueRuleCredentialJobShape,
 	QueueRuleTagVerified,
+	QueueRuleReleaseTagBoundary,
 	QueueRuleTokenMint,
 	QueueRuleUnfiltered,
 	QueueRuleMergeGate,

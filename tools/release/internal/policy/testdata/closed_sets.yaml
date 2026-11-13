@@ -25,6 +25,7 @@ required_names:
   - verify-action
   - verify-input
   - verify-env
+  - status-function
 sets:
   - name: queue-rule
     members:
@@ -40,6 +41,7 @@ sets:
       - credential-steps-run-one-template
       - credential-jobs-run-no-general-steps
       - tag-publish-verifies-the-tag
+      - release-tag-checked-before-push
       - token-mint-ref-check
       - required-workflows-unfiltered
       - merge-gate-always-reports
@@ -51,8 +53,8 @@ sets:
     refused: ["", "no-such-rule", "Required-Contexts"]
 
   - name: github-event
-    members: [pull_request, merge_group, push, workflow_dispatch]
-    refused: ["", "schedule", "pull_request_target", "Push"]
+    members: [pull_request, merge_group, push, schedule, workflow_dispatch]
+    refused: ["", "workflow_run", "pull_request_target", "Push"]
 
   - name: pull-request-action
     members: [opened, synchronize, reopened, edited]
@@ -129,7 +131,7 @@ sets:
   # The commands a job that may hold a credential may run without one: move
   # what an earlier job bundled into the local repository.
   - name: plumbing-template
-    members: [fetch-bundle-branch, fetch-bundle-tag]
+    members: [fetch-bundle-branch, fetch-bundle-tag, check-tag-ancestor]
     refused: ["", "fetch", "git-config", "Fetch-Bundle-Branch"]
 
   # Why a job may hold a credential; it has no parser of its own.
@@ -165,3 +167,10 @@ sets:
   - name: verify-env
     members: [DEFAULT_BRANCH, GOWORK]
     refused: ["", "PATH", "BASH_ENV", "GOFLAGS", "GOTOOLCHAIN", "GOPROXY", "RUNNER_TEMP", "GITHUB_REF_NAME", "gowork"]
+
+  # The status check functions GitHub allows in an if conditional. A
+  # conditional that calls one drops GitHub's implicit success() check, so
+  # each has to be read, whatever the spelling.
+  - name: status-function
+    members: [success, failure, always, cancelled]
+    refused: ["", "skipped", "Success", "canceled"]

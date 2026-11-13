@@ -21,6 +21,9 @@ const (
 	GitHubEventMergeGroup GitHubEvent = "merge_group"
 	// GitHubEventPush is a pushed branch or tag.
 	GitHubEventPush GitHubEvent = "push"
+	// GitHubEventSchedule is a cron run. GitHub runs it on the latest commit
+	// of the default branch.
+	GitHubEventSchedule GitHubEvent = "schedule"
 	// GitHubEventWorkflowDispatch is a manual run from the button or the API.
 	GitHubEventWorkflowDispatch GitHubEvent = "workflow_dispatch"
 )
@@ -31,6 +34,7 @@ var AllGitHubEvents = []GitHubEvent{
 	GitHubEventPullRequest,
 	GitHubEventMergeGroup,
 	GitHubEventPush,
+	GitHubEventSchedule,
 	GitHubEventWorkflowDispatch,
 }
 

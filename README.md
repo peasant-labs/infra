@@ -161,15 +161,20 @@ one artifact holding git bundles.
   release config.
 - **`tag-publish-verifies-the-tag`.** In every workflow that runs on pushed
   tags, every job that can publish (`contents: write` or `id-token: write`)
-  needs a **tag-verify job**, and its `if` carries no `always()`, `cancelled()`
-  or `failure()`. `verify-tag` exits 0 only when the tag is the release prefix
-  plus an X.Y.Z version and the default branch reaches its commit, reading the
-  release config from that branch. A tag push needs only a write to
-  `refs/tags/`, so nothing publishes a tag the tool has not checked.
+  needs a **tag-verify job**, and its `if` calls no status function
+  (`success()`, `failure()`, `always()` or `cancelled()`, in any case and with
+  any spacing before the `(`) and reads no `needs.<job>.result`. GitHub adds
+  its implicit `success()` check only when the expression calls no status
+  function, so those are the spellings that would run the publish job after a
+  failed or skipped verify job. `verify-tag` exits 0 only when the tag is the
+  release prefix plus an X.Y.Z version and the default branch reaches its
+  commit, reading the release config from that branch. A tag push needs only a
+  write to `refs/tags/`, so nothing publishes a tag the tool has not checked.
 
   The tag-verify job's success is the verdict on the tag, so it is confined
   the way a credential job is. It holds no credential and no write, runs on
-  one literal GitHub-hosted label, and runs only these steps:
+  one literal GitHub-hosted label, carries no job-level `if` (a skipped verify
+  job must skip every job that needs it), and runs only these steps:
 
   | step | shape |
   |---|---|
@@ -181,11 +186,18 @@ one artifact holding git bundles.
 
   Every input is a literal. The env (workflow, job and step) holds only
   `DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}` and
-  `GOWORK: "off"`. No step sets `shell`, `working-directory`, `if` or
-  `continue-on-error`, and the job sets no `defaults`, `container`,
-  `services`, `strategy` or `continue-on-error`. The workflow sets no
+  `GOWORK: "off"`. No step sets `shell`, `working-directory`, `if` or the
+  `continue-on-error` key, and the job sets no `defaults`, `container`,
+  `services`, `strategy` or the `continue-on-error` key. The workflow sets no
   `defaults` either. Each run step is exactly one command, read by the same
   reader as a credential step, so the step exits with the command's status.
+
+  The policy refuses the `continue-on-error` **key**, not a spelling of its
+  value: GitHub evaluates the key as a value, and the documented
+  `continue-on-error: ${{ fromJSON('true') }}` form makes it true at run time.
+  A literal-only comparison would be a bypass, so an absent key is the only
+  shape the checker accepts wherever this or another rule says
+  "no `continue-on-error`".
 
   Each limit closes one way the job could succeed without the tool's yes:
   - The single-command reading refuses `|| true`, `; exit 0`, `| cat`, a
@@ -202,10 +214,61 @@ one artifact holding git bundles.
   The pre-tag checks of `release-actions-gated` are read through the same
   single-command reader.
 
+- **`release-tag-checked-before-push`.** The release job is the only job that
+  can write a tag, and a tag-triggered workflow runs the workflow files of the
+  tagged commit, so the tag has to be checked before it leaves that job.
+  - The release workflow triggers only on `push`, `schedule` and
+    `workflow_dispatch`: never on a pushed tag, a `workflow_run`, or another
+    event without its own proof for a release job.
+  - The release job's `if` proves the run is on the default branch: the
+    comparison `github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`
+    is one conjunct of a conjunction. A disjunction, a negation, a second
+    comparison, or a literal branch name is refused: the checker cannot prove
+    a literal names the default branch, and a run on another branch executes
+    that branch's copy of the workflow.
+  - After fetching the tag from its bundle and before pushing it, a
+    `check-tag-ancestor` step runs `git merge-base --is-ancestor
+    "refs/tags/${TAG}" "${GITHUB_SHA}"` under the tag push's own `if`. Neither
+    the check step, the tag push, nor the release job may set the
+    `continue-on-error` key at all: GitHub evaluates the key as a value, so an
+    expression such as `${{ fromJSON('true') }}` would make a failed check
+    report success. The tag push's `if` calls no status function, so a failed
+    check skips the push through GitHub's implicit `success()` check instead
+    of being overridden by `always()`, `failure()`, `cancelled()` or
+    `success()`.
+
+  For a `push`, `github.sha` is the pushed branch's tip; for a `schedule`, the
+  latest commit on the default branch; for a `workflow_dispatch`, the commit
+  of the selected ref. With the job `if` above, each is a default-branch
+  commit, so the check means the tag names a commit that is already on the
+  default branch, or is that commit. A run that executes another branch's copy
+  of the workflow is outside this checked tree: the copy is unreviewed, and no
+  check of the default branch can see it. The release job's repository
+  checkout must keep full history (`fetch-depth: 0`): the check reads the
+  tag's local ancestry, and a shallow checkout fails closed instead of proving
+  anything.
+
+- **Every no-`continue-on-error` clause refuses the key, not a value.** The
+  title-guard job and every step of it, every step `release-actions-gated`
+  gates, the tag-verify job, the tag ancestry check, the tag push and the
+  release job all refuse the `continue-on-error` key whatever its value:
+  GitHub evaluates the key as a value, and the documented
+  `${{ fromJSON('true') }}` form makes a failed check or job report success.
+  Drop the key; a literal `false` is refused too, because the checker cannot
+  tell a literal from an expression it cannot evaluate.
+
+**Release-tag ruleset (maintainer step).** A repository that turns tag mode on
+must restrict release-tag creation to the releaser App with a repository
+ruleset targeting the release tag prefix, whose only bypass actor is that App.
+That includes fairtrade, whose `npm-publish.yml` trusts every tag under its
+prefix. The checker cannot read repository settings, so this is a recorded
+operator step per repository; it does not replace any check above.
+
 | plumbing template (no credential) | command |
 |---|---|
 | `fetch-bundle-branch` | `git fetch [--no-tags] <file>.bundle <own bot branch>:<own bot branch>` |
 | `fetch-bundle-tag` (release job) | `git fetch [--no-tags] <file>.bundle "refs/tags/${TAG}:refs/tags/${TAG}"` |
+| `check-tag-ancestor` (release job) | `git merge-base --is-ancestor "refs/tags/${TAG}" "${GITHUB_SHA}"` |
 
 | credential template | command |
 |---|---|

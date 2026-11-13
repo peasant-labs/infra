@@ -28,7 +28,11 @@ import (
 // build cache. So the job is confined the way a job that holds a credential
 // is: it runs only the steps of the VerifyStep set, each in one fixed shape,
 // with an environment of VerifyEnv names at their fixed values, and every
-// run step is read through singleCommand.
+// run step is read through singleCommand. It carries no job-level if, so it
+// cannot be skipped into a pass. The publish job's own if calls no status
+// function and reads no needs result: GitHub adds its implicit success()
+// check only when the expression calls no status function, and that implicit
+// check is what skips the publish job after a failed or skipped verify job.
 
 // triggerKeyTagsIgnore is the push trigger key that names tags to skip; a
 // workflow that names it is tag-triggered too.
@@ -47,15 +51,29 @@ var remoteBranchPrefixes = []string{"", "origin/", "refs/remotes/origin/"}
 // change what the step runs or whether its failure fails the job.
 var verifyStepKeys = []string{"id", "name", "uses", "with", "run", "env", "timeout-minutes"}
 
-// verifyJobKeys are the keys a tag-verify job may set. defaults, container,
-// services, uses, strategy and continue-on-error are not among them: each
-// can change the shell, the machine, the code that runs, or whether a
-// failure fails the job.
-var verifyJobKeys = []string{"name", "needs", "if", "runs-on", "permissions", "env", "outputs", "timeout-minutes", "concurrency", "environment", "steps"}
+// verifyJobKeys are the keys a tag-verify job may set. if, defaults,
+// container, services, uses, strategy and continue-on-error are not among
+// them: each can change whether the job runs, the shell, the machine, the
+// code that runs, or whether a failure fails the job. The job may carry no
+// if because the publish job's need of it is what has to decide: a skipped
+// verify job must skip the publish job.
+var verifyJobKeys = []string{"name", "needs", "runs-on", "permissions", "env", "outputs", "timeout-minutes", "concurrency", "environment", "steps"}
 
-// publishStatusFunctions are the status functions that run a job after a job
-// it needs failed, which would publish an unverified tag.
-var publishStatusFunctions = []string{"always()", "cancelled()", "failure()"}
+// publishIfFault says why a publish job's if can run after the verify job
+// failed or was skipped, or "". GitHub adds its implicit success() check to a
+// job if only when the expression calls no status function, and it evaluates
+// needs.<job>.result against the job's status rather than the check: a
+// conditional that calls success(), failure(), always() or cancelled(), or
+// that reads a needed job's result, decides the run on its own.
+func publishIfFault(cond string) string {
+	if fns := statusFunctionsIn(cond); len(fns) > 0 {
+		return "its if calls the status function " + fns[0].Call() + ", which turns off GitHub's implicit success() check, so it runs even when the verify job failed or was skipped"
+	}
+	if needsResultRead.MatchString(cond) {
+		return "its if reads a needed job's result, so it decides the run from the result instead of GitHub's implicit success() check, and a skipped verify job can let it publish"
+	}
+	return ""
+}
 
 // tagTriggered reports whether the workflow runs on pushed tags.
 func tagTriggered(doc *yaml.Node) bool {
@@ -136,10 +154,8 @@ func verifyEnvShapes() string {
 // none is, it names each candidate's first fault.
 func (c *queueChecker) publishVerifyFault(file string, doc, job *yaml.Node) string {
 	if cond := mappingValue(job, "if"); cond != nil {
-		for _, fn := range publishStatusFunctions {
-			if strings.Contains(cond.Value, fn) {
-				return "its if carries " + fn + ", which runs it even when the verify job failed"
-			}
+		if why := publishIfFault(cond.Value); why != "" {
+			return why
 		}
 	}
 	needs, _ := needsList(job)
@@ -166,6 +182,9 @@ func (c *queueChecker) publishVerifyFault(file string, doc, job *yaml.Node) stri
 func (c *queueChecker) tagVerifyJobFault(file string, doc *yaml.Node, jobName string, job *yaml.Node) string {
 	if cj := c.creds[file][jobName]; cj.class != "" || len(cj.mints) > 0 {
 		return "may hold a credential"
+	}
+	if cond := mappingValue(job, "if"); cond != nil {
+		return "sets a job-level if (" + quote(cond.Value) + "), and a skipped verify job must skip every job that needs it: drop the if so the job runs and its exit status decides"
 	}
 	if key := keyOutside(job, verifyJobKeys); key != "" {
 		return "sets " + key + ", which a tag-verify job may not set"

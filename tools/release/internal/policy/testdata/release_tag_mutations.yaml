@@ -1,0 +1,174 @@
+# One-change mutations of the release job in the queue corpus base. The
+# harness materializes the base tree, proves it passes, then replaces find
+# with replace in workflows/release-batch.yml (find must occur exactly once)
+# and runs the production loaders and checker. rules is the exact set that
+# must fire, empty for a change that must pass, want_contains are fragments
+# the diagnostics must carry, and every reject names the accept row it
+# differs from as its sibling.
+#
+# The rows cover every way the tag can leave the runner without a verdict the
+# release job's own condition pins to the default branch: the ancestor check
+# missing, moved after the push, under another if, allowed to fail, pointed at
+# another ref or before the fetch; a trigger whose sha is not the default-branch
+# tip; a job if that does not prove the run's ref, hides the comparison behind a
+# disjunction or a negation, or adds a second comparison; and a tag push if that
+# calls a status function (lower, upper or spaced) or is allowed to fail.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - unmodified
+  - accept-braced-job-if
+  - accept-extra-conjunct
+  - accept-plain-shell-on-check
+  - guard-after-push
+  - guard-other-if
+  - guard-continue-on-error
+  - guard-other-ref
+  - guard-before-fetch
+  - guard-masked-run
+  - trigger-pull-request
+  - trigger-workflow-run
+  - trigger-push-tags
+  - literal-job-if
+  - disjunction-job-if
+  - negated-job-if
+  - double-comparison-job-if
+  - tag-if-cancelled
+  - tag-if-success-or
+  - tag-if-uppercase-success
+  - tag-if-whitespace-success
+  - tag-continue-on-error
+cases:
+  - name: unmodified
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-braced-job-if
+    find: "    if: \"!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)\"\n"
+    replace: "    if: \"${{ !cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}\"\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-extra-conjunct
+    find: "    if: \"!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)\"\n"
+    replace: "    if: \"!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.ref_name != ''\"\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-plain-shell-on-check
+    find: "        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n"
+    replace: "        shell: bash\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: guard-after-push
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: |\n          git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push origin \"refs/tags/${TAG}:refs/tags/${TAG}\"\n"
+    replace: "      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: |\n          git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push origin \"refs/tags/${TAG}:refs/tags/${TAG}\"\n      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["runs after the tag push"]
+    sibling: "unmodified"
+  - name: guard-other-if
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n"
+    replace: "      - id: check-tag\n        if: needs.plan.outputs.action == 'open-pr'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["runs under a different if than the tag push"]
+    sibling: "unmodified"
+  - name: guard-continue-on-error
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n        continue-on-error: true\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified"
+  - name: guard-other-ref
+    find: "\"refs/tags/${TAG}\" \"${GITHUB_SHA}\""
+    replace: "\"refs/heads/automation/release\" \"${GITHUB_SHA}\""
+    rules: ["release-tag-checked-before-push", "credential-jobs-run-no-general-steps", "release-actions-gated"]
+    want_contains: ["no step proves the tag's commit", "is a general step"]
+    sibling: "unmodified"
+  - name: guard-before-fetch
+    find: "      - id: fetch-tag\n        if: \"!cancelled() && needs.plan.outputs.tag-action == 'tag'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git fetch --no-tags bundles/tag.bundle \"refs/tags/${TAG}:refs/tags/${TAG}\"\n      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n"
+    replace: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: fetch-tag\n        if: \"!cancelled() && needs.plan.outputs.tag-action == 'tag'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git fetch --no-tags bundles/tag.bundle \"refs/tags/${TAG}:refs/tags/${TAG}\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["runs before the tag fetch"]
+    sibling: "unmodified"
+  - name: guard-masked-run
+    find: "        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n"
+    replace: "        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\" || true\n"
+    rules: ["release-tag-checked-before-push", "credential-jobs-run-no-general-steps", "release-actions-gated"]
+    want_contains: ["no step proves the tag's commit", "is a general step"]
+    sibling: "unmodified"
+  - name: trigger-pull-request
+    find: "on:\n  push:\n"
+    replace: "on:\n  pull_request:\n  push:\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["triggers on \"pull_request\""]
+    sibling: "unmodified"
+  - name: trigger-workflow-run
+    find: "  workflow_dispatch:\n"
+    replace: "  workflow_run:\n    workflows: [ci]\n  workflow_dispatch:\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["triggers on \"workflow_run\""]
+    sibling: "unmodified"
+  - name: trigger-push-tags
+    find: "  push:\n    branches: [develop]\n"
+    replace: "  push:\n    branches: [develop]\n    tags: [\"v*\"]\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["triggers on pushed tags"]
+    sibling: "unmodified"
+  - name: literal-job-if
+    find: "    if: \"!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)\"\n"
+    replace: "    if: \"!cancelled() && github.ref == 'refs/heads/develop'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["does not prove the run is on the default branch"]
+    sibling: "unmodified"
+  - name: disjunction-job-if
+    find: "    if: \"!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)\"\n"
+    replace: "    if: \"!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || github.ref == 'refs/heads/develop')\"\n"
+    rules: ["release-tag-checked-before-push", "token-mint-ref-check"]
+    want_contains: ["if holds a disjunction"]
+    sibling: "unmodified"
+  - name: negated-job-if
+    find: "    if: \"!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)\"\n"
+    replace: "    if: \"!cancelled() && !(github.ref == format('refs/heads/{0}', github.event.repository.default_branch))\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["does not prove the run is on the default branch"]
+    sibling: "unmodified"
+  - name: double-comparison-job-if
+    find: "    if: \"!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)\"\n"
+    replace: "    if: \"!cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) == true\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["does not prove the run is on the default branch"]
+    sibling: "unmodified"
+  - name: tag-if-cancelled
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: check-tag\n        if: \"!cancelled() && needs.plan.outputs.tag-action == 'tag'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"!cancelled() && needs.plan.outputs.tag-action == 'tag'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["has cancelled() in its if"]
+    sibling: "unmodified"
+  - name: tag-if-success-or
+    find: "      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: tag\n        if: \"success() || needs.plan.outputs.tag-action == 'tag'\"\n"
+    rules: ["release-tag-checked-before-push", "release-actions-gated"]
+    want_contains: ["has success() in its if"]
+    sibling: "unmodified"
+  - name: tag-if-uppercase-success
+    find: "      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: tag\n        if: \"SUCCESS() && needs.plan.outputs.tag-action == 'tag'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["has success() in its if"]
+    sibling: "unmodified"
+  - name: tag-if-whitespace-success
+    find: "      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: tag\n        if: \"success () && needs.plan.outputs.tag-action == 'tag'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["has success() in its if"]
+    sibling: "unmodified"
+  - name: tag-continue-on-error
+    find: "      - id: tag\n"
+    replace: "      - id: tag\n        continue-on-error: true\n"
+    rules: ["release-tag-checked-before-push", "release-actions-gated"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified"
