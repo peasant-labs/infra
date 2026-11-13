@@ -15,8 +15,9 @@ import (
 // run. A template is matched on the words of one command with an exact
 // structure, never by a pattern over the text; its variable parts are named
 // and typed: the job's own bot branch from the release config, the
-// planner's tag and candidate outputs, a PR number from a step output, the
-// triggering tag, and quoted title or body text. The zero value is unknown.
+// planner's tag output, a PR number from a step or job output, the
+// triggering tag, and quoted title or body text. Every value that is not
+// literal comes from the step's env. The zero value is unknown.
 type CredentialTemplate string
 
 const (
@@ -32,7 +33,8 @@ const (
 	TemplatePRClose CredentialTemplate = "pr-close"
 	// TemplatePRMerge turns auto-merge on or off for the job's own PR.
 	TemplatePRMerge CredentialTemplate = "pr-merge"
-	// TemplateQueueRead reads the merge queue through one GraphQL query.
+	// TemplateQueueRead reads the merge queue through one GraphQL query,
+	// for a repository whose default token cannot read it.
 	TemplateQueueRead CredentialTemplate = "merge-queue-read"
 	// TemplateReleaseView reads the Release of the triggering tag.
 	TemplateReleaseView CredentialTemplate = "release-view"
@@ -76,13 +78,13 @@ func (t CredentialTemplate) Shape() string {
 	case TemplatePushOwnBranch:
 		return `git [-c http.extraheader="AUTHORIZATION: bearer ${` + TemplateEnvAppToken.String() + `}"] push [--force-with-lease|--force] [--no-verify] origin <own bot branch | HEAD:<own bot branch>>`
 	case TemplatePushReleaseTag:
-		return `git [-c http.extraheader="AUTHORIZATION: bearer ${` + TemplateEnvAppToken.String() + `}"] push origin "[<candidate>:]` + intent.TagRefPrefix + `<tag>"`
+		return `git [-c http.extraheader="AUTHORIZATION: bearer ${` + TemplateEnvAppToken.String() + `}"] push origin "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}:` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}"`
 	case TemplatePRCreate:
 		return `gh pr create --head <own bot branch> [--base <branch>] [--title <text>] [--body <text>]`
 	case TemplatePREdit:
-		return `gh pr edit <own PR> [--title <text>] [--body <text>]`
+		return `gh pr edit [--title <text>] [--body <text>] <own PR>`
 	case TemplatePRClose:
-		return `gh pr close <own PR> [--comment <text>]`
+		return `gh pr close [--comment <text>] <own PR>`
 	case TemplatePRMerge:
 		return `gh pr merge (--auto [--squash|--merge|--rebase] | --disable-auto) <own PR>`
 	case TemplateQueueRead:
@@ -110,7 +112,63 @@ func templatesFor(class credentialJobClass) []CredentialTemplate {
 	return nil
 }
 
-// templateStep is what a template needs to know about the step it judges.
+// PlumbingTemplate is one command a job that may hold a credential may run
+// without a credential: it moves what an earlier job prepared from the
+// downloaded artifact into the local repository, so a credential template
+// can push it. Like a credential template it is matched on the exact words
+// of one command. The zero value is unknown.
+type PlumbingTemplate string
+
+const (
+	// PlumbingFetchBundleBranch fetches the job's own bot branch from a git
+	// bundle into the local branch of the same name.
+	PlumbingFetchBundleBranch PlumbingTemplate = "fetch-bundle-branch"
+	// PlumbingFetchBundleTag fetches the planner's tag from a git bundle
+	// into the local tag of the same name; release job only.
+	PlumbingFetchBundleTag PlumbingTemplate = "fetch-bundle-tag"
+)
+
+// AllPlumbingTemplates is the canonical closed set of plumbing templates.
+var AllPlumbingTemplates = []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag}
+
+func (t PlumbingTemplate) String() string { return string(t) }
+
+// ParsePlumbingTemplate maps a plumbing template name to its member and
+// refuses anything else.
+func ParsePlumbingTemplate(raw string) (PlumbingTemplate, error) {
+	return closedset.Parse(AllPlumbingTemplates, raw, closedset.Context{
+		Set:   "plumbing template",
+		Where: "policy.ParsePlumbingTemplate",
+		When:  "reading a plumbing template name for a diagnostic or a test case",
+		Means: "a plumbing template name selects one command shape, so an unknown name selects none",
+	})
+}
+
+// Shape renders the plumbing template's exact word structure.
+func (t PlumbingTemplate) Shape() string {
+	switch t {
+	case PlumbingFetchBundleBranch:
+		return `git fetch [--no-tags] <file>` + bundleSuffix + ` <own bot branch>:<own bot branch>`
+	case PlumbingFetchBundleTag:
+		return `git fetch [--no-tags] <file>` + bundleSuffix + ` "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}:` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}"`
+	}
+	return "<unknown plumbing template>"
+}
+
+// plumbingFor lists the plumbing templates a job class may run.
+func plumbingFor(class credentialJobClass) []PlumbingTemplate {
+	switch class {
+	case credentialJobRelease:
+		return []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag}
+	case credentialJobBot:
+		return []PlumbingTemplate{PlumbingFetchBundleBranch}
+	}
+	return nil
+}
+
+// templateStep is what a template needs to know about the step it judges:
+// the job's class and bot branch, the step's effective env, and the
+// workflow and job, to resolve where an env value comes from.
 type templateStep struct {
 	class  credentialJobClass
 	branch string
@@ -122,55 +180,59 @@ type templateStep struct {
 // The fixed words the templates are built from. These are git's and gh's,
 // not the release tool's.
 const (
-	cmdGit             = "git"
-	cmdGH              = "gh"
-	gitConfigOption    = "-c"
-	gitPush            = "push"
-	gitRemote          = "origin"
-	headRef            = "HEAD"
-	authHeaderKey      = "http.extraheader="
-	authHeaderValue    = "authorization: bearer "
-	ghPR               = "pr"
-	ghAPI              = "api"
-	ghGraphQL          = "graphql"
-	ghRelease          = "release"
-	graphQLQueryField  = "query"
-	graphQLMergeQueue  = "mergeQueue"
-	ghVerbCreate       = "create"
-	ghVerbEdit         = "edit"
-	ghVerbClose        = "close"
-	ghVerbMerge        = "merge"
-	ghVerbView         = "view"
-	ghFlagHead         = "--head"
-	ghFlagVerifyTag    = "--verify-tag"
-	ghFlagAuto         = "--auto"
-	ghFlagDisableAuto  = "--disable-auto"
-	gitFlagForceLease  = "--force-with-lease"
-	gitFlagForce       = "--force"
-	gitFlagNoVerify    = "--no-verify"
-	triggeringRefName  = "github.ref_name"
-	contextRepository  = "github.repository"
-	stepOutputsSegment = ".outputs."
+	cmdGit            = "git"
+	cmdGH             = "gh"
+	gitConfigOption   = "-c"
+	gitPush           = "push"
+	gitFetch          = "fetch"
+	gitRemote         = "origin"
+	headRef           = "HEAD"
+	authHeaderKey     = "http.extraheader="
+	authHeaderValue   = "authorization: bearer "
+	ghPR              = "pr"
+	ghAPI             = "api"
+	ghGraphQL         = "graphql"
+	ghRelease         = "release"
+	graphQLQueryField = "query"
+	graphQLMergeQueue = "mergeQueue"
+	ghVerbCreate      = "create"
+	ghVerbEdit        = "edit"
+	ghVerbClose       = "close"
+	ghVerbMerge       = "merge"
+	ghVerbView        = "view"
+	ghFlagHead        = "--head"
+	ghFlagVerifyTag   = "--verify-tag"
+	ghFlagAuto        = "--auto"
+	ghFlagDisableAuto = "--disable-auto"
+	gitFlagForceLease = "--force-with-lease"
+	gitFlagForce      = "--force"
+	gitFlagNoVerify   = "--no-verify"
+	gitFlagNoTags     = "--no-tags"
+	endOfOptions      = "--"
+	bundleSuffix      = ".bundle"
+	triggeringRefName = "github.ref_name"
 )
 
-// classifyTemplate names the template a command's leading words select,
-// without checking its parts: the push form by its last word, a gh command
-// by its subcommand. ok is false for any other command.
-func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
-	lit := func(i int) string {
-		if i >= len(words) {
-			return ""
-		}
-		s, _ := words[i].literal()
-		return s
+// literalAt returns the literal text of word i, or "".
+func literalAt(words []templateWord, i int) string {
+	if i >= len(words) {
+		return ""
 	}
-	switch lit(0) {
+	s, _ := words[i].literal()
+	return s
+}
+
+// classifyTemplate names the credential template a command's leading words
+// select, without checking its parts: the push form by its last word, a gh
+// command by its subcommand. ok is false for any other command.
+func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
+	switch literalAt(words, 0) {
 	case cmdGit:
 		i := 1
-		if lit(i) == gitConfigOption {
+		if literalAt(words, i) == gitConfigOption {
 			i += 2
 		}
-		if lit(i) != gitPush {
+		if literalAt(words, i) != gitPush {
 			return "", false
 		}
 		last := words[len(words)-1]
@@ -179,9 +241,9 @@ func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
 		}
 		return TemplatePushOwnBranch, true
 	case cmdGH:
-		switch lit(1) {
+		switch literalAt(words, 1) {
 		case ghPR:
-			switch lit(2) {
+			switch literalAt(words, 2) {
 			case ghVerbCreate:
 				return TemplatePRCreate, true
 			case ghVerbEdit:
@@ -192,11 +254,11 @@ func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
 				return TemplatePRMerge, true
 			}
 		case ghAPI:
-			if lit(2) == ghGraphQL {
+			if literalAt(words, 2) == ghGraphQL {
 				return TemplateQueueRead, true
 			}
 		case ghRelease:
-			switch lit(2) {
+			switch literalAt(words, 2) {
 			case ghVerbView:
 				return TemplateReleaseView, true
 			case ghVerbEdit:
@@ -210,7 +272,7 @@ func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
 }
 
 // stepTemplate classifies a step's run block, or ok false when the block is
-// not one command or selects no template.
+// not one command or selects no credential template.
 func stepTemplate(step *yaml.Node) (CredentialTemplate, bool) {
 	words, why := tokenizeCommand(stepRunText(step))
 	if why != "" {
@@ -260,11 +322,57 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 	return tmpl, why
 }
 
+// matchPlumbing checks one no-credential command of a credential job
+// against the plumbing templates its class may run. It returns the template
+// and "" when the command is exactly one of them, or the reason it is not.
+func matchPlumbing(words []templateWord, s templateStep) (PlumbingTemplate, string) {
+	if literalAt(words, 0) != cmdGit || literalAt(words, 1) != gitFetch {
+		return "", "the command is none of the plumbing templates"
+	}
+	rest := words[2:]
+	if literalAt(rest, 0) == gitFlagNoTags {
+		rest = rest[1:]
+	}
+	if len(rest) != 2 {
+		return "", "git fetch names " + strconv.Itoa(len(rest)) + " operands, and the plumbing templates take exactly one bundle file and one refspec"
+	}
+	if why := checkPath(rest[0]); why != "" {
+		return "", why
+	}
+	if file, _ := rest[0].literal(); !strings.HasSuffix(file, bundleSuffix) {
+		return "", "git fetch reads " + quote(file) + ", which is not a " + bundleSuffix + " file"
+	}
+	tmpl := PlumbingFetchBundleBranch
+	if strings.Contains(rest[1].raw, intent.TagRefPrefix) {
+		tmpl = PlumbingFetchBundleTag
+	}
+	if !slices.Contains(plumbingFor(s.class), tmpl) {
+		return tmpl, "a " + s.class.String() + " may not run the " + tmpl.String() + " plumbing template"
+	}
+	if tmpl == PlumbingFetchBundleTag {
+		return tmpl, s.releaseTagSpec(rest[1])
+	}
+	if s.branch == "" {
+		return tmpl, "the release config names no bot branch for the job's kind, so the job owns no branch"
+	}
+	spec, isLit := rest[1].literal()
+	if !isLit {
+		return tmpl, "the refspec " + quote(rest[1].raw) + " expands, and the template takes the job's own bot branch as literal text"
+	}
+	spec = strings.TrimPrefix(spec, "+")
+	for _, ref := range []string{s.branch, intent.BranchRef(s.branch).String()} {
+		if spec == ref+":"+ref {
+			return tmpl, ""
+		}
+	}
+	return tmpl, "the refspec " + quote(spec) + " does not fetch the job's own bot branch " + quote(s.branch) + " into itself"
+}
+
 // matchPush checks a git push: the optional authorization header, the
 // switches, the remote, and the one refspec.
 func (s templateStep) matchPush(words []templateWord, tmpl CredentialTemplate) string {
 	i := 1
-	if lit, _ := words[1].literal(); lit == gitConfigOption {
+	if literalAt(words, 1) == gitConfigOption {
 		if why := s.authHeader(words[2]); why != "" {
 			return why
 		}
@@ -334,58 +442,85 @@ func (s templateStep) authHeader(w templateWord) string {
 	return ""
 }
 
-// releaseTagSpec checks a tag refspec: an optional candidate source, then
-// the tag ref of the planner's tag output.
+// releaseTagSpec checks a tag refspec: exactly
+// "refs/tags/${TAG}:refs/tags/${TAG}", with TAG mapped from the planner's
+// tag output. Both sides are written out because git splits a refspec at
+// its last ':': a ':' smuggled into TAG then leaves a source that names no
+// ref, and the command fails, instead of retargeting a single-sided
+// refspec at another ref.
 func (s templateStep) releaseTagSpec(w templateWord) string {
-	parts := w.parts
-	bad := "the tag refspec " + quote(w.raw) + " is not [<candidate>:]" + intent.TagRefPrefix + "<tag> with both read from the planner's outputs"
-	switch {
-	case len(parts) == 2 && parts[0].kind == partLiteral && parts[0].text == intent.TagRefPrefix:
-		return s.plannerOutput(parts[1], intent.OutputTag, TemplateEnvTag, bad)
-	case len(parts) == 3 && parts[1].kind == partLiteral && parts[1].text == ":"+intent.TagRefPrefix:
-		if why := s.plannerOutput(parts[0], intent.OutputCandidate, TemplateEnvCandidate, bad); why != "" {
-			return why
-		}
-		return s.plannerOutput(parts[2], intent.OutputTag, TemplateEnvTag, bad)
+	p := w.parts
+	tag := TemplateEnvTag.String()
+	if len(p) != 4 ||
+		p[0].kind != partLiteral || p[0].text != intent.TagRefPrefix ||
+		p[1].kind != partParam || p[1].text != tag ||
+		p[2].kind != partLiteral || p[2].text != ":"+intent.TagRefPrefix ||
+		p[3].kind != partParam || p[3].text != tag {
+		return "the tag refspec " + quote(w.raw) + " is not \"" + intent.TagRefPrefix + "${" + tag + "}:" + intent.TagRefPrefix + "${" + tag + "}\""
 	}
-	return bad
+	return s.plannerOutput(TemplateEnvTag, intent.OutputTag)
 }
 
-// plannerOutputExpr matches one step output read, alone, and captures the
-// step id and the output key.
-var plannerOutputExpr = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outputs\.([A-Za-z0-9_-]+)$`)
+// plannerOutput checks that an env name carries exactly one planner output:
+// ${{ steps.<plan>.outputs.<key> }}, or ${{ needs.<job>.outputs.<name> }}
+// where that job maps <name> from exactly that step output, and <plan> runs
+// the planner.
+func (s templateStep) plannerOutput(env TemplateEnv, key intent.OutputKey) string {
+	expr := soleExpression(s.env[env.String()])
+	step, gotKey, ok := resolveOutput(s.doc, s.job, expr)
+	if !ok || gotKey != key.String() {
+		return env.String() + " is " + quote(s.env[env.String()]) + ", which is not " + stepOutput("<plan>", key) + " or a needs output mapped from it"
+	}
+	if !planRunner.MatchString(stepRunText(step)) {
+		return env.String() + " reads steps." + stepID(step) + ", which does not run " + intent.ProgramName + " " + intent.CommandPlan.String()
+	}
+	return ""
+}
 
-// plannerOutput checks one part that must carry a planner output: the
-// expression ${{ steps.<plan>.outputs.<key> }} directly, or the env name
-// mapped from exactly that expression, where <plan> is a step of this job
-// that runs the planner.
-func (s templateStep) plannerOutput(p wordPart, key intent.OutputKey, env TemplateEnv, bad string) string {
-	expr := ""
-	switch p.kind {
-	case partExpr:
-		expr = p.text
-	case partParam:
-		if p.text != env.String() {
-			return bad + ": it reads " + quote(p.text) + " where the template reads " + env.String()
+// outputRead matches one step output read or one needs output read, alone,
+// and captures the context, the step or job id, and the output name.
+var outputRead = regexp.MustCompile(`^(steps|needs)\.(` + stepIDPattern + `)\.outputs\.([A-Za-z0-9_-]+)$`)
+
+// resolveOutput follows an expression body to the step output it reads:
+// steps.<id>.outputs.<key> in the job itself, or needs.<job>.outputs.<name>
+// where <job> is one of the job's needs and maps <name> from exactly one of
+// its own step outputs. It returns that step and the output key.
+func resolveOutput(doc, job *yaml.Node, expr string) (*yaml.Node, string, bool) {
+	m := outputRead.FindStringSubmatch(expr)
+	if m == nil {
+		return nil, "", false
+	}
+	if m[1] == "steps" {
+		for _, step := range stepsOf(job) {
+			if stepID(step) == m[2] {
+				return step, m[3], true
+			}
 		}
-		expr = soleExpression(s.env[env.String()])
-	default:
-		return bad
+		return nil, "", false
 	}
-	m := plannerOutputExpr.FindStringSubmatch(expr)
-	if m == nil || m[2] != key.String() {
-		return bad + ": " + quote(expr) + " is not " + stepOutput("<plan>", key)
+	needs, err := needsList(job)
+	if err != nil || !slices.Contains(needs, m[2]) {
+		return nil, "", false
 	}
-	for _, step := range stepsOf(s.job) {
-		if stepID(step) == m[1] && planRunner.MatchString(stepRunText(step)) {
-			return ""
+	producer := jobNode(doc, m[2])
+	mapped := mappingValue(mappingValue(producer, "outputs"), m[3])
+	if mapped == nil {
+		return nil, "", false
+	}
+	n := outputRead.FindStringSubmatch(soleExpression(mapped.Value))
+	if n == nil || n[1] != "steps" {
+		return nil, "", false
+	}
+	for _, step := range stepsOf(producer) {
+		if stepID(step) == n[2] {
+			return step, n[3], true
 		}
 	}
-	return bad + ": steps." + m[1] + " is not a step of this job that runs " + intent.ProgramName + " " + intent.CommandPlan.String()
+	return nil, "", false
 }
 
 // soleExpression returns the body of a value that is exactly one ${{ }}
-// expression, or "".
+// expression, trimmed, or "".
 func soleExpression(value string) string {
 	v := strings.TrimSpace(value)
 	if !strings.HasPrefix(v, "${{") || !strings.HasSuffix(v, "}}") {
@@ -430,38 +565,39 @@ func releaseFlags() flagSpec {
 }
 
 // parsedFlags is one command's flags and positional words after the fixed
-// leading words.
+// leading words. guarded tells, per positional word, whether it follows
+// "--", so gh can never read its value as a flag.
 type parsedFlags struct {
 	flags      map[string]templateWord
 	positional []templateWord
-	redirect   *templateWord
+	guarded    []bool
 }
 
 // parseFlags reads the words after a gh subcommand against the template's
 // flag spec: each flag at most once, every value checked by its kind, no
-// flag outside the spec, and a redirection only when allowed (followed by
-// one path).
-func (s templateStep) parseFlags(words []templateWord, spec flagSpec, allowRedirect bool) (parsedFlags, string) {
+// flag outside the spec, and no redirection. After "--" every word is
+// positional.
+func (s templateStep) parseFlags(words []templateWord, spec flagSpec) (parsedFlags, string) {
 	out := parsedFlags{flags: map[string]templateWord{}}
+	ended := false
 	for i := 0; i < len(words); i++ {
 		w := words[i]
 		if w.redirect {
-			if !allowRedirect || i+2 != len(words) {
-				return out, "the command redirects its output, which the template does not allow there"
-			}
-			target := words[i+1]
-			if why := checkPath(target); why != "" {
-				return out, why
-			}
-			out.redirect = &target
-			return out, ""
+			return out, "the command redirects its output, which the template does not allow there"
 		}
 		lead := ""
 		if len(w.parts) > 0 && w.parts[0].kind == partLiteral {
 			lead = w.parts[0].text
 		}
-		if !strings.HasPrefix(lead, "-") {
+		if !ended {
+			if lit, ok := w.literal(); ok && lit == endOfOptions {
+				ended = true
+				continue
+			}
+		}
+		if ended || !strings.HasPrefix(lead, "-") {
 			out.positional = append(out.positional, w)
+			out.guarded = append(out.guarded, ended)
 			continue
 		}
 		_, isLit := w.literal()
@@ -541,17 +677,14 @@ func (s templateStep) checkValue(w templateWord, kind flagKind, name string) str
 }
 
 // checkText accepts literal text and double-quoted env names that carry no
-// credential. A GitHub expression is refused: it is pasted into the script
-// before the shell runs, so its value could end the quote.
+// credential.
 func (s templateStep) checkText(w templateWord, name string) string {
 	for _, p := range w.parts {
-		switch p.kind {
-		case partExpr:
-			return name + " interpolates a GitHub expression into the script; map it to " + TemplateEnvTitle.String() + " or " + TemplateEnvBody.String() + " in the step env and pass \"${NAME}\""
-		case partParam:
-			if why := s.textParam(p.text, name); why != "" {
-				return why
-			}
+		if p.kind != partParam {
+			continue
+		}
+		if why := s.textParam(p.text, name); why != "" {
+			return why
 		}
 	}
 	return ""
@@ -588,21 +721,20 @@ func checkRepo(w templateWord) string {
 	if lit, ok := w.literal(); ok && repoWord.MatchString(lit) {
 		return ""
 	}
-	if len(w.parts) == 1 {
-		p := w.parts[0]
-		if (p.kind == partParam && p.text == runnerEnvRepository) || (p.kind == partExpr && p.text == contextRepository) {
-			return ""
-		}
+	if len(w.parts) == 1 && w.parts[0].kind == partParam && w.parts[0].text == runnerEnvRepository {
+		return ""
 	}
-	return "the repository " + quote(w.raw) + " is not owner/name, \"$" + runnerEnvRepository + "\", or ${{ " + contextRepository + " }}"
+	return "the repository " + quote(w.raw) + " is not owner/name or \"$" + runnerEnvRepository + "\""
 }
 
 // prNumber matches a literal PR number.
 var prNumber = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // checkPRSelector accepts the job's own PR: its own bot branch or a PR
-// number, literal, or the PR_NUMBER env name mapped from one step output.
-func (s templateStep) checkPRSelector(w templateWord) string {
+// number, literal, or the PR_NUMBER env name mapped from one step or job
+// output. A value from env comes after "--", so gh never reads it as a
+// flag.
+func (s templateStep) checkPRSelector(w templateWord, guarded bool) string {
 	if lit, ok := w.literal(); ok {
 		if lit == s.branch || prNumber.MatchString(lit) {
 			return ""
@@ -610,19 +742,22 @@ func (s templateStep) checkPRSelector(w templateWord) string {
 		return "the PR " + quote(lit) + " is neither the job's own bot branch " + quote(s.branch) + " nor a PR number"
 	}
 	if len(w.parts) == 1 && w.parts[0].kind == partParam && w.parts[0].text == TemplateEnvPRNumber.String() {
-		if plannerOutputExpr.MatchString(soleExpression(s.env[TemplateEnvPRNumber.String()])) {
-			return ""
+		if _, _, ok := resolveOutput(s.doc, s.job, soleExpression(s.env[TemplateEnvPRNumber.String()])); !ok {
+			return "the PR reads " + TemplateEnvPRNumber.String() + ", which the env does not map from exactly one step output or one output of a job this job needs"
 		}
-		return "the PR reads " + TemplateEnvPRNumber.String() + ", which the env does not map from exactly one step output"
+		if !guarded {
+			return "the PR reads " + TemplateEnvPRNumber.String() + " before \"" + endOfOptions + "\", so a value that starts with '-' would be read as a flag; pass " + endOfOptions + " \"${" + TemplateEnvPRNumber.String() + "}\" last"
+		}
+		return ""
 	}
-	return "the PR " + quote(w.raw) + " is not the job's own bot branch, a PR number, or \"${" + TemplateEnvPRNumber.String() + "}\" mapped from a step output"
+	return "the PR " + quote(w.raw) + " is not the job's own bot branch, a PR number, or \"${" + TemplateEnvPRNumber.String() + "}\" mapped from an output"
 }
 
 func (s templateStep) matchPRCreate(words []templateWord) string {
 	f, why := s.parseFlags(words, flagSpec{
 		ghFlagHead: flagLiteral, "--base": flagLiteral, "-B": flagLiteral,
 		"--title": flagText, "-t": flagText, "--body": flagText, "-b": flagText,
-	}, false)
+	})
 	if why != "" {
 		return why
 	}
@@ -640,21 +775,21 @@ func (s templateStep) matchPRCreate(words []templateWord) string {
 }
 
 func (s templateStep) matchPRSelectorCommand(words []templateWord, spec flagSpec) string {
-	f, why := s.parseFlags(words, spec, false)
+	f, why := s.parseFlags(words, spec)
 	if why != "" {
 		return why
 	}
 	if len(f.positional) != 1 {
 		return "the command names " + strconv.Itoa(len(f.positional)) + " PRs, and the template takes exactly the job's own PR"
 	}
-	return s.checkPRSelector(f.positional[0])
+	return s.checkPRSelector(f.positional[0], f.guarded[0])
 }
 
 func (s templateStep) matchPRMerge(words []templateWord) string {
 	f, why := s.parseFlags(words, flagSpec{
 		ghFlagAuto: flagSwitch, ghFlagDisableAuto: flagSwitch,
 		"--squash": flagSwitch, "-s": flagSwitch, "--merge": flagSwitch, "-m": flagSwitch, "--rebase": flagSwitch, "-r": flagSwitch,
-	}, false)
+	})
 	if why != "" {
 		return why
 	}
@@ -672,7 +807,7 @@ func (s templateStep) matchPRMerge(words []templateWord) string {
 	if len(f.positional) != 1 {
 		return "gh pr merge names " + strconv.Itoa(len(f.positional)) + " PRs, and the template takes exactly the job's own PR"
 	}
-	return s.checkPRSelector(f.positional[0])
+	return s.checkPRSelector(f.positional[0], f.guarded[0])
 }
 
 func btoi(b bool) int {
@@ -753,7 +888,7 @@ func (s templateStep) matchQueueRead(words []templateWord) string {
 // tag. create additionally requires --verify-tag, so gh refuses to create a
 // tag that does not exist.
 func (s templateStep) matchRelease(words []templateWord, spec flagSpec, create bool) string {
-	f, why := s.parseFlags(words, spec, false)
+	f, why := s.parseFlags(words, spec)
 	if why != "" {
 		return why
 	}
@@ -766,28 +901,26 @@ func (s templateStep) matchRelease(words []templateWord, spec flagSpec, create b
 		}
 	}
 	if !s.triggeringTag(f.positional[0]) {
-		return "the tag " + quote(f.positional[0].raw) + " is not the triggering tag: pass \"$" + runnerEnvRefName + "\", ${{ " + triggeringRefName + " }}, or \"${" + TemplateEnvTag.String() + "}\" with " + TemplateEnvTag.String() + " mapped from ${{ " + triggeringRefName + " }}"
+		return "the tag " + quote(f.positional[0].raw) + " is not the triggering tag: pass \"$" + runnerEnvRefName + "\", or \"${" + TemplateEnvTag.String() + "}\" with " + TemplateEnvTag.String() + " mapped from ${{ " + triggeringRefName + " }}"
 	}
 	return ""
 }
 
 // triggeringTag accepts the tag that triggered the workflow:
-// ${{ github.ref_name }}, "$GITHUB_REF_NAME", or "$TAG" with TAG mapped from
-// ${{ github.ref_name }} in the step, job or workflow env.
+// "$GITHUB_REF_NAME" when no env overrides it, or "$TAG" with TAG mapped
+// from ${{ github.ref_name }} in the step, job or workflow env. The
+// workflow runs only on a tag under the release prefix, so the value never
+// starts with '-'.
 func (s templateStep) triggeringTag(w templateWord) bool {
-	if len(w.parts) != 1 {
+	if len(w.parts) != 1 || w.parts[0].kind != partParam {
 		return false
 	}
-	p := w.parts[0]
-	switch p.kind {
-	case partExpr:
-		return p.text == triggeringRefName
-	case partParam:
-		if p.text == runnerEnvRefName {
-			_, overridden := s.env[runnerEnvRefName]
-			return !overridden
-		}
-		return p.text == TemplateEnvTag.String() && soleExpression(s.env[TemplateEnvTag.String()]) == triggeringRefName
+	switch name := w.parts[0].text; name {
+	case runnerEnvRefName:
+		_, overridden := s.env[runnerEnvRefName]
+		return !overridden
+	case TemplateEnvTag.String():
+		return soleExpression(s.env[name]) == triggeringRefName
 	}
 	return false
 }

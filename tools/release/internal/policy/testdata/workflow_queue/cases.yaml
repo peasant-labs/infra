@@ -97,6 +97,13 @@ required_names:
   - reject-tag-publish-no-verify-tag
   - reject-tag-publish-branch-push
   - reject-tag-publish-other-tag
+  - accept-credential-job-shape
+  - reject-credential-job-general-step
+  - reject-credential-job-services
+  - reject-credential-job-working-directory
+  - reject-credential-job-artifact-not-needed
+  - reject-credential-job-needs-unlisted
+  - reject-credential-actions-input
 cases:
   - name: accept-required-contexts
     input: { overlay: "" }
@@ -608,7 +615,7 @@ cases:
     sibling: ""
     classification: must-pass
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
-    mutation: { description: "the release tag step pushes refs/tags/${TAG} through the authorization header, with TAG mapped from the planner's tag output and the annotated tag made in a step without the credential" }
+    mutation: { description: "the release job maps TAG from the planning job's tag output in its job env, and fetches and pushes the annotated tag the planning job bundled" }
 
   - name: accept-credential-general-steps
     input: { overlay: "accept-credential-general-steps" }
@@ -616,7 +623,7 @@ cases:
     sibling: ""
     classification: must-pass
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
-    mutation: { description: "steps without a credential in the release job run interpreters, repository scripts, a variable command word and a pipe into bash" }
+    mutation: { description: "steps in the planning job, which holds no credential, run interpreters, repository scripts, a variable command word, a pipe into bash and GITHUB_ENV and GITHUB_PATH writes" }
 
   - name: reject-token-read-only-missing
     input: { overlay: "reject-token-read-only-missing" }
@@ -628,11 +635,11 @@ cases:
 
   - name: reject-token-read-only-write
     input: { overlay: "reject-token-read-only-write" }
-    expected: { rule: "default-token-read-only", also: ["credential-steps-run-one-template"], want_contains: ["jobs.release grants pull-requests: write", "receives a credential but its run block is not one command"] }
+    expected: { rule: "default-token-read-only", want_contains: ["jobs.release grants pull-requests: write"] }
     sibling: "accept-token-read-only"
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy default-token-read-only" }
-    mutation: { description: "grant the release job pull-requests write, which turns its default token into a credential the general PR lookup step then holds" }
+    mutation: { description: "grant the release job pull-requests write" }
 
   - name: reject-token-read-only-write-all
     input: { overlay: "reject-token-read-only-write-all" }
@@ -676,7 +683,7 @@ cases:
 
   - name: reject-credential-scope-job-env
     input: { overlay: "reject-credential-scope-job-env" }
-    expected: { rule: "credentials-stay-in-listed-jobs", also: ["credential-steps-run-one-template", "release-actions-gated"], want_contains: ["jobs.release.env reads secrets.RELEASER_APP_KEY"] }
+    expected: { rule: "credentials-stay-in-listed-jobs", also: ["credential-steps-run-one-template", "release-actions-gated", "credential-jobs-run-no-general-steps"], want_contains: ["jobs.release.env reads secrets.RELEASER_APP_KEY"] }
     sibling: "accept-credential-scope"
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credentials-stay-in-listed-jobs" }
@@ -700,7 +707,7 @@ cases:
 
   - name: reject-credential-scope-run-text
     input: { overlay: "reject-credential-scope-run-text" }
-    expected: { rule: "credentials-stay-in-listed-jobs", also: ["credential-steps-run-one-template"], want_contains: ["reads steps.mint (the minted App token) in run", "is not the authorization header"] }
+    expected: { rule: "credentials-stay-in-listed-jobs", also: ["credential-steps-run-one-template"], want_contains: ["reads steps.mint (the minted App token) in run", "it interpolates a GitHub expression"] }
     sibling: "accept-credential-scope"
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credentials-stay-in-listed-jobs" }
@@ -756,7 +763,7 @@ cases:
 
   - name: reject-templates-unknown-kind
     input: { overlay: "reject-templates-unknown-kind" }
-    expected: { rule: "credential-steps-run-one-template", want_contains: ["names no branch for that kind", "owns no branch and no PR"] }
+    expected: { rule: "credential-steps-run-one-template", also: ["credential-jobs-run-no-general-steps"], want_contains: ["names no branch for that kind", "owns no branch and no PR"] }
     sibling: "accept-credential-templates"
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
@@ -801,3 +808,59 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
     mutation: { description: "create the Release for TAG mapped from an output that is not the triggering tag" }
+
+  - name: accept-credential-job-shape
+    input: { overlay: "" }
+    expected: { rule: "credential-jobs-run-no-general-steps", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
+    mutation: { description: "base repo: each credential job runs only allowed actions, plumbing fetches from the bundle artifact and credential templates, and takes its inputs from the job it needs" }
+
+  - name: reject-credential-job-general-step
+    input: { overlay: "reject-credential-job-general-step" }
+    expected: { rule: "credential-jobs-run-no-general-steps", want_contains: ["jobs.release step \"prepare\" is a general step"] }
+    sibling: "accept-credential-job-shape"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
+    mutation: { description: "run interpreters, repository scripts and GITHUB_ENV and GITHUB_PATH writes in the release job before its credential steps" }
+
+  - name: reject-credential-job-services
+    input: { overlay: "reject-credential-job-services" }
+    expected: { rule: "credential-jobs-run-no-general-steps", want_contains: ["jobs.release runs service containers"] }
+    sibling: "accept-credential-job-shape"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
+    mutation: { description: "run a service container that mounts the runner work directory beside the release job" }
+
+  - name: reject-credential-job-working-directory
+    input: { overlay: "reject-credential-job-working-directory" }
+    expected: { rule: "credential-jobs-run-no-general-steps", want_contains: ["sets working-directory"] }
+    sibling: "accept-credential-job-shape"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
+    mutation: { description: "run the branch fetch inside the downloaded directory, which could hold a repository with its own hooks" }
+
+  - name: reject-credential-job-artifact-not-needed
+    input: { overlay: "reject-credential-job-artifact-not-needed" }
+    expected: { rule: "credential-jobs-run-no-general-steps", want_contains: ["downloads artifact \"lint-bundles\", which no job it needs uploads"] }
+    sibling: "accept-credential-job-shape"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
+    mutation: { description: "download an artifact no job the release job needs uploads" }
+
+  - name: reject-credential-job-needs-unlisted
+    input: { overlay: "reject-credential-job-needs-unlisted" }
+    expected: { rule: "credential-jobs-run-no-general-steps", want_contains: ["reads needs.lint but does not need job \"lint\""] }
+    sibling: "accept-credential-job-shape"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
+    mutation: { description: "read a PR title from a job the release job does not need" }
+
+  - name: reject-credential-actions-input
+    input: { overlay: "reject-credential-actions-input" }
+    expected: { rule: "credential-jobs-use-pinned-actions", want_contains: ["downloads into \".git/hooks\" instead of a literal subdirectory"] }
+    sibling: "accept-credential-actions"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-use-pinned-actions" }
+    mutation: { description: "download the handoff artifact into the git hooks directory" }

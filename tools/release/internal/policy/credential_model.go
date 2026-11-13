@@ -119,39 +119,26 @@ func (s WritableScope) writeAllowed(publish bool) bool {
 	return false
 }
 
-// AllowedAction is an action a job that may hold a credential may use, each
-// pinned to a 40-hex commit. Every other action is refused in such a job:
-// it would run code the checker cannot read with the credential in reach.
-// The zero value is unknown.
+// AllowedAction is an action a job that may hold a credential may use,
+// pinned to a 40-hex commit. Such a job only checks out the repository,
+// downloads what an earlier job prepared, mints the App token and runs
+// templates, so it needs nothing else: a setup action, an upload, or any
+// other action would run code the checker cannot read before or beside the
+// credential. The zero value is unknown.
 type AllowedAction string
 
 const (
-	// ActionCheckout checks out a repository.
+	// ActionCheckout checks out the repository the templates push from.
 	ActionCheckout AllowedAction = "actions/checkout"
-	// ActionSetupGo installs Go.
-	ActionSetupGo AllowedAction = "actions/setup-go"
-	// ActionSetupNode installs Node.
-	ActionSetupNode AllowedAction = "actions/setup-node"
+	// ActionDownloadArtifact downloads what an earlier job prepared, such as
+	// a git bundle of the bot branch or the release tag.
+	ActionDownloadArtifact AllowedAction = "actions/download-artifact"
 	// ActionCreateAppToken mints the releaser App token.
 	ActionCreateAppToken AllowedAction = "actions/create-github-app-token"
-	// ActionUploadArtifact keeps a file as a run artifact.
-	ActionUploadArtifact AllowedAction = "actions/upload-artifact"
-	// ActionSetupPnpm installs pnpm.
-	ActionSetupPnpm AllowedAction = "pnpm/action-setup"
-	// ActionInstallNix installs Nix.
-	ActionInstallNix AllowedAction = "cachix/install-nix-action"
 )
 
 // AllAllowedActions is the canonical closed set of allowed actions.
-var AllAllowedActions = []AllowedAction{
-	ActionCheckout,
-	ActionSetupGo,
-	ActionSetupNode,
-	ActionCreateAppToken,
-	ActionUploadArtifact,
-	ActionSetupPnpm,
-	ActionInstallNix,
-}
+var AllAllowedActions = []AllowedAction{ActionCheckout, ActionDownloadArtifact, ActionCreateAppToken}
 
 func (a AllowedAction) String() string { return string(a) }
 
@@ -164,6 +151,85 @@ func ParseAllowedAction(raw string) (AllowedAction, error) {
 		When:  "reading a uses: step in a job that may hold a credential during merge-queue policy validation",
 		Means: "the action runs code the checker cannot read while a credential is in reach, so the step is rejected",
 	})
+}
+
+// ActionInput is one with: input an allowed action may take in a job that
+// may hold a credential. Every other input is refused: checkout's ref, path
+// or token would change which repository the templates push from, a
+// download's repository, run-id or github-token would fetch another run's
+// files, and the mint's API URL would send its signed request elsewhere. The
+// zero value is unknown.
+type ActionInput string
+
+const (
+	// InputPersistCredentials is checkout's persist-credentials, which must
+	// be false.
+	InputPersistCredentials ActionInput = "persist-credentials"
+	// InputFetchDepth is checkout's fetch-depth.
+	InputFetchDepth ActionInput = "fetch-depth"
+	// InputFetchTags is checkout's fetch-tags.
+	InputFetchTags ActionInput = "fetch-tags"
+	// InputArtifactName is the download's artifact name.
+	InputArtifactName ActionInput = "name"
+	// InputArtifactPath is the download's destination directory.
+	InputArtifactPath ActionInput = "path"
+	// InputAppID is the mint's App id.
+	InputAppID ActionInput = "app-id"
+	// InputClientID is the mint's App client id.
+	InputClientID ActionInput = "client-id"
+	// InputPrivateKey is the mint's App private key.
+	InputPrivateKey ActionInput = "private-key"
+	// InputOwner is the installation owner the mint scopes the token to.
+	InputOwner ActionInput = "owner"
+	// InputRepositories narrows the token to the named repositories.
+	InputRepositories ActionInput = "repositories"
+	// InputPermissionContents narrows the token's contents permission.
+	InputPermissionContents ActionInput = "permission-contents"
+	// InputPermissionPullRequests narrows the token's pull-requests
+	// permission.
+	InputPermissionPullRequests ActionInput = "permission-pull-requests"
+)
+
+// AllActionInputs is the canonical closed set of action inputs.
+var AllActionInputs = []ActionInput{
+	InputPersistCredentials,
+	InputFetchDepth,
+	InputFetchTags,
+	InputArtifactName,
+	InputArtifactPath,
+	InputAppID,
+	InputClientID,
+	InputPrivateKey,
+	InputOwner,
+	InputRepositories,
+	InputPermissionContents,
+	InputPermissionPullRequests,
+}
+
+func (i ActionInput) String() string { return string(i) }
+
+// ParseActionInput maps an input name to its member and refuses anything
+// else.
+func ParseActionInput(raw string) (ActionInput, error) {
+	return closedset.Parse(AllActionInputs, raw, closedset.Context{
+		Set:   "action input",
+		Where: "policy.ParseActionInput",
+		When:  "reading the with: inputs of an action in a job that may hold a credential during merge-queue policy validation",
+		Means: "an input outside the set can change what the action reads, writes or sends, so the step is rejected",
+	})
+}
+
+// inputsOf lists the inputs an allowed action may take, in canonical order.
+func inputsOf(action AllowedAction) []ActionInput {
+	switch action {
+	case ActionCheckout:
+		return []ActionInput{InputPersistCredentials, InputFetchDepth, InputFetchTags}
+	case ActionDownloadArtifact:
+		return []ActionInput{InputArtifactName, InputArtifactPath}
+	case ActionCreateAppToken:
+		return []ActionInput{InputAppID, InputClientID, InputPrivateKey, InputOwner, InputRepositories, InputPermissionContents, InputPermissionPullRequests}
+	}
+	return nil
 }
 
 // actionPinSHA matches the 40-hex commit an allowed action is pinned to.
@@ -182,11 +248,12 @@ func isAction(uses string, action AllowedAction) bool {
 	return ok && name == action.String()
 }
 
-// TemplateEnv is a name a credential step's environment may carry. A
-// credential step runs one template, so its environment holds only the
-// credential the template uses and the values its typed parts read; any
-// other name (BASH_ENV, PATH, GIT_*, a proxy) could change what the one
-// command does. The zero value is unknown.
+// TemplateEnv is a name the environment of any step in a job that may hold
+// a credential may carry. Such a step runs one template or one allowed
+// action, so its environment holds only the credential a template uses and
+// the values its typed parts read; any other name (BASH_ENV, PATH, GIT_*,
+// NODE_OPTIONS, a proxy) could change what the command or the action does.
+// The zero value is unknown.
 type TemplateEnv string
 
 const (
@@ -200,9 +267,7 @@ const (
 	// TemplateEnvTag carries the planner's tag output, or the triggering tag
 	// in the publish workflow.
 	TemplateEnvTag TemplateEnv = "TAG"
-	// TemplateEnvCandidate carries the planner's candidate output.
-	TemplateEnvCandidate TemplateEnv = "CANDIDATE"
-	// TemplateEnvPRNumber carries a PR number from a step output.
+	// TemplateEnvPRNumber carries a PR number from a step or job output.
 	TemplateEnvPRNumber TemplateEnv = "PR_NUMBER"
 	// TemplateEnvTitle carries a PR or Release title.
 	TemplateEnvTitle TemplateEnv = "TITLE"
@@ -220,7 +285,6 @@ var AllTemplateEnvs = []TemplateEnv{
 	TemplateEnvGitHubToken,
 	TemplateEnvAppToken,
 	TemplateEnvTag,
-	TemplateEnvCandidate,
 	TemplateEnvPRNumber,
 	TemplateEnvTitle,
 	TemplateEnvBody,

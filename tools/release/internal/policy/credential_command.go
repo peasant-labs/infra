@@ -5,24 +5,27 @@ import (
 	"strings"
 )
 
-// This file reads the run block of a step that receives a credential. Such a
-// step runs exactly one command, so the reader does not approximate a shell:
-// it splits one command into words and refuses everything else. A run block
-// is accepted only when every character belongs to a form listed here:
+// This file reads the run block of every step in a job that may hold a
+// credential. Such a step runs exactly one command, so the reader does not
+// approximate a shell: it splits one command into words and refuses
+// everything else. A run block is accepted only when every character belongs
+// to a form listed here:
 //
 //   - unquoted literal characters from a small allowlist (letters, digits,
 //     and _ - . / : = @ + , %);
 //   - single-quoted text, which the shell never expands;
-//   - double-quoted text, whose only expansions are a plain parameter ($NAME
-//     or ${NAME}) and a GitHub expression (${{ ... }});
-//   - an unquoted GitHub expression;
+//   - double-quoted text, whose only expansion is a plain parameter ($NAME
+//     or ${NAME});
 //   - a backslash before a newline, which joins two lines;
 //   - one plain '>' redirection, which a template may allow for its output.
 //
 // Anything else is refused: a second command, a pipe, a separator, a
 // substitution, a here-document, a glob, a brace or tilde expansion, an
-// unquoted parameter, any other '$' form, any other escape, a comment. A
-// refused block cannot be one template, so it never receives a credential.
+// unquoted parameter, any other '$' form, any other escape, a comment, and a
+// GitHub expression. An expression is pasted into the script before the shell
+// runs, so a value from an earlier job could end a quote and add a command;
+// a template reads every value from its env instead. A refused block cannot
+// be one template, so it never runs in such a job.
 
 // partKind is what one part of a command word is.
 type partKind int
@@ -32,13 +35,10 @@ const (
 	partLiteral partKind = iota + 1
 	// partParam is a plain parameter expansion inside double quotes.
 	partParam
-	// partExpr is a GitHub expression, substituted before the shell runs.
-	partExpr
 )
 
 // wordPart is one part of a command word: its kind and its text (the
-// literal text, the parameter name, or the expression body trimmed of
-// spaces).
+// literal text or the parameter name).
 type wordPart struct {
 	kind partKind
 	text string
@@ -123,15 +123,10 @@ func (t *commandTokenizer) run() string {
 				return why
 			}
 		case c == '$':
-			if !strings.HasPrefix(src[t.i:], "${{") {
-				return "it uses '$' outside double quotes (a parameter, a substitution or arithmetic), which can run a command or split into more words"
+			if strings.HasPrefix(src[t.i:], "${{") {
+				return expressionRefused
 			}
-			start := t.i
-			part, why := t.expression()
-			if why != "" {
-				return why
-			}
-			t.add(src[start:t.i], part)
+			return "it uses '$' outside double quotes (a parameter, a substitution or arithmetic), which can run a command or split into more words"
 		case c == '>':
 			if t.open {
 				return "it redirects a numbered file descriptor"
@@ -182,12 +177,7 @@ func (t *commandTokenizer) doubleQuoted() string {
 			return "it runs a backtick substitution"
 		case c == '$':
 			if strings.HasPrefix(src[t.i:], "${{") {
-				part, why := t.expression()
-				if why != "" {
-					return why
-				}
-				t.addPart(part)
-				continue
+				return expressionRefused
 			}
 			name, why := t.parameter()
 			if why != "" {
@@ -202,16 +192,8 @@ func (t *commandTokenizer) doubleQuoted() string {
 	return "it opens a double quote it never closes"
 }
 
-// expression reads a GitHub expression at t.i.
-func (t *commandTokenizer) expression() (wordPart, string) {
-	end := strings.Index(t.src[t.i:], "}}")
-	if end < 0 {
-		return wordPart{}, "it opens a GitHub expression it never closes"
-	}
-	body := strings.TrimSpace(t.src[t.i+3 : t.i+end])
-	t.i += end + 2
-	return wordPart{partExpr, body}, ""
-}
+// expressionRefused says why a GitHub expression in a run block is refused.
+const expressionRefused = "it interpolates a GitHub expression, which is pasted into the script before the shell runs, so its value could end a quote and add a command; map the value to an env name and pass \"${NAME}\""
 
 // parameter reads $NAME or ${NAME} at t.i. Every other form after '$' runs a
 // command or rewrites the value, so it is refused.

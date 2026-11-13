@@ -79,6 +79,12 @@ const (
 	// It also resolves each listed job's bot branch: a kind the config does
 	// not name, or a kind two jobs claim, is reported here.
 	QueueRuleCredentialTemplates QueueRule = "credential-steps-run-one-template"
+	// QueueRuleCredentialJobShape holds every job that may hold a credential
+	// to allowed actions, plumbing templates and credential templates: no
+	// general step, no service container, no working directory, an
+	// environment of template env names only, and a handoff from the jobs it
+	// needs through job outputs and artifacts alone.
+	QueueRuleCredentialJobShape QueueRule = "credential-jobs-run-no-general-steps"
 	// QueueRuleTokenMint requires every job that mints the releaser App token
 	// to check that github.ref is the default branch, in a job-level or
 	// mint-step if, and to mint only when tag mode is on. A dispatch on any
@@ -129,6 +135,7 @@ var AllQueueRules = []QueueRule{
 	QueueRuleCredentialScope,
 	QueueRuleCredentialActions,
 	QueueRuleCredentialTemplates,
+	QueueRuleCredentialJobShape,
 	QueueRuleTokenMint,
 	QueueRuleUnfiltered,
 	QueueRuleMergeGate,

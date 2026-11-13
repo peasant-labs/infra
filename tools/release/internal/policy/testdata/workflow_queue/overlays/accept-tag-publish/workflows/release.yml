@@ -59,9 +59,30 @@ jobs:
       - name: Run contract gates
         run: make gates BASE_REF="${{ steps.prior.outputs.base_ref }}"
 
+  notes:
+    name: release notes
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Write the notes
+        run: |
+          mkdir -p notes
+          ./scripts/release-notes.sh "$TAG" > notes/notes.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-notes
+          path: notes
+
   release:
     name: publish GitHub Release
-    needs: [guard, contract-gates]
+    needs: [guard, contract-gates, notes]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -72,8 +93,10 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Write the notes
-        run: ./scripts/release-notes.sh "$TAG" > notes.md
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-notes
+          path: notes
       - name: Look for an existing Release
         id: view
         continue-on-error: true
@@ -85,7 +108,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md --prerelease="$PRERELEASE"
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes/notes.md --prerelease="$PRERELEASE"
       - name: Mark the Release as latest
         if: needs.guard.outputs.kind == 'final'
         env:

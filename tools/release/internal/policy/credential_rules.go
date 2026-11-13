@@ -1,11 +1,13 @@
 package policy
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	regexp "github.com/wasilibs/go-re2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,11 +26,18 @@ import (
 //     uses only the allowed actions, pinned to a commit;
 //   - credential-steps-run-one-template: a step that receives a credential
 //     runs exactly one command from the closed template set, built from the
-//     release config and the job's own bot kind.
+//     release config and the job's own bot kind;
+//   - credential-jobs-run-no-general-steps: a job that may hold a credential
+//     runs only allowed actions, plumbing templates and credential
+//     templates, and takes everything else from the jobs it needs, through
+//     job outputs and artifacts.
 //
-// A step without a credential may run any command: checkout keeps no
-// credential and the default token cannot write, so it has nothing to write
-// a ref with.
+// All real work (building the tool, planning, writing and committing the
+// release content, making the tag object, judging the queue) runs in an
+// earlier job with no credential. A step there may run any command: checkout
+// keeps no credential and the default token cannot write, so it has nothing
+// to write a ref with, and it shares no runner, environment or checkout with
+// the job that holds the credential.
 
 // violation renders the parts of a diagnostic message after the location
 // and rule the emitter adds: what is wrong, when it was found, why it
@@ -264,9 +273,222 @@ func (c *queueChecker) checkCredentialActions() {
 				if !actionPinSHA.MatchString(ref) {
 					emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", pinned to "+strconv.Quote(ref)+" instead of a 40-hex commit", "pin the action to the reviewed commit SHA")
 				}
+				if why := actionInputFault(step); why != "" {
+					emit(stepLabel(jobName, i, step)+" "+why, "pass "+uses+" only the inputs it may take there")
+				}
 			}
 		}
 	})
+}
+
+// actionInputFault says why an allowed action's with: inputs are not ones
+// it may take in a job that may hold a credential, or "" when they are.
+// Checkout and download inputs are literal: a value from an expression could
+// point them at another ref or directory. A download lands in a literal
+// subdirectory of the workspace, so an artifact can never write into .git
+// (its config or hooks) or beside the repository's files.
+func actionInputFault(step *yaml.Node) string {
+	name, _, _ := usesAction(stepUsesText(step))
+	action, err := ParseAllowedAction(name)
+	if err != nil {
+		return ""
+	}
+	allowed := inputsOf(action)
+	with := mappingValue(step, "with")
+	for i := 0; with != nil && i+1 < len(with.Content); i += 2 {
+		key, value := with.Content[i].Value, with.Content[i+1].Value
+		input, err := ParseActionInput(key)
+		if err != nil || !containsInput(allowed, input) {
+			return "passes input " + key + ", which " + action.String() + " may not take in a job that may hold a credential (it takes " + closedset.Join(allowed, ", ") + ")"
+		}
+		if action != ActionCreateAppToken && strings.Contains(value, "${{") {
+			return "passes input " + key + " from an expression; " + action.String() + " takes literal inputs there"
+		}
+	}
+	if action == ActionDownloadArtifact {
+		path := mappingValue(with, InputArtifactPath.String())
+		if path == nil || !pathWord.MatchString(path.Value) || strings.Contains(path.Value, "..") {
+			return "downloads into " + strconv.Quote(valueOf(path)) + " instead of a literal subdirectory of the workspace, so an artifact could write into .git or over the checkout"
+		}
+	}
+	return ""
+}
+
+func containsInput(set []ActionInput, input ActionInput) bool {
+	for _, member := range set {
+		if member == input {
+			return true
+		}
+	}
+	return false
+}
+
+// valueOf returns a scalar node's value, or "" for a missing node.
+func valueOf(n *yaml.Node) string {
+	if n == nil {
+		return ""
+	}
+	return n.Value
+}
+
+// checkCredentialJobShape (credential-jobs-run-no-general-steps) holds a job
+// that may hold a credential to three kinds of step: an allowed action, a
+// plumbing template, and a credential template. Every other piece of work
+// runs in an earlier job that holds no credential, so nothing in the
+// credential job can write GITHUB_ENV or GITHUB_PATH, the git config or
+// hooks, or the actions the runner already downloaded, before the step that
+// holds the credential. The earlier job hands over only through job outputs
+// and artifacts: every needs.<job> the job reads names a job it needs, every
+// artifact it downloads is uploaded by a job it needs, and every step's
+// environment holds only template env names. The job runs no service
+// container and sets no working directory, so every command runs in the
+// fresh checkout.
+func (c *queueChecker) checkCredentialJobShape() {
+	c.eachDoc(QueueRuleCredentialJobShape, func(name string, doc *yaml.Node) {
+		for _, jobName := range jobNames(doc) {
+			cj := c.creds[name][jobName]
+			if cj.class == "" {
+				continue
+			}
+			job := jobNode(doc, jobName)
+			emit := func(what, fix string) {
+				c.emit(QueueRuleCredentialJobShape, name, jobName, violation(what,
+					"a "+cj.class.String()+" holds a credential, and any general step before the credential step can leave behind what makes the one template push the default branch or leak the token: an env or path file entry, a git config or hook, a rewritten downloaded action",
+					rejected, fix))
+			}
+			c.checkJobShape(name, jobName, doc, job, cj, emit)
+		}
+	})
+}
+
+// checkJobShape applies the shape clauses to one credential job.
+func (c *queueChecker) checkJobShape(file, jobName string, doc, job *yaml.Node, cj credentialJob, emit func(what, fix string)) {
+	moveWork := "do this work in an earlier job without the credential, hand the result over as a job output or an artifact, and list that job in needs"
+	if mappingValue(job, "services") != nil {
+		emit("jobs."+jobName+" runs service containers", "drop the services; a service container can mount the runner's work directory")
+	}
+	if mappingValue(mappingValue(mappingValue(job, "defaults"), "run"), "working-directory") != nil {
+		emit("jobs."+jobName+" sets defaults.run.working-directory", "drop it, so every command runs in the fresh checkout and never in a downloaded directory")
+	}
+	needs, _ := needsList(job)
+	for _, ref := range needsReads(job) {
+		if !slices.Contains(needs, ref) {
+			emit("jobs."+jobName+" reads needs."+ref+" but does not need job "+strconv.Quote(ref), "list "+ref+" in the job's needs, so its outputs are the ones this run produced")
+		}
+	}
+	uploads := uploadedArtifacts(doc, needs)
+	for i, step := range stepsOf(job) {
+		label := stepLabel(jobName, i, step)
+		if mappingValue(step, "working-directory") != nil {
+			emit(label+" sets working-directory", "drop it, so the command runs in the fresh checkout and never in a downloaded directory")
+		}
+		if uses := stepUsesText(step); uses != "" {
+			if isAction(uses, ActionDownloadArtifact) {
+				artifact := valueOf(mappingValue(mappingValue(step, "with"), InputArtifactName.String()))
+				if artifact == "" || !uploads[artifact] {
+					emit(label+" downloads artifact "+strconv.Quote(artifact)+", which no job it needs uploads", "name the artifact an earlier job uploads, and list that job in needs")
+				}
+			}
+			if bad := badEnvName(effectiveEnv(doc, job, step)); bad != "" {
+				emit(label+" runs with env "+bad+", which is not one of "+closedset.Join(AllTemplateEnvs, ", "), "drop it from the step, job and workflow env; an action reads its environment too (NODE_OPTIONS, a proxy)")
+			}
+			continue
+		}
+		if c.receivesCredential(file, jobName, step) {
+			continue
+		}
+		if why := c.plumbingFault(doc, job, step, cj); why != "" {
+			emit(label+" "+why, moveWork+"; this job runs only "+closedset.Join(AllAllowedActions, ", ")+", the plumbing templates ("+plumbingShapes(cj.class)+") and the credential templates")
+		}
+	}
+}
+
+// plumbingFault says why a no-credential run step of a credential job is
+// not exactly one plumbing template its class may run, or "" when it is.
+func (c *queueChecker) plumbingFault(doc, job, step *yaml.Node, cj credentialJob) string {
+	if shell := effectiveShell(step, job, doc); shell != "" && shell != shellBash {
+		return "runs under shell " + strconv.Quote(shell) + " instead of the runner's default bash"
+	}
+	env := effectiveEnv(doc, job, step)
+	if bad := badEnvName(env); bad != "" {
+		return "runs with env " + bad + ", which is not one of " + closedset.Join(AllTemplateEnvs, ", ") + " and can change what the command does"
+	}
+	words, why := tokenizeCommand(stepRunText(step))
+	if why != "" {
+		return "is a general step: its run block is not one command: " + why
+	}
+	if _, why := matchPlumbing(words, templateStep{class: cj.class, branch: cj.branch, env: env, doc: doc, job: job}); why != "" {
+		return "is a general step: " + why
+	}
+	return ""
+}
+
+// badEnvName returns the first env name that is not a template env name, or
+// "".
+func badEnvName(env map[string]string) string {
+	for _, name := range sortedKeys(env) {
+		if _, err := ParseTemplateEnv(name); err != nil {
+			return name
+		}
+	}
+	return ""
+}
+
+// plumbingShapes lists a job class's plumbing templates for a message.
+func plumbingShapes(class credentialJobClass) string {
+	var out []string
+	for _, t := range plumbingFor(class) {
+		out = append(out, t.String()+" `"+t.Shape()+"`")
+	}
+	if len(out) == 0 {
+		return "none for this job"
+	}
+	return strings.Join(out, "; ")
+}
+
+// needsJobRead matches a read of one needed job's outputs or result and
+// captures the job id.
+var needsJobRead = regexp.MustCompile(`\bneeds\.(` + stepIDPattern + `)\.`)
+
+// needsReads returns every job id the job reads through the needs context,
+// in order of first appearance.
+func needsReads(job *yaml.Node) []string {
+	var out []string
+	for _, scalar := range nodeScalars(job) {
+		for _, m := range needsJobRead.FindAllStringSubmatch(scalar, -1) {
+			if !slices.Contains(out, m[1]) {
+				out = append(out, m[1])
+			}
+		}
+	}
+	return out
+}
+
+// uploadedArtifacts returns the artifact names the given jobs upload with a
+// literal name.
+func uploadedArtifacts(doc *yaml.Node, jobs []string) map[string]bool {
+	out := map[string]bool{}
+	for _, name := range jobs {
+		for _, step := range stepsOf(jobNode(doc, name)) {
+			if !isUploadArtifact(stepUsesText(step)) {
+				continue
+			}
+			if artifact := valueOf(mappingValue(mappingValue(step, "with"), InputArtifactName.String())); artifact != "" && !strings.Contains(artifact, "${{") {
+				out[artifact] = true
+			}
+		}
+	}
+	return out
+}
+
+// uploadArtifactAction is the action an earlier job hands files over with.
+// It is not an allowed action in a credential job; it only names where an
+// artifact comes from.
+const uploadArtifactAction = "actions/upload-artifact"
+
+func isUploadArtifact(uses string) bool {
+	name, _, ok := usesAction(uses)
+	return ok && name == uploadArtifactAction
 }
 
 // checkCredentialTemplates (credential-steps-run-one-template) holds every
@@ -326,7 +548,7 @@ func (c *queueChecker) templateFault(doc, job, step *yaml.Node, cj credentialJob
 	if why != "" {
 		return why
 	}
-	if tmpl == TemplatePRMerge && cj.class == credentialJobRelease && !isArmHoldStep(step) {
+	if tmpl == TemplatePRMerge && cj.class == credentialJobRelease && !isArmHoldStep(doc, job, step) {
 		return "merges a PR outside an arm or hold step; only the steps gated on the " + intent.CommandQueueGate.String() + " output arm or hold the release PR"
 	}
 	return ""

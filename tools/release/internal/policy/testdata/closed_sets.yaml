@@ -17,6 +17,8 @@ required_names:
   - allowed-action
   - template-env
   - credential-template
+  - action-input
+  - plumbing-template
   - credential-job-class
 sets:
   - name: queue-rule
@@ -31,6 +33,7 @@ sets:
       - credentials-stay-in-listed-jobs
       - credential-jobs-use-pinned-actions
       - credential-steps-run-one-template
+      - credential-jobs-run-no-general-steps
       - token-mint-ref-check
       - required-workflows-unfiltered
       - merge-gate-always-reports
@@ -70,24 +73,38 @@ sets:
     refused: ["", "pull-requests", "actions", "Contents"]
 
   # The actions a job that may hold a credential may use, each pinned to a
-  # commit. actions/github-script is refused: it runs code the checker
-  # cannot read with the credential in reach.
+  # commit: check out, download what an earlier job prepared, mint. Setup
+  # actions, uploads and actions/github-script are refused there: each runs
+  # code the checker cannot read with the credential in reach.
   - name: allowed-action
     members:
       - actions/checkout
-      - actions/setup-go
-      - actions/setup-node
+      - actions/download-artifact
       - actions/create-github-app-token
-      - actions/upload-artifact
-      - pnpm/action-setup
-      - cachix/install-nix-action
-    refused: ["", "actions/github-script", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
+    refused: ["", "actions/github-script", "actions/setup-go", "actions/upload-artifact", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
+
+  # The with: inputs those actions may take in such a job.
+  - name: action-input
+    members:
+      - persist-credentials
+      - fetch-depth
+      - fetch-tags
+      - name
+      - path
+      - app-id
+      - client-id
+      - private-key
+      - owner
+      - repositories
+      - permission-contents
+      - permission-pull-requests
+    refused: ["", "ref", "token", "repository", "run-id", "github-token", "github-api-url", "Path"]
 
   # The env names a credential step may carry: three credential carriers and
   # the values the templates' typed parts read.
   - name: template-env
-    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, CANDIDATE, PR_NUMBER, TITLE, BODY, PRERELEASE, LATEST]
-    refused: ["", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "gh_token"]
+    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, PR_NUMBER, TITLE, BODY, PRERELEASE, LATEST]
+    refused: ["", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "NODE_OPTIONS", "CANDIDATE", "gh_token"]
 
   - name: credential-template
     members:
@@ -102,6 +119,12 @@ sets:
       - release-edit
       - release-create
     refused: ["", "push", "gh-api", "Push-Own-Branch"]
+
+  # The commands a job that may hold a credential may run without one: move
+  # what an earlier job bundled into the local repository.
+  - name: plumbing-template
+    members: [fetch-bundle-branch, fetch-bundle-tag]
+    refused: ["", "fetch", "git-config", "Fetch-Bundle-Branch"]
 
   # Why a job may hold a credential; it has no parser of its own.
   - name: credential-job-class

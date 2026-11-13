@@ -64,6 +64,8 @@ func closedSetsUnderTest() map[string]closedSetUnderTest {
 		"allowed-action":               {memberNames(AllAllowedActions), parserOf(ParseAllowedAction)},
 		"template-env":                 {memberNames(AllTemplateEnvs), parserOf(ParseTemplateEnv)},
 		"credential-template":          {memberNames(AllCredentialTemplates), parserOf(ParseCredentialTemplate)},
+		"action-input":                 {memberNames(AllActionInputs), parserOf(ParseActionInput)},
+		"plumbing-template":            {memberNames(AllPlumbingTemplates), parserOf(ParsePlumbingTemplate)},
 		"credential-job-class":         {memberNames(allCredentialJobClasses), nil},
 	}
 }

