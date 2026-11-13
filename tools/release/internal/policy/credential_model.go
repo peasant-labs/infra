@@ -267,8 +267,6 @@ const (
 	// TemplateEnvTag carries the planner's tag output, or the triggering tag
 	// in the publish workflow.
 	TemplateEnvTag TemplateEnv = "TAG"
-	// TemplateEnvPRNumber carries a PR number from a step or job output.
-	TemplateEnvPRNumber TemplateEnv = "PR_NUMBER"
 	// TemplateEnvTitle carries a PR or Release title.
 	TemplateEnvTitle TemplateEnv = "TITLE"
 	// TemplateEnvBody carries a PR body or Release notes.
@@ -285,7 +283,6 @@ var AllTemplateEnvs = []TemplateEnv{
 	TemplateEnvGitHubToken,
 	TemplateEnvAppToken,
 	TemplateEnvTag,
-	TemplateEnvPRNumber,
 	TemplateEnvTitle,
 	TemplateEnvBody,
 	TemplateEnvPrerelease,
@@ -308,6 +305,39 @@ func ParseTemplateEnv(raw string) (TemplateEnv, error) {
 // carriesCredential reports whether the name may carry a credential.
 func (e TemplateEnv) carriesCredential() bool {
 	return e == TemplateEnvGHToken || e == TemplateEnvGitHubToken || e == TemplateEnvAppToken
+}
+
+// RunnerLabel is a GitHub-hosted runner label a job that may hold a
+// credential may run on. A hosted runner is a fresh machine per job, so
+// nothing an earlier job did can remain on it; a self-hosted runner can keep
+// a hooked git, an env file or a config between jobs, and a label from an
+// expression lets the job without a credential choose the machine. The zero
+// value is unknown.
+type RunnerLabel string
+
+const (
+	// RunnerUbuntuLatest is GitHub's current Ubuntu image.
+	RunnerUbuntuLatest RunnerLabel = "ubuntu-latest"
+	// RunnerUbuntu2404 is GitHub's Ubuntu 24.04 image.
+	RunnerUbuntu2404 RunnerLabel = "ubuntu-24.04"
+	// RunnerUbuntu2204 is GitHub's Ubuntu 22.04 image.
+	RunnerUbuntu2204 RunnerLabel = "ubuntu-22.04"
+)
+
+// AllRunnerLabels is the canonical closed set of runner labels.
+var AllRunnerLabels = []RunnerLabel{RunnerUbuntuLatest, RunnerUbuntu2404, RunnerUbuntu2204}
+
+func (l RunnerLabel) String() string { return string(l) }
+
+// ParseRunnerLabel maps a runs-on label to its member and refuses every other
+// label.
+func ParseRunnerLabel(raw string) (RunnerLabel, error) {
+	return closedset.Parse(AllRunnerLabels, raw, closedset.Context{
+		Set:   "GitHub-hosted runner label",
+		Where: "policy.ParseRunnerLabel",
+		When:  "reading the runs-on of a job that may hold a credential during merge-queue policy validation",
+		Means: "the job could run on a machine that keeps state between jobs, so it is rejected",
+	})
 }
 
 // The environment names the runner sets that a template's typed parts may

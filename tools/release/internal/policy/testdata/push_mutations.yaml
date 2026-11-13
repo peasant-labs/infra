@@ -10,7 +10,7 @@
 #
 # The rows cover the default branch in every refspec form against each job
 # class that may hold a credential, the push options and refspecs that name
-# no single branch, a single-sided tag refspec, every form that pushed the
+# no single branch, a single-sided tag refspec, a PR named by a number, a credential job runner that is not one literal GitHub-hosted label, every form that pushed the
 # default branch past the earlier reader (a variable command word, a
 # substitution, a pipe or a here-document into bash, python, node and perl, a
 # repository script, an actions/github-script step), the environment and
@@ -81,7 +81,16 @@ required_names:
   - release-shell-override
   - release-merge-admin
   - release-pr-create-other-head
-  - release-pr-number-unguarded
+  - release-pr-number-from-output
+  - release-pr-number-literal
+  - release-pr-other-branch
+  - runner-self-hosted
+  - runner-label-list
+  - runner-group
+  - runner-expression
+  - runner-router-output
+  - runner-other-hosted-image
+  - general-runner-router-in-planning-job
   - release-queue-mutation
   - release-config-default-branch
   - tamper-env-file-bash-env
@@ -438,8 +447,8 @@ cases:
     want_contains: ["runs under shell \"python {0}\""]
   - name: release-merge-admin
     workflow: release-batch.yml
-    find: "gh pr merge --auto --squash 7"
-    replace: "gh pr merge --admin --squash 7"
+    find: "gh pr merge --auto --squash -- automation/release"
+    replace: "gh pr merge --admin --squash -- automation/release"
     rules: [credential-steps-run-one-template]
     want_contains: ["the command passes \"--admin\""]
   - name: release-pr-create-other-head
@@ -448,12 +457,66 @@ cases:
     replace: "gh pr create --head main"
     rules: [credential-steps-run-one-template]
     want_contains: ["gh pr create opens from \"main\", not the job's own bot branch \"automation/release\""]
-  - name: release-pr-number-unguarded
+  - name: release-pr-number-from-output
     workflow: release-batch.yml
-    find: "-- \"${PR_NUMBER}\""
-    replace: "\"${PR_NUMBER}\""
+    find: "          TITLE: \"release[minor]: v0.2.0\"\n        run: gh pr edit --title \"${TITLE}\" --body \"bot\" -- automation/release"
+    replace: "          TITLE: \"release[minor]: v0.2.0\"\n          PR_NUMBER: ${{ needs.plan.outputs.number }}\n        run: gh pr edit --title \"${TITLE}\" --body \"bot\" -- \"${PR_NUMBER}\""
     rules: [credential-steps-run-one-template]
-    want_contains: ["before \"--\", so a value that starts with '-' would be read as a flag"]
+    want_contains: ["its env sets PR_NUMBER"]
+  - name: release-pr-number-literal
+    workflow: release-batch.yml
+    find: "gh pr merge --auto --squash -- automation/release"
+    replace: "gh pr merge --auto --squash -- 7"
+    rules: [credential-steps-run-one-template]
+    want_contains: ["the PR \"7\" is not the job's own bot branch \"automation/release\""]
+  - name: release-pr-other-branch
+    workflow: release-batch.yml
+    find: "gh pr merge --disable-auto -- automation/release"
+    replace: "gh pr merge --disable-auto -- automation/cut-release"
+    rules: [credential-steps-run-one-template]
+    want_contains: ["the PR \"automation/cut-release\" is not the job's own bot branch"]
+  - name: runner-self-hosted
+    workflow: release-batch.yml
+    find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
+    replace: "  release:\n    needs: [plan]\n    runs-on: self-hosted\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["runs on \"self-hosted\", which is not a GitHub-hosted label"]
+  - name: runner-label-list
+    workflow: release-batch.yml
+    find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
+    replace: "  release:\n    needs: [plan]\n    runs-on: [self-hosted, linux]\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["runs on a label list or a group mapping"]
+  - name: runner-group
+    workflow: release-batch.yml
+    find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
+    replace: "  release:\n    needs: [plan]\n    runs-on:\n      group: release-runners\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["runs on a label list or a group mapping"]
+  - name: runner-expression
+    workflow: release-batch.yml
+    find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
+    replace: "  release:\n    needs: [plan]\n    runs-on: ${{ fromJson(needs.plan.outputs.runner) }}\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["an expression, so an earlier job or an input picks the machine"]
+  - name: runner-router-output
+    workflow: release-batch.yml
+    find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
+    replace: "  release:\n    needs: [plan]\n    runs-on: ${{ needs.plan.outputs.runner }}\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["an expression, so an earlier job or an input picks the machine"]
+  - name: runner-other-hosted-image
+    workflow: nix-vendor-hash.yml
+    find: "  update:\n    needs: [fix]\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n"
+    replace: "  update:\n    needs: [fix]\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: macos-latest\n"
+    rules: [credential-jobs-run-no-general-steps]
+    want_contains: ["runs on \"macos-latest\", which is not a GitHub-hosted label"]
+  - name: general-runner-router-in-planning-job
+    workflow: release-batch.yml
+    find: "  plan:\n    runs-on: ubuntu-latest\n"
+    replace: "  plan:\n    runs-on: ${{ fromJson(vars.RUNNER_LABELS) }}\n"
+    rules: []
+    want_contains: []
   - name: release-queue-mutation
     workflow: release-batch.yml
     find: "      - id: arm\n"

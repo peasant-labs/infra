@@ -333,7 +333,8 @@ func valueOf(n *yaml.Node) string {
 
 // checkCredentialJobShape (credential-jobs-run-no-general-steps) holds a job
 // that may hold a credential to three kinds of step: an allowed action, a
-// plumbing template, and a credential template. Every other piece of work
+// plumbing template, and a credential template, on one GitHub-hosted runner
+// label written literally. Every other piece of work
 // runs in an earlier job that holds no credential, so nothing in the
 // credential job can write GITHUB_ENV or GITHUB_PATH, the git config or
 // hooks, or the actions the runner already downloaded, before the step that
@@ -364,6 +365,9 @@ func (c *queueChecker) checkCredentialJobShape() {
 // checkJobShape applies the shape clauses to one credential job.
 func (c *queueChecker) checkJobShape(file, jobName string, doc, job *yaml.Node, cj credentialJob, emit func(what, fix string)) {
 	moveWork := "do this work in an earlier job without the credential, hand the result over as a job output or an artifact, and list that job in needs"
+	if why := runnerFault(mappingValue(job, "runs-on")); why != "" {
+		emit("jobs."+jobName+" "+why, "run the job on one GitHub-hosted label ("+closedset.Join(AllRunnerLabels, ", ")+"), written literally; keep the runner router for jobs without a credential")
+	}
 	if mappingValue(job, "services") != nil {
 		emit("jobs."+jobName+" runs service containers", "drop the services; a service container can mount the runner's work directory")
 	}
@@ -401,6 +405,25 @@ func (c *queueChecker) checkJobShape(file, jobName string, doc, job *yaml.Node, 
 			emit(label+" "+why, moveWork+"; this job runs only "+closedset.Join(AllAllowedActions, ", ")+", the plumbing templates ("+plumbingShapes(cj.class)+") and the credential templates")
 		}
 	}
+}
+
+// runnerFault says why a credential job's runs-on is not one literal
+// GitHub-hosted label, or "" when it is. An expression lets the job without
+// a credential pick the machine; self-hosted, a group or a label list can
+// name a machine that keeps state between jobs.
+func runnerFault(runsOn *yaml.Node) string {
+	switch {
+	case runsOn == nil:
+		return "names no runs-on"
+	case runsOn.Kind != yaml.ScalarNode:
+		return "runs on a label list or a group mapping, which can select a self-hosted machine"
+	case strings.Contains(runsOn.Value, "${{"):
+		return "runs on " + strconv.Quote(runsOn.Value) + ", an expression, so an earlier job or an input picks the machine that holds the credential"
+	}
+	if _, err := ParseRunnerLabel(runsOn.Value); err != nil {
+		return "runs on " + strconv.Quote(runsOn.Value) + ", which is not a GitHub-hosted label, so the machine may keep state between jobs"
+	}
+	return ""
 }
 
 // plumbingFault says why a no-credential run step of a credential job is

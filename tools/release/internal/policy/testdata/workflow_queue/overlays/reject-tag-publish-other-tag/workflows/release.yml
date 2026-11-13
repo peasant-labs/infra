@@ -2,7 +2,7 @@ name: Release
 
 # Tag-triggered publish: runs once for a release tag the release job already
 # pushed, behind the guard and gate jobs, and publishes the GitHub Release and
-# the package for that tag. Only the publish job's default token may write,
+# the package for that tag, each behind the job that verifies the tag. Only the publish job's default token may write,
 # and its credential steps each run one gh release command on the
 # triggering tag.
 on:
@@ -59,6 +59,37 @@ jobs:
       - name: Run contract gates
         run: make gates BASE_REF="${{ steps.prior.outputs.base_ref }}"
 
+  verify:
+    name: verify the tag
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: peasant-labs/infra
+          ref: 71e687cef7eede9a63659be98ce9adac3c563398
+          path: infra-tool
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+      - name: Build release-intent
+        working-directory: infra-tool
+        run: |
+          go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Verify the tag is a release tag on the default branch
+        run: release-intent verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"
+
   notes:
     name: release notes
     needs: guard
@@ -82,7 +113,7 @@ jobs:
 
   release:
     name: publish GitHub Release
-    needs: [guard, contract-gates, notes]
+    needs: [guard, contract-gates, notes, verify]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -118,7 +149,7 @@ jobs:
 
   npm-publish:
     name: publish npm package
-    needs: [guard, contract-gates]
+    needs: [guard, contract-gates, verify]
     runs-on: ubuntu-latest
     permissions:
       contents: read

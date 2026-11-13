@@ -58,6 +58,7 @@ func CheckWorkflows(policy QueuePolicy, cfg intent.Config, dir string) ([]Diagno
 	c.checkCredentialActions()
 	c.checkCredentialTemplates()
 	c.checkCredentialJobShape()
+	c.checkTagVerified()
 	c.checkTokenMint()
 	c.checkCutRelease()
 	c.checkToolPin()
