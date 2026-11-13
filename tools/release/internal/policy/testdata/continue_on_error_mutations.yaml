@@ -1,0 +1,154 @@
+# One-change mutations that add the continue-on-error key to a step or job
+# whose failure is a security gate: the tag ancestry check, the tag push, the
+# release job, a pre-tag check the verdict reads, and the title guard job and
+# its check step. The harness materializes the queue corpus base, proves it
+# passes, then replaces find with replace in the row's workflow (find must occur
+# exactly once) and runs the production loaders and checker.
+#
+# The policy refuses the KEY, not a spelling of its value: GitHub evaluates
+# continue-on-error as a value, and the documented fromJSON('true') form makes
+# a failed step report success, so a literal-only comparison is a bypass.
+# Rows therefore cover literal true, fromJSON('true'), ${{ true }}, values from
+# inputs and needs, and literal false, each with an accept sibling and the exact
+# rule set it must trip.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - unmodified-release-batch
+  - unmodified-title-guard
+  - guard-continue-literal-true
+  - guard-continue-fromjson-true
+  - guard-continue-braced-true
+  - guard-continue-from-inputs
+  - guard-continue-from-needs
+  - guard-continue-literal-false
+  - tag-continue-fromjson-true
+  - release-job-continue-fromjson-true
+  - release-job-continue-literal-false
+  - pretag-continue-fromjson-true
+  - pretag-continue-literal-false
+  - title-guard-job-continue-fromjson-true
+  - title-guard-job-continue-literal-false
+  - title-guard-step-continue-fromjson-true
+  - title-guard-step-continue-literal-false
+cases:
+  - name: unmodified-release-batch
+    workflow: "release-batch.yml"
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: unmodified-title-guard
+    workflow: "title-guard.yml"
+    find: "  title-guard:\n    runs-on: ubuntu-latest\n"
+    replace: "  title-guard:\n    runs-on: ubuntu-latest\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: guard-continue-literal-true
+    workflow: "release-batch.yml"
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n        continue-on-error: true\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: guard-continue-fromjson-true
+    workflow: "release-batch.yml"
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n        continue-on-error: ${{ fromJSON('true') }}\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: guard-continue-braced-true
+    workflow: "release-batch.yml"
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n        continue-on-error: ${{ true }}\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: guard-continue-from-inputs
+    workflow: "release-batch.yml"
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n        continue-on-error: ${{ inputs.flag }}\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: guard-continue-from-needs
+    workflow: "release-batch.yml"
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n        continue-on-error: ${{ needs.plan.outputs.proceed == 'true' }}\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: guard-continue-literal-false
+    workflow: "release-batch.yml"
+    find: "      - id: check-tag\n"
+    replace: "      - id: check-tag\n        continue-on-error: false\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: tag-continue-fromjson-true
+    workflow: "release-batch.yml"
+    find: "      - id: tag\n"
+    replace: "      - id: tag\n        continue-on-error: ${{ fromJSON('true') }}\n"
+    rules: ["release-tag-checked-before-push", "release-actions-gated"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: release-job-continue-fromjson-true
+    workflow: "release-batch.yml"
+    find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
+    replace: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n    continue-on-error: ${{ fromJSON('true') }}\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["jobs.release sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: release-job-continue-literal-false
+    workflow: "release-batch.yml"
+    find: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n"
+    replace: "  release:\n    needs: [plan]\n    runs-on: ubuntu-latest\n    continue-on-error: false\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["jobs.release sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: pretag-continue-fromjson-true
+    workflow: "release-batch.yml"
+    find: "      - id: verify-config\n        if: steps.plan.outputs.action == 'verify'\n        run: release-intent check-config\n"
+    replace: "      - id: verify-config\n        if: steps.plan.outputs.action == 'verify'\n        continue-on-error: ${{ fromJSON('true') }}\n        run: release-intent check-config\n"
+    rules: ["release-actions-gated"]
+    want_contains: ["a gated step sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: pretag-continue-literal-false
+    workflow: "release-batch.yml"
+    find: "      - id: verify-config\n        if: steps.plan.outputs.action == 'verify'\n        run: release-intent check-config\n"
+    replace: "      - id: verify-config\n        if: steps.plan.outputs.action == 'verify'\n        continue-on-error: false\n        run: release-intent check-config\n"
+    rules: ["release-actions-gated"]
+    want_contains: ["a gated step sets continue-on-error"]
+    sibling: "unmodified-release-batch"
+  - name: title-guard-job-continue-fromjson-true
+    workflow: "title-guard.yml"
+    find: "  title-guard:\n    runs-on: ubuntu-latest\n"
+    replace: "  title-guard:\n    runs-on: ubuntu-latest\n    continue-on-error: ${{ fromJSON('true') }}\n"
+    rules: ["title-guard-no-early-success"]
+    want_contains: ["the guard job sets continue-on-error"]
+    sibling: "unmodified-title-guard"
+  - name: title-guard-job-continue-literal-false
+    workflow: "title-guard.yml"
+    find: "  title-guard:\n    runs-on: ubuntu-latest\n"
+    replace: "  title-guard:\n    runs-on: ubuntu-latest\n    continue-on-error: false\n"
+    rules: ["title-guard-no-early-success"]
+    want_contains: ["the guard job sets continue-on-error"]
+    sibling: "unmodified-title-guard"
+  - name: title-guard-step-continue-fromjson-true
+    workflow: "title-guard.yml"
+    find: "      - name: Check title\n        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'\n"
+    replace: "      - name: Check title\n        continue-on-error: ${{ fromJSON('true') }}\n        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'\n"
+    rules: ["title-guard-no-early-success"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-title-guard"
+  - name: title-guard-step-continue-literal-false
+    workflow: "title-guard.yml"
+    find: "      - name: Check title\n        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'\n"
+    replace: "      - name: Check title\n        continue-on-error: false\n        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'\n"
+    rules: ["title-guard-no-early-success"]
+    want_contains: ["sets continue-on-error"]
+    sibling: "unmodified-title-guard"

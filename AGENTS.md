@@ -201,6 +201,13 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   `if` calls no status function, so a failed check skips it. A repository
   ruleset that lets only the releaser App create release tags is the operator
   step, and it covers every releasing repository including fairtrade.
+- **A no-`continue-on-error` clause refuses the key, not a value.** The
+  title-guard job and its steps, every step `release-actions-gated` gates, the
+  tag-verify job, and the tag path (the ancestry check, the tag push and the
+  release job) refuse the `continue-on-error` key whatever its value. GitHub
+  evaluates the key as a value, and the documented
+  `continue-on-error: ${{ fromJSON('true') }}` form makes a failed check or
+  job report success, so a literal comparison would be a bypass.
 - **Read a run step that must be exactly one command through
   `singleCommand`** (`credential_command.go`). The credential templates, the
   plumbing templates, the pre-tag checks and the tag-verify job all use it. Do

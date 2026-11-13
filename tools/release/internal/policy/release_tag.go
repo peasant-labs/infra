@@ -28,10 +28,14 @@ import (
 //     disjunction, a negation or another comparison.
 //  3. a plumbing step runs git merge-base --is-ancestor on the fetched tag
 //     and ${GITHUB_SHA}, after the tag fetch and before the tag push, under
-//     the tag push's own if and without continue-on-error. The tag push's if
-//     carries no status function, so a failed check skips the push through
-//     GitHub's implicit success() check instead of being overridden by
-//     always(), failure(), cancelled() or success().
+//     the tag push's own if. The tag push's if carries no status function, so
+//     a failed check skips the push through GitHub's implicit success() check
+//     instead of being overridden by always(), failure(), cancelled() or
+//     success(). Neither the check step, the tag push, nor the release job
+//     sets the continue-on-error key: GitHub evaluates that key as a value,
+//     so an expression such as ${{ fromJSON('true') }} would make a failed
+//     check report success. The checker refuses the key, not a spelling of
+//     its value.
 //
 // For a push, github.sha is the pushed branch's tip; for a schedule, the
 // latest commit on the default branch; for a workflow_dispatch, the commit of
@@ -100,12 +104,12 @@ func (c *queueChecker) checkReleaseTagBoundary() {
 			rejected,
 			"drop every status function from the tag push's if and from the check step's if, so a failed check skips the push"))
 	}
-	if isContinueOnError(steps[tagIdx]) {
+	if hasContinueOnError(steps[tagIdx]) {
 		c.emit(QueueRuleReleaseTagBoundary, rel.Workflow, rel.Job, violation(
 			"the tag push step "+stepRef(steps[tagIdx])+" sets continue-on-error",
-			"a tag push that is allowed to fail still writes the tag the run did not approve",
+			"GitHub evaluates that key as a value, and an expression such as ${{ fromJSON('true') }} makes the key true; a failed push then reports success, and the key's value is not something the checker can evaluate",
 			rejected,
-			"drop continue-on-error from the tag push"))
+			"drop the continue-on-error key from the tag push, whatever its value"))
 	}
 	fetchIdx := -1
 	for _, i := range fetchSteps {
@@ -140,12 +144,12 @@ func (c *queueChecker) checkReleaseTagBoundary() {
 				rejected,
 				"give the check step the tag push step's own if, written the same way"))
 		}
-		if isContinueOnError(step) {
+		if hasContinueOnError(step) {
 			c.emit(QueueRuleReleaseTagBoundary, rel.Workflow, rel.Job, violation(
 				label+" sets continue-on-error",
-				"a check that is allowed to fail lets the tag push run with an unproven tag",
+				"GitHub evaluates that key as a value, and an expression such as ${{ fromJSON('true') }} makes the key true; a failed check then reports success and the implicit success() check no longer skips the tag push",
 				rejected,
-				"drop continue-on-error from the check step"))
+				"drop the continue-on-error key from the check step, whatever its value"))
 		}
 	}
 	if beforePush == 0 {
@@ -183,8 +187,18 @@ func (c *queueChecker) checkReleaseTagTriggers(workflow, job string, doc *yaml.N
 // checkReleaseTagRunRef requires the release job's if to prove the run is on
 // the default branch. The comparison has to be one conjunct of a conjunction:
 // a disjunction, a negation or a second comparison around it opens the job on
-// another ref while the text still contains the comparison.
+// another ref while the text still contains the comparison. The job also
+// carries no continue-on-error: GitHub evaluates that key as a value, so an
+// expression can make a failed release job report success, and the tag push
+// must fail with the check.
 func (c *queueChecker) checkReleaseTagRunRef(workflow, jobName string, job *yaml.Node) {
+	if hasContinueOnError(job) {
+		c.emit(QueueRuleReleaseTagBoundary, workflow, jobName, violation(
+			"jobs."+jobName+" sets continue-on-error",
+			"GitHub evaluates that key as a value, and an expression such as ${{ fromJSON('true') }} makes the key true; a failed release job then reports success",
+			rejected,
+			"drop the continue-on-error key from the release job, whatever its value"))
+	}
 	cond := mappingValue(job, "if")
 	if cond == nil {
 		c.emit(QueueRuleReleaseTagBoundary, workflow, jobName, violation(
@@ -311,12 +325,6 @@ func stepRef(step *yaml.Node) string {
 		return strconv.Quote(id)
 	}
 	return "without an id"
-}
-
-// isContinueOnError reports whether a step sets continue-on-error true.
-func isContinueOnError(step *yaml.Node) bool {
-	cont := mappingValue(step, "continue-on-error")
-	return cont != nil && cont.Value == "true"
 }
 
 // plumbingTemplateOf names the plumbing template a step's run block is, if

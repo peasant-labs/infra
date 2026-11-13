@@ -49,9 +49,15 @@ func (c *queueChecker) checkTitleGuard() {
 				"the guard job has a job-level if during merge-queue policy validation. Drop it so the full check runs on every event, including an edited PR body that changes no commit")
 		}
 		c.checkGuardActivityTypes(req, doc)
-		if cont := mappingValue(job, "continue-on-error"); cont != nil && cont.Value == "true" {
+		if hasContinueOnError(job) {
 			c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
-				"the guard job uses continue-on-error during merge-queue policy validation. Drop it so a failed check stays red instead of passing the queue")
+				"the guard job sets continue-on-error during merge-queue policy validation. Drop the key so a failed check stays red instead of passing the queue; GitHub evaluates it as a value, and an expression such as ${{ fromJSON('true') }} makes it true")
+		}
+		for i, step := range stepsOf(job) {
+			if hasContinueOnError(step) {
+				c.emit(QueueRuleTitleGuard, req.Workflow, req.Job,
+					stepLabel(req.Job, i, step)+" sets continue-on-error during merge-queue policy validation. Drop the key so a failed check stays red instead of passing the queue; GitHub evaluates it as a value, and an expression such as ${{ fromJSON('true') }} makes it true")
+			}
 		}
 		for _, scalar := range fileScalars(doc) {
 			if strings.Contains(scalar, "github.event.action") || strings.Contains(scalar, "github.event.changes") {

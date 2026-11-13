@@ -545,17 +545,19 @@ func (r *releaseChecker) checkPushOutputs() {
 	}
 }
 
-// checkContinueOnError (clause 7) forbids continue-on-error on every step the
-// earlier clauses flag: a masked failure would make outcome lie to the
-// verdict.
+// checkContinueOnError (clause 7) forbids the continue-on-error key on every
+// step the earlier clauses flag: a masked failure would make outcome lie to
+// the verdict. The key is refused whatever its value, because GitHub
+// evaluates it as a value and the documented fromJSON form can make it true
+// at run time.
 func (r *releaseChecker) checkContinueOnError() {
 	for i, step := range r.steps {
 		if !r.flagged[i] {
 			continue
 		}
-		if cont := mappingValue(step, "continue-on-error"); cont != nil && cont.Value == "true" {
+		if hasContinueOnError(step) {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
-				"a gated step uses continue-on-error during merge-queue policy validation. Drop it so a failed write, check, or tag fails the run and its outcome stays honest for the verdict")
+				"a gated step sets continue-on-error during merge-queue policy validation. Drop the key so a failed write, check, or tag fails the run and its outcome stays honest for the verdict; GitHub evaluates the key as a value, and an expression such as ${{ fromJSON('true') }} makes it true")
 		}
 	}
 }

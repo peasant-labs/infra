@@ -186,11 +186,18 @@ one artifact holding git bundles.
 
   Every input is a literal. The env (workflow, job and step) holds only
   `DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}` and
-  `GOWORK: "off"`. No step sets `shell`, `working-directory`, `if` or
-  `continue-on-error`, and the job sets no `defaults`, `container`,
-  `services`, `strategy` or `continue-on-error`. The workflow sets no
+  `GOWORK: "off"`. No step sets `shell`, `working-directory`, `if` or the
+  `continue-on-error` key, and the job sets no `defaults`, `container`,
+  `services`, `strategy` or the `continue-on-error` key. The workflow sets no
   `defaults` either. Each run step is exactly one command, read by the same
   reader as a credential step, so the step exits with the command's status.
+
+  The policy refuses the `continue-on-error` **key**, not a spelling of its
+  value: GitHub evaluates the key as a value, and the documented
+  `continue-on-error: ${{ fromJSON('true') }}` form makes it true at run time.
+  A literal-only comparison would be a bypass, so an absent key is the only
+  shape the checker accepts wherever this or another rule says
+  "no `continue-on-error`".
 
   Each limit closes one way the job could succeed without the tool's yes:
   - The single-command reading refuses `|| true`, `; exit 0`, `| cat`, a
@@ -221,10 +228,13 @@ one artifact holding git bundles.
     that branch's copy of the workflow.
   - After fetching the tag from its bundle and before pushing it, a
     `check-tag-ancestor` step runs `git merge-base --is-ancestor
-    "refs/tags/${TAG}" "${GITHUB_SHA}"` under the tag push's own `if`, with no
-    `continue-on-error`. The tag push's `if` calls no status function, so a
-    failed check skips the push through GitHub's implicit `success()` check
-    instead of being overridden by `always()`, `failure()`, `cancelled()` or
+    "refs/tags/${TAG}" "${GITHUB_SHA}"` under the tag push's own `if`. Neither
+    the check step, the tag push, nor the release job may set the
+    `continue-on-error` key at all: GitHub evaluates the key as a value, so an
+    expression such as `${{ fromJSON('true') }}` would make a failed check
+    report success. The tag push's `if` calls no status function, so a failed
+    check skips the push through GitHub's implicit `success()` check instead
+    of being overridden by `always()`, `failure()`, `cancelled()` or
     `success()`.
 
   For a `push`, `github.sha` is the pushed branch's tip; for a `schedule`, the
@@ -237,6 +247,15 @@ one artifact holding git bundles.
   checkout must keep full history (`fetch-depth: 0`): the check reads the
   tag's local ancestry, and a shallow checkout fails closed instead of proving
   anything.
+
+- **Every no-`continue-on-error` clause refuses the key, not a value.** The
+  title-guard job and every step of it, every step `release-actions-gated`
+  gates, the tag-verify job, the tag ancestry check, the tag push and the
+  release job all refuse the `continue-on-error` key whatever its value:
+  GitHub evaluates the key as a value, and the documented
+  `${{ fromJSON('true') }}` form makes a failed check or job report success.
+  Drop the key; a literal `false` is refused too, because the checker cannot
+  tell a literal from an expression it cannot evaluate.
 
 **Release-tag ruleset (maintainer step).** A repository that turns tag mode on
 must restrict release-tag creation to the releaser App with a repository

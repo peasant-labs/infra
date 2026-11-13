@@ -47,10 +47,10 @@ const (
 	// stop the next step.
 	QueueRuleReleaseActions QueueRule = "release-actions-gated"
 	// QueueRuleTitleGuard keeps the title guard honest: the guard job carries
-	// no job-level if and no continue-on-error, and the guard workflow never
-	// reads the pull-request action or the changed-file list. A run that ends
-	// green without checking would replace a red run, and a body edit does not
-	// change the head commit.
+	// no job-level if and no continue-on-error key at the job or on any step,
+	// and the guard workflow never reads the pull-request action or the
+	// changed-file list. A run that ends green without checking would replace
+	// a red run, and a body edit does not change the head commit.
 	QueueRuleTitleGuard QueueRule = "title-guard-no-early-success"
 	// QueueRuleRangeFloor requires every workflow step that reads a commit
 	// range to pass the recovery floor from its repository variable, so a
