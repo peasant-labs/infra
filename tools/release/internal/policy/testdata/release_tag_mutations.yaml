@@ -46,6 +46,9 @@ required_names:
   - push-only-guard-outcome
   - guard-id-mismatch
   - dynamic-index-both
+  - accept-gate-braced
+  - mutable-env-both
+  - mutable-job-status-both
 cases:
   - name: unmodified
     find: "      - id: check-tag\n"
@@ -220,4 +223,22 @@ cases:
     replace: "      - id: check-tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps['check-tag'].outcome == 'skipped'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && steps['check-tag'].outcome == 'skipped'\"\n"
     rules: ["release-tag-checked-before-push", "credentials-stay-in-listed-jobs", "credential-steps-run-one-template"]
     want_contains: ["not a comparison", "reads the whole steps context"]
+    sibling: "unmodified"
+  - name: accept-gate-braced
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: check-tag\n        if: \"${{ needs.plan.outputs.tag-action == 'tag' }}\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"${{ needs.plan.outputs.tag-action == 'tag' }}\"\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: mutable-env-both
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: check-tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && env.FLAG == 'true'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && env.FLAG == 'true'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["not a comparison"]
+    sibling: "unmodified"
+  - name: mutable-job-status-both
+    find: "      - id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: needs.plan.outputs.tag-action == 'tag'\n"
+    replace: "      - id: check-tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && job.status == 'success'\"\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n      - id: tag\n        if: \"needs.plan.outputs.tag-action == 'tag' && job.status == 'success'\"\n"
+    rules: ["release-tag-checked-before-push"]
+    want_contains: ["not a comparison"]
     sibling: "unmodified"
