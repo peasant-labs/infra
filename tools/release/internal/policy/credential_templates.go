@@ -15,8 +15,8 @@ import (
 // run. A template is matched on the words of one command with an exact
 // structure, never by a pattern over the text; its variable parts are named
 // and typed: the job's own bot branch from the release config, the
-// planner's tag output, a PR number from a step or job output, the
-// triggering tag, and quoted title or body text. Every value that is not
+// planner's tag output, the triggering tag, and quoted title or body text.
+// A PR is always named by the job's own bot branch. Every value that is not
 // literal comes from the step's env. The zero value is unknown.
 type CredentialTemplate string
 
@@ -27,11 +27,13 @@ const (
 	TemplatePushReleaseTag CredentialTemplate = "push-release-tag"
 	// TemplatePRCreate opens a PR from the job's own bot branch.
 	TemplatePRCreate CredentialTemplate = "pr-create"
-	// TemplatePREdit retitles or rewrites the body of the job's own PR.
+	// TemplatePREdit retitles or rewrites the body of the job's own PR, named
+	// by its bot branch.
 	TemplatePREdit CredentialTemplate = "pr-edit"
-	// TemplatePRClose closes the job's own PR.
+	// TemplatePRClose closes the job's own PR, named by its bot branch.
 	TemplatePRClose CredentialTemplate = "pr-close"
-	// TemplatePRMerge turns auto-merge on or off for the job's own PR.
+	// TemplatePRMerge turns auto-merge on or off for the job's own PR, named
+	// by its bot branch.
 	TemplatePRMerge CredentialTemplate = "pr-merge"
 	// TemplateQueueRead reads the merge queue through one GraphQL query,
 	// for a repository whose default token cannot read it.
@@ -82,11 +84,11 @@ func (t CredentialTemplate) Shape() string {
 	case TemplatePRCreate:
 		return `gh pr create --head <own bot branch> [--base <branch>] [--title <text>] [--body <text>]`
 	case TemplatePREdit:
-		return `gh pr edit [--title <text>] [--body <text>] <own PR>`
+		return `gh pr edit [--title <text>] [--body <text>] [--] <own bot branch>`
 	case TemplatePRClose:
-		return `gh pr close [--comment <text>] <own PR>`
+		return `gh pr close [--comment <text>] [--] <own bot branch>`
 	case TemplatePRMerge:
-		return `gh pr merge (--auto [--squash|--merge|--rebase] | --disable-auto) <own PR>`
+		return `gh pr merge (--auto [--squash|--merge|--rebase] | --disable-auto) [--] <own bot branch>`
 	case TemplateQueueRead:
 		return `gh api graphql [-F <name>=<literal>]... -f query='<a mergeQueue query>' [> <file>]`
 	case TemplateReleaseView:
@@ -565,12 +567,10 @@ func releaseFlags() flagSpec {
 }
 
 // parsedFlags is one command's flags and positional words after the fixed
-// leading words. guarded tells, per positional word, whether it follows
-// "--", so gh can never read its value as a flag.
+// leading words.
 type parsedFlags struct {
 	flags      map[string]templateWord
 	positional []templateWord
-	guarded    []bool
 }
 
 // parseFlags reads the words after a gh subcommand against the template's
@@ -597,7 +597,6 @@ func (s templateStep) parseFlags(words []templateWord, spec flagSpec) (parsedFla
 		}
 		if ended || !strings.HasPrefix(lead, "-") {
 			out.positional = append(out.positional, w)
-			out.guarded = append(out.guarded, ended)
 			continue
 		}
 		_, isLit := w.literal()
@@ -727,30 +726,16 @@ func checkRepo(w templateWord) string {
 	return "the repository " + quote(w.raw) + " is not owner/name or \"$" + runnerEnvRepository + "\""
 }
 
-// prNumber matches a literal PR number.
-var prNumber = regexp.MustCompile(`^[1-9][0-9]*$`)
-
-// checkPRSelector accepts the job's own PR: its own bot branch or a PR
-// number, literal, or the PR_NUMBER env name mapped from one step or job
-// output. A value from env comes after "--", so gh never reads it as a
-// flag.
-func (s templateStep) checkPRSelector(w templateWord, guarded bool) string {
-	if lit, ok := w.literal(); ok {
-		if lit == s.branch || prNumber.MatchString(lit) {
-			return ""
-		}
-		return "the PR " + quote(lit) + " is neither the job's own bot branch " + quote(s.branch) + " nor a PR number"
-	}
-	if len(w.parts) == 1 && w.parts[0].kind == partParam && w.parts[0].text == TemplateEnvPRNumber.String() {
-		if _, _, ok := resolveOutput(s.doc, s.job, soleExpression(s.env[TemplateEnvPRNumber.String()])); !ok {
-			return "the PR reads " + TemplateEnvPRNumber.String() + ", which the env does not map from exactly one step output or one output of a job this job needs"
-		}
-		if !guarded {
-			return "the PR reads " + TemplateEnvPRNumber.String() + " before \"" + endOfOptions + "\", so a value that starts with '-' would be read as a flag; pass " + endOfOptions + " \"${" + TemplateEnvPRNumber.String() + "}\" last"
-		}
+// checkPRSelector accepts the job's own PR, named by the job's own bot
+// branch from the release config. A PR number from a step or job output, or
+// any literal number, could name any PR, so the App token could retitle,
+// arm, disarm or close another PR; a title is release intent, so a wrong
+// edit changes a version.
+func (s templateStep) checkPRSelector(w templateWord) string {
+	if lit, ok := w.literal(); ok && lit == s.branch {
 		return ""
 	}
-	return "the PR " + quote(w.raw) + " is not the job's own bot branch, a PR number, or \"${" + TemplateEnvPRNumber.String() + "}\" mapped from an output"
+	return "the PR " + quote(w.raw) + " is not the job's own bot branch " + quote(s.branch) + "; name the PR by its head branch, never by a number"
 }
 
 func (s templateStep) matchPRCreate(words []templateWord) string {
@@ -782,7 +767,7 @@ func (s templateStep) matchPRSelectorCommand(words []templateWord, spec flagSpec
 	if len(f.positional) != 1 {
 		return "the command names " + strconv.Itoa(len(f.positional)) + " PRs, and the template takes exactly the job's own PR"
 	}
-	return s.checkPRSelector(f.positional[0], f.guarded[0])
+	return s.checkPRSelector(f.positional[0])
 }
 
 func (s templateStep) matchPRMerge(words []templateWord) string {
@@ -807,7 +792,7 @@ func (s templateStep) matchPRMerge(words []templateWord) string {
 	if len(f.positional) != 1 {
 		return "gh pr merge names " + strconv.Itoa(len(f.positional)) + " PRs, and the template takes exactly the job's own PR"
 	}
-	return s.checkPRSelector(f.positional[0], f.guarded[0])
+	return s.checkPRSelector(f.positional[0])
 }
 
 func btoi(b bool) int {

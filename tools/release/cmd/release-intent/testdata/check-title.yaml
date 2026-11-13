@@ -10,6 +10,11 @@ required_names:
   - adopting-pr-accepted
   - version-document-corrupt-rejected
   - release-pr-version-edit-accepted
+  - release-pr-content-accepted
+  - release-pr-source-file-rejected
+  - release-pr-version-file-other-edit-rejected
+  - cut-release-empty-accepted
+  - cut-release-file-rejected
 
 cases:
   cases:
@@ -84,3 +89,36 @@ cases:
       classification: must-pass
       provenance: {source: requirement, ref: "only the release PR may change the protected version field"}
       mutation: {description: "Makes the same version edit as the bot author on the release bot branch."}
+    - name: release-pr-content-accepted
+      input: {title: "release[minor]: publish the pending changes", author: "SETUP_BOT_AUTHOR", headBranch: "SETUP_RELEASE_BRANCH", setup: "release-content"}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "the release PR may change the changelog and the protected version field"}
+      mutation: {description: "Writes a changelog section and bumps the version field as the bot on the release branch."}
+    - name: release-pr-source-file-rejected
+      input: {title: "release[minor]: publish the pending changes", author: "SETUP_BOT_AUTHOR", headBranch: "SETUP_RELEASE_BRANCH", setup: "release-source-edit"}
+      expected: {exit: 2, code: "release-content-scope", message: "src/graph.ts", stdout: []}
+      classification: must-fail
+      sibling: release-pr-content-accepted
+      provenance: {source: requirement, ref: "the release PR may change only the changelog and the protected version fields"}
+      mutation: {description: "Adds a source file to the release content."}
+    - name: release-pr-version-file-other-edit-rejected
+      input: {title: "release[patch]: publish the pending changes", author: "SETUP_BOT_AUTHOR", headBranch: "SETUP_RELEASE_BRANCH", setup: "ordinary-scripts-edit"}
+      expected: {exit: 2, code: "release-content-scope", message: "also moves other content", stdout: []}
+      classification: must-fail
+      sibling: release-pr-version-edit-accepted
+      provenance: {source: requirement, ref: "the release PR may change a version file only in its protected field"}
+      mutation: {description: "Edits an ordinary field of the version file on the release branch."}
+    - name: cut-release-empty-accepted
+      input: {title: "release[patch]: cut a release", author: "SETUP_BOT_AUTHOR", headBranch: "SETUP_CUT_RELEASE_BRANCH", setup: "cut-release-empty"}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "the cut-release PR is one empty commit"}
+      mutation: {description: "Makes the empty cut-release commit as the bot on the cut-release branch."}
+    - name: cut-release-file-rejected
+      input: {title: "release[patch]: cut a release", author: "SETUP_BOT_AUTHOR", headBranch: "SETUP_CUT_RELEASE_BRANCH", setup: "cut-release-file-edit"}
+      expected: {exit: 2, code: "release-content-scope", message: "cut-release PR changes", stdout: []}
+      classification: must-fail
+      sibling: cut-release-empty-accepted
+      provenance: {source: requirement, ref: "the cut-release PR may change no path"}
+      mutation: {description: "Adds a file to the cut-release commit."}

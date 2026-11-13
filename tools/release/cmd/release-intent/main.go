@@ -53,6 +53,8 @@ func run(command intent.Command, args []string) error {
 		return runReleasePR(flags)
 	case intent.CommandQueueGate:
 		return runQueueGate(flags)
+	case intent.CommandVerifyTag:
+		return runVerifyTag(flags)
 	default:
 		return fmt.Errorf("%s: subcommand %q is in the closed command set but has no handler in run (cmd/release-intent/main.go). This is a programming error in %s, not a user input issue: add the handler", intent.ProgramName, command, intent.ProgramName)
 	}

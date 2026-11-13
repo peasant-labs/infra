@@ -20,6 +20,7 @@ required_names:
   - action-input
   - plumbing-template
   - credential-job-class
+  - runner-label
 sets:
   - name: queue-rule
     members:
@@ -34,6 +35,7 @@ sets:
       - credential-jobs-use-pinned-actions
       - credential-steps-run-one-template
       - credential-jobs-run-no-general-steps
+      - tag-publish-verifies-the-tag
       - token-mint-ref-check
       - required-workflows-unfiltered
       - merge-gate-always-reports
@@ -103,8 +105,8 @@ sets:
   # The env names a credential step may carry: three credential carriers and
   # the values the templates' typed parts read.
   - name: template-env
-    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, PR_NUMBER, TITLE, BODY, PRERELEASE, LATEST]
-    refused: ["", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "NODE_OPTIONS", "CANDIDATE", "gh_token"]
+    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, TITLE, BODY, PRERELEASE, LATEST]
+    refused: ["", "PR_NUMBER", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "NODE_OPTIONS", "CANDIDATE", "gh_token"]
 
   - name: credential-template
     members:
@@ -130,3 +132,9 @@ sets:
   - name: credential-job-class
     members: [release job, bot job, tag-triggered publish job]
     refused: []
+
+  # The GitHub-hosted labels a job that may hold a credential may run on:
+  # a fresh machine per job. self-hosted and other images are refused.
+  - name: runner-label
+    members: [ubuntu-latest, ubuntu-24.04, ubuntu-22.04]
+    refused: ["", "self-hosted", "linux", "macos-latest", "Ubuntu-Latest"]

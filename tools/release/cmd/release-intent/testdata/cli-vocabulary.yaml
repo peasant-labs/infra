@@ -51,6 +51,11 @@ commands:
     flags:
       - {flag: --queue, required: true}
       - {flag: --release-pr, required: true}
+  - name: verify-tag
+    usage: "usage: release-intent verify-tag --tag TAG --branch REF"
+    flags:
+      - {flag: --tag, required: true}
+      - {flag: --branch, required: true}
 flags:
   - {flag: --config, takes_value: true}
   - {flag: --policy, takes_value: true}
@@ -71,6 +76,7 @@ flags:
   - {flag: --current, takes_value: true}
   - {flag: --queue, takes_value: true}
   - {flag: --release-pr, takes_value: true}
+  - {flag: --tag, takes_value: true}
 git_subcommands: [merge-base, log, diff, show, ls-tree, for-each-ref, merge-tree]
 exit_statuses: [0, 1, 2]
 reported_verdicts: [taggable, rejected]

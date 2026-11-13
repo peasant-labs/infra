@@ -104,6 +104,14 @@ required_names:
   - reject-credential-job-artifact-not-needed
   - reject-credential-job-needs-unlisted
   - reject-credential-actions-input
+  - accept-tag-verified
+  - reject-tag-verify-not-needed
+  - reject-tag-verify-always
+  - reject-tag-verify-other-branch
+  - reject-tag-verify-other-tag
+  - reject-tag-verify-continue
+  - reject-credential-job-self-hosted
+  - reject-credential-job-runner-expression
 cases:
   - name: accept-required-contexts
     input: { overlay: "" }
@@ -747,7 +755,7 @@ cases:
 
   - name: reject-templates-cross-branch
     input: { overlay: "reject-templates-cross-branch" }
-    expected: { rule: "credential-steps-run-one-template", want_contains: ["is neither the job's own bot branch"] }
+    expected: { rule: "credential-steps-run-one-template", want_contains: ["is not the job's own bot branch \"automation/cut-release\""] }
     sibling: "accept-cut-release-arm"
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-steps-run-one-template" }
@@ -864,3 +872,67 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-use-pinned-actions" }
     mutation: { description: "download the handoff artifact into the git hooks directory" }
+
+  - name: accept-tag-verified
+    input: { overlay: "accept-tag-publish" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "both publish jobs of the tag-triggered workflow need the job that verifies the triggering tag on the default branch" }
+
+  - name: reject-tag-verify-not-needed
+    input: { overlay: "reject-tag-verify-not-needed" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.npm-publish can publish for a pushed tag, but no job it needs"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "drop the verify job from the npm publish job needs" }
+
+  - name: reject-tag-verify-always
+    input: { overlay: "reject-tag-verify-always" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag, but its if carries always()"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "run the Release job even when the verify job fails" }
+
+  - name: reject-tag-verify-other-branch
+    input: { overlay: "reject-tag-verify-other-branch" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "jobs.npm-publish can publish for a pushed tag"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "verify the tag against a branch that is not the default branch" }
+
+  - name: reject-tag-verify-other-tag
+    input: { overlay: "reject-tag-verify-other-tag" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "verify a tag other than the one that triggered the run" }
+
+  - name: reject-tag-verify-continue
+    input: { overlay: "reject-tag-verify-continue" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "let the verify step fail without failing its job" }
+
+  - name: reject-credential-job-self-hosted
+    input: { overlay: "reject-credential-job-self-hosted" }
+    expected: { rule: "credential-jobs-run-no-general-steps", want_contains: ["jobs.release runs on a label list or a group mapping"] }
+    sibling: "accept-credential-job-shape"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
+    mutation: { description: "run the release job on a self-hosted runner" }
+
+  - name: reject-credential-job-runner-expression
+    input: { overlay: "reject-credential-job-runner-expression" }
+    expected: { rule: "credential-jobs-run-no-general-steps", want_contains: ["an expression, so an earlier job or an input picks the machine"] }
+    sibling: "accept-credential-job-shape"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy credential-jobs-run-no-general-steps" }
+    mutation: { description: "let the planning job pick the release job runner through an output" }

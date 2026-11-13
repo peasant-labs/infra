@@ -41,13 +41,24 @@ const (
 	// titleSetupRawVersionDocument replaces the version file in the head
 	// with the row's raw bytes.
 	titleSetupRawVersionDocument titleSetup = "raw-version-document"
+	// titleSetupReleaseContent writes a changelog section and bumps the
+	// protected version field, which is all the release PR writes.
+	titleSetupReleaseContent titleSetup = "release-content"
+	// titleSetupReleaseSourceEdit writes the release content and also adds
+	// a source file.
+	titleSetupReleaseSourceEdit titleSetup = "release-source-edit"
+	// titleSetupCutReleaseEmpty is the one empty commit of a cut-release.
+	titleSetupCutReleaseEmpty titleSetup = "cut-release-empty"
+	// titleSetupCutReleaseFileEdit is a cut-release commit that adds a file.
+	titleSetupCutReleaseFileEdit titleSetup = "cut-release-file-edit"
 )
 
 var allTitleSetups = []titleSetup{
 	titleSetupBaseReadFailure, titleSetupProtectionRemoved, titleSetupPRBehindBase,
 	titleSetupScriptsOnlyAfterRelease, titleSetupVersionFieldEdit, titleSetupVersionFieldRemoved,
 	titleSetupGroupShapedBase, titleSetupOrdinaryScriptsEdit, titleSetupAdopting,
-	titleSetupRawVersionDocument,
+	titleSetupRawVersionDocument, titleSetupReleaseContent, titleSetupReleaseSourceEdit,
+	titleSetupCutReleaseEmpty, titleSetupCutReleaseFileEdit,
 }
 
 func (s *titleSetup) UnmarshalYAML(node *yaml.Node) error {
@@ -121,6 +132,9 @@ func (m *mockGitRunner) ChangedPaths(context.Context, string, string) (string, [
 }
 func (m *mockGitRunner) ReadFile(ctx context.Context, rev, path string) ([]byte, error) {
 	return m.readFile(ctx, rev, path)
+}
+func (m *mockGitRunner) IsAncestor(context.Context, string, string) (bool, error) {
+	return false, m.unscripted("IsAncestor")
 }
 func (m *mockGitRunner) MergeTree(context.Context, string, string) error {
 	return m.unscripted("MergeTree")
@@ -249,6 +263,9 @@ func buildTitleScene(t *testing.T, in checkTitleInput) titleScene {
 		r.WriteFile("b.txt", "b\n")
 		head := r.Commit(titled(intent.TypeFeat, "b", intent.LevelMinor, "entry b"))
 		return sceneOf(r, base, head)
+	case titleSetupReleaseContent, titleSetupReleaseSourceEdit, titleSetupCutReleaseEmpty, titleSetupCutReleaseFileEdit:
+		r, base, head := buildBotPRRepo(t, in.Setup)
+		return sceneOf(r, base, head)
 	case titleSetupAdopting:
 		// The adopting PR adds the config: the base commit has none and the
 		// head adds it. The base is an ancestor of the head.
@@ -264,6 +281,32 @@ func buildTitleScene(t *testing.T, in checkTitleInput) titleScene {
 	}
 }
 
+// buildBotPRRepo builds the bot PR shapes on a repository whose config names
+// every bot branch, and returns it with the PR's base and head. The process
+// corpus builds the same shapes through it.
+func buildBotPRRepo(t *testing.T, setup titleSetup) (*testRepo, string, string) {
+	t.Helper()
+	r := newReleasedRepo(t, repoAllBots)
+	base := r.Head()
+	switch setup {
+	case titleSetupReleaseContent, titleSetupReleaseSourceEdit:
+		next := laterVersion(t, r, intent.LevelMinor)
+		r.AppendChangelog("\n## " + next.String() + "\n\n- add facet (#1)\n")
+		r.SetVersionField(0, next)
+		if setup == titleSetupReleaseSourceEdit {
+			r.WriteFile("src/graph.ts", "export const facet = 1\n")
+		}
+		return r, base, r.Commit(releaseTitled(intent.LevelMinor, "publish the pending changes"))
+	case titleSetupCutReleaseEmpty:
+		return r, base, r.Commit(releaseTitled(intent.LevelPatch, "cut a release"), empty())
+	case titleSetupCutReleaseFileEdit:
+		r.WriteFile("src/graph.ts", "export const facet = 1\n")
+		return r, base, r.Commit(releaseTitled(intent.LevelPatch, "cut a release"))
+	}
+	t.Fatalf("setup %q is not a bot PR shape", setup)
+	return nil, "", ""
+}
+
 // expandActor resolves the placeholders a row may use for the PR author and
 // head branch from the scene's config.
 func (s titleScene) expandActor(t *testing.T, word string) string {
@@ -275,6 +318,12 @@ func (s titleScene) expandActor(t *testing.T, word string) string {
 		branch, ok := s.cfg.BotBranches[intent.PRKindRelease]
 		if !ok {
 			t.Fatalf("the scene's config names no release bot branch")
+		}
+		return branch
+	case phCutReleaseBranch:
+		branch, ok := s.cfg.BotBranches[intent.PRKindCutRelease]
+		if !ok {
+			t.Fatalf("the scene's config names no cut-release bot branch")
 		}
 		return branch
 	}

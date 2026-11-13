@@ -510,6 +510,14 @@ const (
 	ErrReleaseContentStale ErrorCode = "release-content-stale"
 	ErrConfigInvalid       ErrorCode = "config-invalid"
 	ErrPolicyViolation     ErrorCode = "policy-violation"
+	// ErrReleaseContentScope rejects a release PR that changes anything but
+	// the changelog and the protected version fields, or a cut-release PR
+	// that changes any path.
+	ErrReleaseContentScope ErrorCode = "release-content-scope"
+	// ErrTagUnverified rejects a release tag whose name is not the release
+	// prefix plus a version, or whose commit the default branch does not
+	// reach.
+	ErrTagUnverified ErrorCode = "tag-unverified"
 )
 
 // AllErrorCodes is the canonical closed set of typed error codes.
@@ -528,6 +536,8 @@ var AllErrorCodes = []ErrorCode{
 	ErrReleaseContentStale,
 	ErrConfigInvalid,
 	ErrPolicyViolation,
+	ErrReleaseContentScope,
+	ErrTagUnverified,
 }
 
 func (c ErrorCode) String() string { return string(c) }

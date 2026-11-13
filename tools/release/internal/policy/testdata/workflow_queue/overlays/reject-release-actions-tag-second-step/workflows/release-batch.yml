@@ -152,19 +152,18 @@ jobs:
         if: "!cancelled() && needs.plan.outputs.action == 'open-pr' && needs.plan.outputs.push && needs.plan.outputs.number != ''"
         env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
-          PR_NUMBER: ${{ needs.plan.outputs.number }}
           TITLE: "release[minor]: v0.2.0"
-        run: gh pr edit --title "${TITLE}" --body "bot" -- "${PR_NUMBER}"
+        run: gh pr edit --title "${TITLE}" --body "bot" -- automation/release
       - id: arm
         if: "!cancelled() && needs.plan.outputs.gate == 'arm'"
         env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: gh pr merge --auto --squash 7
+        run: gh pr merge --auto --squash -- automation/release
       - id: hold
         if: "!cancelled() && needs.plan.outputs.gate == 'hold'"
         env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: gh pr merge --disable-auto 7
+        run: gh pr merge --disable-auto -- automation/release
       - id: close
         if: "!cancelled() && needs.plan.outputs.action == 'close-pr'"
         env:

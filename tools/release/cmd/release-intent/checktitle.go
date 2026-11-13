@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -94,18 +95,18 @@ func checkTitle(ctx context.Context, runner GitRunner, base, head, author, headB
 		if cerr != nil {
 			return cerr
 		}
-		isReleasePR := intent.ClassifyPR(cfg, author, headBranch) == intent.PRKindRelease
-		if cerr := intent.CheckProtectedPaths(cfg, changes, isReleasePR); cerr != nil {
+		kind := intent.ClassifyPR(cfg, author, headBranch)
+		if cerr := intent.CheckProtectedPaths(cfg, changes, kind); cerr != nil {
 			return rejectAs(intent.CommandCheckTitle, cerr)
 		}
 	}
 	return emit(out(intent.OutputError, ""))
 }
 
-// buildProtectedChanges reads the protected version field at the merge base
-// and at head for every touched version file. A corrupt file fails closed;
-// any other blob read error exits 1 and never becomes an accept or a stale
-// verdict.
+// buildProtectedChanges reads every touched version file at the merge base
+// and at head: whether its protected field moved, and whether anything else
+// in it moved. A corrupt file fails closed; any other blob read error exits 1
+// and never becomes an accept or a stale verdict.
 func buildProtectedChanges(ctx context.Context, runner GitRunner, cfg intent.Config, base, head string, paths []string) ([]intent.ProtectedChange, error) {
 	changed := map[string]bool{}
 	for _, p := range paths {
@@ -119,41 +120,59 @@ func buildProtectedChanges(ctx context.Context, runner GitRunner, cfg intent.Con
 		if !changed[vf.Path] {
 			continue
 		}
-		baseVal, berr := readProtectedField(ctx, runner, base, vf.Path, vf.Field)
+		baseData, baseVal, berr := readProtectedField(ctx, runner, base, vf.Path, vf.Field)
 		if berr != nil {
 			return nil, berr
 		}
-		headVal, herr := readProtectedField(ctx, runner, head, vf.Path, vf.Field)
+		headData, headVal, herr := readProtectedField(ctx, runner, head, vf.Path, vf.Field)
 		if herr != nil {
 			return nil, herr
 		}
+		other := otherContentChanged(baseData, headData, vf.Field, headVal)
 		for i := range out {
 			if out[i].Path == vf.Path {
 				out[i].ProtectedFieldChanged = baseVal != headVal
+				out[i].OtherContentChanged = other
 			}
 		}
 	}
 	return out, nil
 }
 
-// readProtectedField returns the protected field value. An absent file reads
-// as empty. A blob read failure (other than absent) is an error for exit 1; a
-// missing or non-string field is the protected-path rejection, with the
-// contract reader's message naming the exact fault.
-func readProtectedField(ctx context.Context, runner GitRunner, rev, path, field string) (string, error) {
+// otherContentChanged reports whether a version file moved anywhere but its
+// protected field: the base bytes with the head's field value written in by
+// the release PR's own writer must equal the head bytes. A file added or
+// removed, or a value the writer refuses, counts as other content.
+func otherContentChanged(baseData, headData []byte, field, headVal string) bool {
+	if len(baseData) == 0 || len(headData) == 0 {
+		return true
+	}
+	rewritten, err := intent.WriteVersionField(baseData, field, headVal)
+	if err != nil {
+		return true
+	}
+	return !bytes.Equal(rewritten, headData)
+}
+
+// readProtectedField returns the version file's bytes and its protected
+// field value. An absent file reads as empty. A blob read failure (other
+// than absent) is an error for exit 1; a missing or non-string field is the
+// protected-path rejection, with the contract reader's message naming the
+// exact fault.
+func readProtectedField(ctx context.Context, runner GitRunner, rev, path, field string) ([]byte, string, error) {
 	data, err := runner.ReadFile(ctx, rev, path)
 	if err != nil {
 		var nf *NotFoundError
 		if errors.As(err, &nf) {
-			return "", nil
+			return nil, "", nil
 		}
-		return "", fmt.Errorf("%s: cannot read version file %q at %q: %v. Confirm the revision is readable; a failed fetch is never an accept", intent.CommandCheckTitle, path, rev, err)
+		return nil, "", fmt.Errorf("%s: cannot read version file %q at %q: %v. Confirm the revision is readable; a failed fetch is never an accept", intent.CommandCheckTitle, path, rev, err)
 	}
 	val, ferr := versionFieldValue(data, field)
 	if ferr != nil {
-		return "", rejectAs(intent.CommandCheckTitle, protectedFieldError(path, rev, ferr))
+		return nil, "", rejectAs(intent.CommandCheckTitle, protectedFieldError(path, rev, ferr))
 	}
-	return val, nil
+	return data, val, nil
 }
 
 func protectedFieldError(path, rev string, cause error) error {

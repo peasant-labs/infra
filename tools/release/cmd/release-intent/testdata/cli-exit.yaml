@@ -25,6 +25,15 @@ required_names:
   - check-title-missing-branch
   - check-title-accept
   - check-title-reject
+  - check-title-release-content-accept
+  - check-title-release-scope-reject
+  - check-title-cut-release-empty-accept
+  - check-title-cut-release-file-reject
+  - verify-tag-accept
+  - verify-tag-off-branch
+  - verify-tag-bad-name
+  - verify-tag-missing
+  - verify-tag-missing-branch
   - check-workflows-accept
   - check-workflows-default-policy
   - check-workflows-violation
@@ -228,6 +237,66 @@ cases:
       sibling: check-title-accept
       provenance: {source: requirement, ref: "a title missing its bump bracket exits 2"}
       mutation: {description: "Runs the built binary in a temp repo with a title missing its bracket."}
+    - name: check-title-release-content-accept
+      input: {argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "SETUP_BOT_AUTHOR", "--head-branch", "SETUP_RELEASE_BRANCH"], stdin: "release[minor]: publish the pending changes\n", setup: "title-release-content"}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "the release PR may change the changelog and the protected version field"}
+      mutation: {description: "Runs the built binary on a release PR that writes only the release content."}
+    - name: check-title-release-scope-reject
+      input: {argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "SETUP_BOT_AUTHOR", "--head-branch", "SETUP_RELEASE_BRANCH"], stdin: "release[minor]: publish the pending changes\n", setup: "title-release-source-edit"}
+      expected: {exit: 2, stdout: ["error=release-content-scope"]}
+      classification: must-fail
+      sibling: check-title-release-content-accept
+      provenance: {source: requirement, ref: "the release PR may change only the changelog and the protected version fields"}
+      mutation: {description: "Runs the built binary on a release PR that also adds a source file."}
+    - name: check-title-cut-release-empty-accept
+      input: {argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "SETUP_BOT_AUTHOR", "--head-branch", "SETUP_CUT_RELEASE_BRANCH"], stdin: "release[patch]: cut a release\n", setup: "title-cut-release-empty"}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "the cut-release PR is one empty commit"}
+      mutation: {description: "Runs the built binary on the empty cut-release commit."}
+    - name: check-title-cut-release-file-reject
+      input: {argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "SETUP_BOT_AUTHOR", "--head-branch", "SETUP_CUT_RELEASE_BRANCH"], stdin: "release[patch]: cut a release\n", setup: "title-cut-release-file"}
+      expected: {exit: 2, stdout: ["error=release-content-scope"]}
+      classification: must-fail
+      sibling: check-title-cut-release-empty-accept
+      provenance: {source: requirement, ref: "the cut-release PR may change no path"}
+      mutation: {description: "Runs the built binary on a cut-release commit that adds a file."}
+    - name: verify-tag-accept
+      input: {argv: ["verify-tag", "--tag", "SETUP_TAG", "--branch", "SETUP_TRUNK"], stdin: "", setup: "tag-on-branch"}
+      expected: {exit: 0, stdout: ["ok=true"]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "a release tag on the branch is verified"}
+      mutation: {description: "Runs the built binary on an annotated release tag at the trunk tip."}
+    - name: verify-tag-off-branch
+      input: {argv: ["verify-tag", "--tag", "SETUP_TAG", "--branch", "SETUP_TRUNK"], stdin: "", setup: "tag-off-branch"}
+      expected: {exit: 2, stdout: ["error=tag-unverified"]}
+      classification: must-fail
+      sibling: verify-tag-accept
+      provenance: {source: requirement, ref: "a release tag whose commit the branch does not reach is refused"}
+      mutation: {description: "Runs the built binary on a release tag put on a side branch commit."}
+    - name: verify-tag-bad-name
+      input: {argv: ["verify-tag", "--tag", "release-candidate", "--branch", "SETUP_TRUNK"], stdin: "", setup: "tag-on-branch"}
+      expected: {exit: 2, stdout: ["error=tag-unverified"]}
+      classification: must-fail
+      sibling: verify-tag-accept
+      provenance: {source: requirement, ref: "a tag that is not the prefix plus a version is refused"}
+      mutation: {description: "Names a tag outside the release grammar."}
+    - name: verify-tag-missing
+      input: {argv: ["verify-tag", "--tag", "v9.9.9", "--branch", "SETUP_TRUNK"], stdin: "", setup: "tag-on-branch"}
+      expected: {exit: 1, stdout: [], absent_keys: [ok]}
+      classification: must-fail
+      sibling: verify-tag-accept
+      provenance: {source: boundary, ref: "a release tag absent from the checkout is an input error, never an accept"}
+      mutation: {description: "Names a release tag the repository does not hold."}
+    - name: verify-tag-missing-branch
+      input: {argv: ["verify-tag", "--tag", "SETUP_TAG"], stdin: "", setup: "tag-on-branch"}
+      expected: {exit: 1, stdout: []}
+      classification: must-fail
+      sibling: verify-tag-accept
+      provenance: {source: boundary, ref: "verify-tag requires --branch"}
+      mutation: {description: "Omits the required --branch flag."}
     - name: check-workflows-accept
       input: {argv: ["check-workflows", "--policy", "SETUP_POLICY", "--dir", "SETUP_WORKFLOWS"], stdin: "", setup: "workflows-accept"}
       expected: {exit: 0, stdout: ["ok=true"]}

@@ -85,6 +85,12 @@ const (
 	// environment of template env names only, and a handoff from the jobs it
 	// needs through job outputs and artifacts alone.
 	QueueRuleCredentialJobShape QueueRule = "credential-jobs-run-no-general-steps"
+	// QueueRuleTagVerified requires every job of a tag-triggered workflow
+	// that can publish (contents or id-token write) to need a job without a
+	// credential that runs release-intent verify-tag on the triggering tag
+	// and the default branch. A tag push needs only a write to refs/tags/,
+	// so nothing may publish a tag before the tool has checked it.
+	QueueRuleTagVerified QueueRule = "tag-publish-verifies-the-tag"
 	// QueueRuleTokenMint requires every job that mints the releaser App token
 	// to check that github.ref is the default branch, in a job-level or
 	// mint-step if, and to mint only when tag mode is on. A dispatch on any
@@ -136,6 +142,7 @@ var AllQueueRules = []QueueRule{
 	QueueRuleCredentialActions,
 	QueueRuleCredentialTemplates,
 	QueueRuleCredentialJobShape,
+	QueueRuleTagVerified,
 	QueueRuleTokenMint,
 	QueueRuleUnfiltered,
 	QueueRuleMergeGate,

@@ -34,6 +34,9 @@ type GitRunner interface {
 	// error means the merge tree was written; a conflict or a read failure
 	// returns an error.
 	MergeTree(ctx context.Context, tip, current string) error
+	// IsAncestor reports whether branch reaches commit. A read failure
+	// returns an error, never false.
+	IsAncestor(ctx context.Context, commit, branch string) (bool, error)
 }
 
 // gitSubcommand is the typed closed allowlist of git subcommands the runner
@@ -76,6 +79,7 @@ const (
 	optNameOnly      gitOption = "--name-only"
 	optNoRenames     gitOption = "--no-renames"
 	optWriteTree     gitOption = "--write-tree"
+	optIsAncestor    gitOption = "--is-ancestor"
 )
 
 // Output formats. Fields are NUL-separated: a subject cannot hold a NUL.
@@ -156,6 +160,12 @@ func mergeBaseOf(base, head string) gitInvocation {
 // rename detection.
 func changedNames(from, to string) gitInvocation {
 	return gitInvocation{sub: gitDiff, options: []gitOption{optNameOnly, optNoRenames}, revisions: []string{from, to}, separatePaths: true}
+}
+
+// isAncestorOf asks whether branch reaches commit; git answers with the exit
+// status alone.
+func isAncestorOf(commit, branch string) gitInvocation {
+	return gitInvocation{sub: gitMergeBase, options: []gitOption{optIsAncestor}, revisions: []string{commit, branch}}
 }
 
 // mergeTreeOf computes the merged tree of two revisions without touching the
@@ -364,6 +374,25 @@ func (g *execGit) MergeTree(ctx context.Context, tip, current string) error {
 		return fmt.Errorf("git runner: tip %q does not merge into %q cleanly (via `git merge-tree --write-tree`): %w. Rebuild the release branch from the tip", tip, current, err)
 	}
 	return nil
+}
+
+// gitAnswerNo is the exit status git merge-base --is-ancestor answers "no"
+// with; any other non-zero status is a failure.
+const gitAnswerNo = 1
+
+// IsAncestor reports whether branch reaches commit, from the exit status of
+// `git merge-base --is-ancestor`. Status 1 is "no"; any other failure, such
+// as an unknown revision, is an error and never a "no".
+func (g *execGit) IsAncestor(ctx context.Context, commit, branch string) (bool, error) {
+	_, err := g.run(ctx, isAncestorOf(commit, branch))
+	if err == nil {
+		return true, nil
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == gitAnswerNo {
+		return false, nil
+	}
+	return false, fmt.Errorf("git runner: cannot tell whether %q reaches %q via `git merge-base --is-ancestor`: %w. Confirm both revisions are fetched", branch, commit, err)
 }
 
 // ReadFile returns path at rev. A path absent at rev yields NotFoundError;

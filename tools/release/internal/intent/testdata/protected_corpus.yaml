@@ -9,6 +9,13 @@ required_names:
   - release-pr-may-change
   - protected-found-among-many
   - empty-change
+  - release-pr-source-file
+  - release-pr-version-other-content
+  - release-pr-protected-path
+  - release-pr-deletes-version-file
+  - cut-release-empty
+  - cut-release-file
+  - cut-release-changelog
 cases:
   - name: changelog-by-author
     input:
@@ -22,7 +29,7 @@ cases:
         protected_paths: []
         surfaces: {}
         bot_branches: {}
-      is_release_pr: false
+      kind: ordinary
       changes:
         - { path: "CHANGELOG.md", protected_field_changed: false }
     expected: {code: "protected-path"}
@@ -42,7 +49,7 @@ cases:
         protected_paths: []
         surfaces: {}
         bot_branches: {}
-      is_release_pr: false
+      kind: ordinary
       changes:
         - { path: "package.json", protected_field_changed: true }
     expected: {code: "protected-path"}
@@ -62,7 +69,7 @@ cases:
         protected_paths: []
         surfaces: {}
         bot_branches: {}
-      is_release_pr: false
+      kind: ordinary
       changes:
         - { path: "package.json", protected_field_changed: false }
     expected: {}
@@ -81,7 +88,7 @@ cases:
         protected_paths: []
         surfaces: {}
         bot_branches: {}
-      is_release_pr: false
+      kind: ordinary
       changes:
         - { path: "src/graph.ts", protected_field_changed: false }
     expected: {}
@@ -100,7 +107,7 @@ cases:
           - generated/*
         surfaces: {}
         bot_branches: {}
-      is_release_pr: false
+      kind: ordinary
       changes:
         - { path: "generated/types-0.1.0.json", protected_field_changed: false }
     expected: {code: "protected-path"}
@@ -120,7 +127,7 @@ cases:
         protected_paths: []
         surfaces: {}
         bot_branches: {}
-      is_release_pr: true
+      kind: release
       changes:
         - { path: "CHANGELOG.md", protected_field_changed: false }
         - { path: "package.json", protected_field_changed: true }
@@ -139,7 +146,7 @@ cases:
         protected_paths: []
         surfaces: {}
         bot_branches: {}
-      is_release_pr: false
+      kind: ordinary
       changes:
         - { path: "a.go", protected_field_changed: false }
         - { path: "b.go", protected_field_changed: false }
@@ -167,9 +174,150 @@ cases:
         protected_paths: []
         surfaces: {}
         bot_branches: {}
-      is_release_pr: false
+      kind: ordinary
       changes: []
     expected: {}
     classification: must-pass
     provenance: {source: boundary, ref: "protected paths: an empty change touches nothing protected"}
     mutation: {description: "an empty change list"}
+  - name: release-pr-source-file
+    input:
+      config:
+        releases: true
+        tag_prefix: fairtrade-v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        version_files:
+          - { path: package.json, field: version }
+        protected_paths: ["generated/*.json"]
+        surfaces: {}
+        bot_branches: {release: automation/release, cut-release: automation/cut-release}
+      kind: release
+      changes:
+        - { path: "CHANGELOG.md", protected_field_changed: false, other_content_changed: false }
+        - { path: "package.json", protected_field_changed: true, other_content_changed: false }
+        - { path: "src/graph.ts", protected_field_changed: false, other_content_changed: false }
+    expected: {code: "release-content-scope"}
+    classification: must-fail
+    sibling: release-pr-may-change
+    provenance: {source: requirement, ref: "release scope: the release PR writes only the changelog and the protected version fields"}
+    mutation: {description: "added a source file to the release PR"}
+  - name: release-pr-version-other-content
+    input:
+      config:
+        releases: true
+        tag_prefix: fairtrade-v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        version_files:
+          - { path: package.json, field: version }
+        protected_paths: ["generated/*.json"]
+        surfaces: {}
+        bot_branches: {release: automation/release, cut-release: automation/cut-release}
+      kind: release
+      changes:
+        - { path: "CHANGELOG.md", protected_field_changed: false, other_content_changed: false }
+        - { path: "package.json", protected_field_changed: true, other_content_changed: true }
+    expected: {code: "release-content-scope"}
+    classification: must-fail
+    sibling: release-pr-may-change
+    provenance: {source: requirement, ref: "release scope: a version file changes only in its protected field"}
+    mutation: {description: "changed another field of the version file in the release PR"}
+  - name: release-pr-protected-path
+    input:
+      config:
+        releases: true
+        tag_prefix: fairtrade-v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        version_files:
+          - { path: package.json, field: version }
+        protected_paths: ["generated/*.json"]
+        surfaces: {}
+        bot_branches: {release: automation/release, cut-release: automation/cut-release}
+      kind: release
+      changes:
+        - { path: "generated/types-0.2.0.json", protected_field_changed: false, other_content_changed: false }
+    expected: {code: "release-content-scope"}
+    classification: must-fail
+    sibling: release-pr-may-change
+    provenance: {source: requirement, ref: "release scope: a protected path is not release content"}
+    mutation: {description: "added a protected path to the release PR"}
+  - name: release-pr-deletes-version-file
+    input:
+      config:
+        releases: true
+        tag_prefix: fairtrade-v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        version_files:
+          - { path: package.json, field: version }
+        protected_paths: ["generated/*.json"]
+        surfaces: {}
+        bot_branches: {release: automation/release, cut-release: automation/cut-release}
+      kind: release
+      changes:
+        - { path: "package.json", protected_field_changed: true, other_content_changed: true }
+    expected: {code: "release-content-scope"}
+    classification: must-fail
+    sibling: release-pr-may-change
+    provenance: {source: requirement, ref: "release scope: removing a version file moves more than its field"}
+    mutation: {description: "deleted the version file in the release PR"}
+  - name: cut-release-empty
+    input:
+      config:
+        releases: true
+        tag_prefix: fairtrade-v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        version_files:
+          - { path: package.json, field: version }
+        protected_paths: ["generated/*.json"]
+        surfaces: {}
+        bot_branches: {release: automation/release, cut-release: automation/cut-release}
+      kind: cut-release
+      changes: []
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "cut-release scope: the cut-release PR is one empty commit"}
+    mutation: {description: "the empty cut-release commit"}
+  - name: cut-release-file
+    input:
+      config:
+        releases: true
+        tag_prefix: fairtrade-v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        version_files:
+          - { path: package.json, field: version }
+        protected_paths: ["generated/*.json"]
+        surfaces: {}
+        bot_branches: {release: automation/release, cut-release: automation/cut-release}
+      kind: cut-release
+      changes:
+        - { path: "src/graph.ts", protected_field_changed: false, other_content_changed: false }
+    expected: {code: "release-content-scope"}
+    classification: must-fail
+    sibling: cut-release-empty
+    provenance: {source: requirement, ref: "cut-release scope: the cut-release PR changes no path"}
+    mutation: {description: "added a file to the cut-release commit"}
+  - name: cut-release-changelog
+    input:
+      config:
+        releases: true
+        tag_prefix: fairtrade-v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        version_files:
+          - { path: package.json, field: version }
+        protected_paths: ["generated/*.json"]
+        surfaces: {}
+        bot_branches: {release: automation/release, cut-release: automation/cut-release}
+      kind: cut-release
+      changes:
+        - { path: "CHANGELOG.md", protected_field_changed: false, other_content_changed: false }
+    expected: {code: "release-content-scope"}
+    classification: must-fail
+    sibling: cut-release-empty
+    provenance: {source: requirement, ref: "cut-release scope: the cut-release PR does not write the changelog either"}
+    mutation: {description: "wrote the changelog in the cut-release commit"}
