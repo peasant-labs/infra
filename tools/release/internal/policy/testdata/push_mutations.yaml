@@ -10,7 +10,7 @@
 #
 # The rows cover the default branch in every refspec form against each job
 # class that may hold a credential, the push options and refspecs that name
-# no single branch, a single-sided tag refspec, a PR named by a number, a credential job runner that is not one literal GitHub-hosted label, every form that pushed the
+# no single branch, a single-sided tag refspec, a PR named by a number, a pre-tag check whose exit status is masked, a credential job runner that is not one literal GitHub-hosted label, every form that pushed the
 # default branch past the earlier reader (a variable command word, a
 # substitution, a pipe or a here-document into bash, python, node and perl, a
 # repository script, an actions/github-script step), the environment and
@@ -90,6 +90,11 @@ required_names:
   - runner-expression
   - runner-router-output
   - runner-other-hosted-image
+  - pretag-exit-zero
+  - pretag-second-line-exit
+  - pretag-background-wait
+  - pretag-custom-shell
+  - pretag-default-bash
   - general-runner-router-in-planning-job
   - release-queue-mutation
   - release-config-default-branch
@@ -511,6 +516,36 @@ cases:
     replace: "  update:\n    needs: [fix]\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: macos-latest\n"
     rules: [credential-jobs-run-no-general-steps]
     want_contains: ["runs on \"macos-latest\", which is not a GitHub-hosted label"]
+  - name: pretag-exit-zero
+    workflow: release-batch.yml
+    find: "        run: release-intent check-config\n"
+    replace: "        run: release-intent check-config; exit 0\n"
+    rules: [release-actions-gated]
+    want_contains: ["pre-tag step \"verify-config\" does not run exactly one command", "it holds \";\" outside quotes"]
+  - name: pretag-second-line-exit
+    workflow: release-batch.yml
+    find: "        run: release-intent check-config\n"
+    replace: "        run: |\n          release-intent check-config\n          exit 0\n"
+    rules: [release-actions-gated]
+    want_contains: ["pre-tag step \"verify-config\" does not run exactly one command", "it runs more than one line"]
+  - name: pretag-background-wait
+    workflow: release-batch.yml
+    find: "        run: release-intent check-config\n"
+    replace: "        run: release-intent check-config & wait\n"
+    rules: [release-actions-gated]
+    want_contains: ["pre-tag step \"verify-config\" does not run exactly one command", "it holds \"&\" outside quotes"]
+  - name: pretag-custom-shell
+    workflow: release-batch.yml
+    find: "      - id: verify-config\n"
+    replace: "      - id: verify-config\n        shell: bash {0}\n"
+    rules: [release-actions-gated]
+    want_contains: ["pre-tag step \"verify-config\" does not run exactly one command", "runs under shell \"bash {0}\""]
+  - name: pretag-default-bash
+    workflow: release-batch.yml
+    find: "      - id: verify-config\n"
+    replace: "      - id: verify-config\n        shell: bash\n"
+    rules: []
+    want_contains: []
   - name: general-runner-router-in-planning-job
     workflow: release-batch.yml
     find: "  plan:\n    runs-on: ubuntu-latest\n"

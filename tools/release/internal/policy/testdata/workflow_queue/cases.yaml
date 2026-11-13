@@ -110,6 +110,16 @@ required_names:
   - reject-tag-verify-other-branch
   - reject-tag-verify-other-tag
   - reject-tag-verify-continue
+  - reject-tag-verify-or-true
+  - reject-tag-verify-semicolon-true
+  - reject-tag-verify-exit-zero
+  - reject-tag-verify-pipe-cat
+  - reject-tag-verify-second-line-exit
+  - reject-tag-verify-set-plus-e
+  - reject-tag-verify-custom-shell
+  - reject-tag-verify-background-wait
+  - reject-tag-verify-path-env
+  - reject-tag-verify-stub-binary
   - reject-credential-job-self-hosted
   - reject-credential-job-runner-expression
 cases:
@@ -299,7 +309,7 @@ cases:
 
   - name: reject-release-actions-pretag-or-true
     input: { overlay: "reject-release-actions-pretag-or-true" }
-    expected: { rule: "release-actions-gated", want_contains: ["pre-tag step", "chains commands"] }
+    expected: { rule: "release-actions-gated", want_contains: ["pre-tag step", "does not run exactly one command", "it holds \"|\" outside quotes"] }
     sibling: accept-release-actions
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-actions-gated" }
@@ -920,6 +930,86 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
     mutation: { description: "let the verify step fail without failing its job" }
+
+  - name: reject-tag-verify-or-true
+    input: { overlay: "reject-tag-verify-or-true" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"verify\", which is not one command: it holds \"|\" outside quotes"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "end the verify call in || true" }
+
+  - name: reject-tag-verify-semicolon-true
+    input: { overlay: "reject-tag-verify-semicolon-true" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"verify\", which is not one command: it holds \";\" outside quotes"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "follow the verify call with ; true" }
+
+  - name: reject-tag-verify-exit-zero
+    input: { overlay: "reject-tag-verify-exit-zero" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"verify\", which is not one command: it holds \";\" outside quotes"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "follow the verify call with ; exit 0" }
+
+  - name: reject-tag-verify-pipe-cat
+    input: { overlay: "reject-tag-verify-pipe-cat" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"verify\", which is not one command: it holds \"|\" outside quotes"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "pipe the verify call into cat" }
+
+  - name: reject-tag-verify-second-line-exit
+    input: { overlay: "reject-tag-verify-second-line-exit" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"verify\", which is not one command: it runs more than one line"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "add a second line exit 0 after the verify call" }
+
+  - name: reject-tag-verify-set-plus-e
+    input: { overlay: "reject-tag-verify-set-plus-e" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"verify\", which is not one command: it runs more than one line"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "turn off errexit on the line before the verify call" }
+
+  - name: reject-tag-verify-custom-shell
+    input: { overlay: "reject-tag-verify-custom-shell" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"verify\", which sets shell"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "run the verify step under shell: bash {0}" }
+
+  - name: reject-tag-verify-background-wait
+    input: { overlay: "reject-tag-verify-background-wait" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"verify\", which is not one command: it holds \";\" outside quotes"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "run the verify call in the background behind true and wait for it" }
+
+  - name: reject-tag-verify-path-env
+    input: { overlay: "reject-tag-verify-path-env" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "runs with env PATH, which is not one of DEFAULT_BRANCH, GOWORK"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "set PATH to a directory holding a stub in the verify job env" }
+
+  - name: reject-tag-verify-stub-binary
+    input: { overlay: "reject-tag-verify-stub-binary" }
+    expected: { rule: "tag-publish-verifies-the-tag", want_contains: ["jobs.release can publish for a pushed tag", "step \"build\", which runs neither the build template"] }
+    sibling: "accept-tag-verified"
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tag-publish-verifies-the-tag" }
+    mutation: { description: "make the build step write a stub release-intent that exits 0" }
 
   - name: reject-credential-job-self-hosted
     input: { overlay: "reject-credential-job-self-hosted" }

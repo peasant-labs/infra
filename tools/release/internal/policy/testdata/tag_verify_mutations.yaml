@@ -1,0 +1,343 @@
+# One-change mutations of the tag-triggered publish workflow (the queue
+# corpus base plus the accept-tag-publish overlay, whose verify job has the
+# shape of fairtrade's). The harness materializes the tree, proves it passes,
+# then replaces find with replace in workflows/release.yml (find must occur
+# exactly once) and runs the production loaders and checker. rules is the
+# exact set of rules that must fire, empty for a change that must pass, and
+# want_contains are fragments the diagnostics must carry; each reject names
+# the accept row it differs from as its sibling.
+#
+# The rows cover every way the verify job could succeed without the tool's
+# yes: an exit status masked in the run block (|| true, ; true, ; exit 0,
+# | cat, a second line, set +e, a custom shell, a background job), a PATH
+# entry or a stub binary that answers in the tool's place, and every other
+# piece of the job the confinement holds: the build template, the env names
+# and values, the shell and working directory, the step and job keys, the
+# runner, and each action with its inputs.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - unmodified
+  - accept-branch-remote-ref
+  - accept-branch-bare
+  - accept-unbraced-ref-name
+  - accept-no-sparse-checkout
+  - accept-step-timeout
+  - or-true
+  - semicolon-true
+  - exit-zero
+  - pipe-cat
+  - second-line-exit
+  - set-plus-e
+  - custom-shell
+  - background-wait
+  - path-env
+  - stub-binary
+  - stub-after-build
+  - verify-by-path-lookup
+  - build-and-path-entry
+  - build-other-module
+  - build-toolexec
+  - build-without-gowork
+  - gowork-auto
+  - default-branch-other
+  - env-bash-env
+  - env-goflags
+  - env-gotoolchain
+  - env-goproxy
+  - build-working-directory
+  - build-if
+  - verify-if
+  - job-defaults-shell
+  - workflow-defaults-shell
+  - job-continue-on-error
+  - job-container
+  - runner-self-hosted
+  - setup-go-cache-on
+  - setup-go-cache-default
+  - setup-go-unpinned
+  - go-version-from-tag
+  - other-action
+  - tool-other-repository
+  - repo-checkout-keeps-token
+  - repo-checkout-other-ref
+  - second-tool-checkout
+  - no-verify-step
+cases:
+  - name: unmodified
+    find: "      - id: verify\n"
+    replace: "      - id: verify\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-branch-remote-ref
+    find: "--branch \"origin/${DEFAULT_BRANCH}\""
+    replace: "--branch \"refs/remotes/origin/${DEFAULT_BRANCH}\""
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-branch-bare
+    find: "--branch \"origin/${DEFAULT_BRANCH}\""
+    replace: "--branch \"${DEFAULT_BRANCH}\""
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-unbraced-ref-name
+    find: "--tag \"${GITHUB_REF_NAME}\""
+    replace: "--tag \"$GITHUB_REF_NAME\""
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-no-sparse-checkout
+    find: "          sparse-checkout: |\n            tools/release\n"
+    replace: ""
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: accept-step-timeout
+    find: "      - id: build\n"
+    replace: "      - id: build\n        timeout-minutes: 10\n"
+    rules: []
+    want_contains: []
+    sibling: ""
+  - name: or-true
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\" || true\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which is not one command: it holds \"|\" outside quotes"]
+    sibling: "unmodified"
+  - name: semicolon-true
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"; true\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which is not one command: it holds \";\" outside quotes"]
+    sibling: "unmodified"
+  - name: exit-zero
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"; exit 0\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which is not one command: it holds \";\" outside quotes"]
+    sibling: "unmodified"
+  - name: pipe-cat
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\" | cat\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which is not one command: it holds \"|\" outside quotes"]
+    sibling: "unmodified"
+  - name: second-line-exit
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n          exit 0\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which is not one command: it runs more than one line"]
+    sibling: "unmodified"
+  - name: set-plus-e
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          set +e\n          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which is not one command: it runs more than one line"]
+    sibling: "unmodified"
+  - name: custom-shell
+    find: "      - id: verify\n"
+    replace: "      - id: verify\n        shell: bash {0}\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which sets shell"]
+    sibling: "unmodified"
+  - name: background-wait
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          true; \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\" & wait\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which is not one command: it holds \";\" outside quotes"]
+    sibling: "unmodified"
+  - name: path-env
+    find: "      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}\n    steps:\n      - id: checkout\n"
+    replace: "      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}\n      PATH: /tmp/stub\n    steps:\n      - id: checkout\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["runs with env PATH, which is not one of DEFAULT_BRANCH, GOWORK"]
+    sibling: "unmodified"
+  - name: stub-binary
+    find: "        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    replace: "        run: printf '#!/bin/sh\\nexit 0\\n' > \"${RUNNER_TEMP}/release-intent\"\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"build\", which runs neither the build template"]
+    sibling: "unmodified"
+  - name: stub-after-build
+    find: "        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    replace: "        run: |\n          go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n          printf '#!/bin/sh\\nexit 0\\n' > \"${RUNNER_TEMP}/release-intent\"\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"build\", which is not one command: it runs more than one line"]
+    sibling: "unmodified"
+  - name: verify-by-path-lookup
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          release-intent verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which runs neither the build template"]
+    sibling: "unmodified"
+  - name: build-and-path-entry
+    find: "        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    replace: "        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent && echo \"${RUNNER_TEMP}\" >> \"${GITHUB_PATH}\"\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"build\", which is not one command: it holds \"&\" outside quotes"]
+    sibling: "unmodified"
+  - name: build-other-module
+    find: "        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    replace: "        run: go build -C . -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"build\", which runs neither the build template"]
+    sibling: "unmodified"
+  - name: build-toolexec
+    find: "        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    replace: "        run: go build -toolexec /bin/true -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"build\", which runs neither the build template"]
+    sibling: "unmodified"
+  - name: build-without-gowork
+    find: "      - id: build\n        env:\n          GOWORK: \"off\"\n"
+    replace: "      - id: build\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["builds the tool without GOWORK: off"]
+    sibling: "unmodified"
+  - name: gowork-auto
+    find: "          GOWORK: \"off\"\n"
+    replace: "          GOWORK: auto\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["runs with env GOWORK set to \"auto\" instead of \"off\""]
+    sibling: "unmodified"
+  - name: default-branch-other
+    find: "      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}\n    steps:\n      - id: checkout\n"
+    replace: "      DEFAULT_BRANCH: release-staging\n    steps:\n      - id: checkout\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["runs with env DEFAULT_BRANCH set to \"release-staging\""]
+    sibling: "unmodified"
+  - name: env-bash-env
+    find: "      - id: build\n        env:\n"
+    replace: "      - id: build\n        env:\n          BASH_ENV: ./scripts/stub.sh\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["runs with env BASH_ENV, which is not one of DEFAULT_BRANCH, GOWORK"]
+    sibling: "unmodified"
+  - name: env-goflags
+    find: "      - id: build\n        env:\n"
+    replace: "      - id: build\n        env:\n          GOFLAGS: -toolexec=/bin/true\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["runs with env GOFLAGS, which is not one of DEFAULT_BRANCH, GOWORK"]
+    sibling: "unmodified"
+  - name: env-gotoolchain
+    find: "      - id: build\n        env:\n"
+    replace: "      - id: build\n        env:\n          GOTOOLCHAIN: go1.21.0\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["runs with env GOTOOLCHAIN, which is not one of DEFAULT_BRANCH, GOWORK"]
+    sibling: "unmodified"
+  - name: env-goproxy
+    find: "      - id: build\n        env:\n"
+    replace: "      - id: build\n        env:\n          GOPROXY: https://proxy.example.invalid\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["runs with env GOPROXY, which is not one of DEFAULT_BRANCH, GOWORK"]
+    sibling: "unmodified"
+  - name: build-working-directory
+    find: "      - id: build\n"
+    replace: "      - id: build\n        working-directory: infra-tool/tools/release\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"build\", which sets working-directory"]
+    sibling: "unmodified"
+  - name: build-if
+    find: "      - id: build\n"
+    replace: "      - id: build\n        if: always()\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"build\", which sets if"]
+    sibling: "unmodified"
+  - name: verify-if
+    find: "      - id: verify\n"
+    replace: "      - id: verify\n        if: github.ref_type == 'tag'\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which sets if"]
+    sibling: "unmodified"
+  - name: job-defaults-shell
+    find: "    needs: guard\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    env:\n      DEFAULT_BRANCH"
+    replace: "    needs: guard\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        shell: bash {0}\n    permissions:\n      contents: read\n    env:\n      DEFAULT_BRANCH"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.verify sets defaults, which a tag-verify job may not set"]
+    sibling: "unmodified"
+  - name: workflow-defaults-shell
+    find: "permissions: {}\n\njobs:\n"
+    replace: "permissions: {}\n\ndefaults:\n  run:\n    shell: bash {0}\n\njobs:\n"
+    rules: ["tag-publish-verifies-the-tag", "credential-steps-run-one-template"]
+    want_contains: ["jobs.verify runs in a workflow that sets defaults", "runs under shell \"bash {0}\""]
+    sibling: "unmodified"
+  - name: job-continue-on-error
+    find: "    needs: guard\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    env:\n      DEFAULT_BRANCH"
+    replace: "    needs: guard\n    runs-on: ubuntu-latest\n    continue-on-error: true\n    permissions:\n      contents: read\n    env:\n      DEFAULT_BRANCH"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.verify sets continue-on-error"]
+    sibling: "unmodified"
+  - name: job-container
+    find: "    needs: guard\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    env:\n      DEFAULT_BRANCH"
+    replace: "    needs: guard\n    runs-on: ubuntu-latest\n    container: ghcr.io/example/stub:latest\n    permissions:\n      contents: read\n    env:\n      DEFAULT_BRANCH"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.verify sets container"]
+    sibling: "unmodified"
+  - name: runner-self-hosted
+    find: "    needs: guard\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    env:\n      DEFAULT_BRANCH"
+    replace: "    needs: guard\n    runs-on: self-hosted\n    permissions:\n      contents: read\n    env:\n      DEFAULT_BRANCH"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["runs on \"self-hosted\", which is not a GitHub-hosted label"]
+    sibling: "unmodified"
+  - name: setup-go-cache-on
+    find: "          cache: false\n"
+    replace: "          cache: true\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["passes cache: \"true\", but cache must be false"]
+    sibling: "unmodified"
+  - name: setup-go-cache-default
+    find: "          cache: false\n"
+    replace: ""
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["does not pass cache, which the setup-go step must pass"]
+    sibling: "unmodified"
+  - name: setup-go-unpinned
+    find: "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"
+    replace: "actions/setup-go@v5"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["pinned to \"v5\" instead of a 40-hex commit"]
+    sibling: "unmodified"
+  - name: go-version-from-tag
+    find: "          go-version-file: infra-tool/tools/release/go.mod\n"
+    replace: "          go-version-file: go.mod\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["the Go version comes from the tool's own \"infra-tool/tools/release/go.mod\""]
+    sibling: "unmodified"
+  - name: other-action
+    find: "      - id: build\n"
+    replace: "      - id: cache\n        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684\n        with:\n          path: ~/.cache/go-build\n          key: go-build\n      - id: build\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["uses \"actions/cache@5a3ec84eff668545956fd18022155c47e93e2684\", which is not one of actions/checkout, actions/setup-go"]
+    sibling: "unmodified"
+  - name: tool-other-repository
+    find: "          repository: peasant-labs/infra\n"
+    replace: "          repository: someone-else/infra\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["the tool comes only from peasant-labs/infra"]
+    sibling: "unmodified"
+  - name: repo-checkout-keeps-token
+    find: "      - id: checkout\n        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n        with:\n          fetch-depth: 0\n          fetch-tags: true\n          persist-credentials: false\n"
+    replace: "      - id: checkout\n        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n        with:\n          fetch-depth: 0\n          fetch-tags: true\n"
+    rules: ["tag-publish-verifies-the-tag", "default-token-read-only"]
+    want_contains: ["does not pass persist-credentials, which the repo-checkout step must pass"]
+    sibling: "unmodified"
+  - name: repo-checkout-other-ref
+    find: "      - id: checkout\n        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n        with:\n          fetch-depth: 0\n          fetch-tags: true\n          persist-credentials: false\n"
+    replace: "      - id: checkout\n        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n        with:\n          fetch-depth: 0\n          fetch-tags: true\n          ref: main\n          persist-credentials: false\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["passes input ref, which the repo-checkout step may not take"]
+    sibling: "unmodified"
+  - name: second-tool-checkout
+    find: "      - id: go\n"
+    replace: "      - id: tool2\n        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n        with:\n          repository: peasant-labs/infra\n          ref: 71e687cef7eede9a63659be98ce9adac3c563398\n          path: other-tool\n          persist-credentials: false\n      - id: go\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["checks out the tool 2 times"]
+    sibling: "unmodified"
+  - name: no-verify-step
+    find: "          \"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "          \"${RUNNER_TEMP}/release-intent\" check-config\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["step \"verify\", which runs neither the build template"]
+    sibling: "unmodified"

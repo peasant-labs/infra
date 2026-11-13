@@ -76,81 +76,94 @@ func TestPushTargetMutations(t *testing.T) {
 	}
 	manifestNames(t, "push_mutations.yaml", fx.RequiredNames, names)
 
-	check := func(t *testing.T, dir string) ([]Diagnostic, error) {
-		t.Helper()
-		policy, err := LoadQueuePolicy(filepath.Join(dir, DefaultPath))
-		if err != nil {
-			t.Fatalf("policy does not load: %v", err)
-		}
-		cfg, err := intent.LoadConfig(filepath.Join(dir, intent.DefaultConfigPath))
-		if err != nil {
-			return nil, err
-		}
-		diags, _ := CheckWorkflows(policy, cfg, filepath.Join(dir, fixtureWorkflowsDir))
-		return diags, nil
-	}
-	if diags, err := check(t, materializeQueueFixture(t, "")); err != nil || len(diags) != 0 {
+	if diags, err := checkMutationTree(t, materializeQueueFixture(t, "")); err != nil || len(diags) != 0 {
 		t.Fatalf("the unmutated copy does not pass: %v %+v", err, diags)
 	}
 	for _, tc := range fx.Cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
-			if (tc.Workflow == "") == (tc.File == "") {
-				t.Fatal("a mutation row names neither or both of workflow and file (fixture error)")
-			}
-			if (len(tc.Rules) == 0 && tc.ConfigError == "") != (len(tc.WantContains) == 0) {
-				t.Fatal("a rejected row names no fragment, or an accepted row names one (fixture error)")
-			}
-			dir := materializeQueueFixture(t, "")
-			file := filepath.Join(dir, fixtureWorkflowsDir, tc.Workflow)
-			if tc.File != "" {
-				file = filepath.Join(dir, tc.File)
-			}
-			data, err := os.ReadFile(file)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if n := strings.Count(string(data), tc.Find); n != 1 {
-				t.Fatalf("find %q occurs %d times in %s, want exactly once", tc.Find, n, file)
-			}
-			mutated := strings.Replace(string(data), tc.Find, tc.Replace, 1)
-			if err := os.WriteFile(file, []byte(mutated), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			diags, err := check(t, dir)
-			if tc.ConfigError != "" {
-				var typed *intent.Error
-				if !errors.As(err, &typed) || typed.Code != tc.ConfigError {
-					t.Fatalf("release config error = %v, want code %s", err, tc.ConfigError)
-				}
-				for _, want := range tc.WantContains {
-					if !strings.Contains(err.Error(), want) {
-						t.Fatalf("release config error does not contain %q: %v", want, err)
-					}
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("release config does not load: %v", err)
-			}
-			fired := map[QueueRule]bool{}
-			var msgs []string
-			for _, d := range diags {
-				fired[d.Rule] = true
-				msgs = append(msgs, d.Message)
-			}
-			joined := strings.Join(msgs, "\n")
-			for _, rule := range AllQueueRules {
-				if fired[rule] != slices.Contains(tc.Rules, rule) {
-					t.Fatalf("rule %s fired = %v, want the exact set %v:\n%s", rule, fired[rule], tc.Rules, joined)
-				}
-			}
-			for _, want := range tc.WantContains {
-				if !strings.Contains(joined, want) {
-					t.Fatalf("diagnostics do not contain %q:\n%s", want, joined)
-				}
-			}
+			runWorkflowMutation(t, "", tc)
 		})
+	}
+}
+
+// checkMutationTree runs the production loaders and checker over one
+// materialized tree. A release config the loader refuses is returned as the
+// error, for the rows that expect it.
+func checkMutationTree(t *testing.T, dir string) ([]Diagnostic, error) {
+	t.Helper()
+	policy, err := LoadQueuePolicy(filepath.Join(dir, DefaultPath))
+	if err != nil {
+		t.Fatalf("policy does not load: %v", err)
+	}
+	cfg, err := intent.LoadConfig(filepath.Join(dir, intent.DefaultConfigPath))
+	if err != nil {
+		return nil, err
+	}
+	diags, _ := CheckWorkflows(policy, cfg, filepath.Join(dir, fixtureWorkflowsDir))
+	return diags, nil
+}
+
+// runWorkflowMutation materializes the base plus the overlay, makes the
+// row's one change, runs the checker, and holds the result to the row: the
+// exact rule set (none for an accepted change), or the release config error,
+// and every fragment.
+func runWorkflowMutation(t *testing.T, overlay string, tc pushMutation) {
+	t.Helper()
+	if (tc.Workflow == "") == (tc.File == "") {
+		t.Fatal("a mutation row names neither or both of workflow and file (fixture error)")
+	}
+	if (len(tc.Rules) == 0 && tc.ConfigError == "") != (len(tc.WantContains) == 0) {
+		t.Fatal("a rejected row names no fragment, or an accepted row names one (fixture error)")
+	}
+	dir := materializeQueueFixture(t, overlay)
+	file := filepath.Join(dir, fixtureWorkflowsDir, tc.Workflow)
+	if tc.File != "" {
+		file = filepath.Join(dir, tc.File)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(data), tc.Find); n != 1 {
+		t.Fatalf("find %q occurs %d times in %s, want exactly once", tc.Find, n, file)
+	}
+	mutated := strings.Replace(string(data), tc.Find, tc.Replace, 1)
+	if err := os.WriteFile(file, []byte(mutated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diags, err := checkMutationTree(t, dir)
+	if tc.ConfigError != "" {
+		var typed *intent.Error
+		if !errors.As(err, &typed) || typed.Code != tc.ConfigError {
+			t.Fatalf("release config error = %v, want code %s", err, tc.ConfigError)
+		}
+		for _, want := range tc.WantContains {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("release config error does not contain %q: %v", want, err)
+			}
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("release config does not load: %v", err)
+	}
+	fired := map[QueueRule]bool{}
+	var msgs []string
+	for _, d := range diags {
+		fired[d.Rule] = true
+		msgs = append(msgs, d.Message)
+	}
+	joined := strings.Join(msgs, "\n")
+	for _, rule := range AllQueueRules {
+		if fired[rule] != slices.Contains(tc.Rules, rule) {
+			t.Fatalf("rule %s fired = %v, want the exact set %v:\n%s", rule, fired[rule], tc.Rules, joined)
+		}
+	}
+	for _, want := range tc.WantContains {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("diagnostics do not contain %q:\n%s", want, joined)
+		}
 	}
 }
 
