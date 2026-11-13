@@ -1,0 +1,38 @@
+name: CI
+on:
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  lib:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: make lib
+  merge-gate:
+    if: always()
+    needs: [lib]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: echo gate
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - id: mint
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          app-id: ${{ vars.RELEASER_APP_ID }}
+          private-key: ${{ secrets.RELEASER_APP_KEY }}
+      - env:
+          APP_TOKEN: ${{ steps.mint.outputs.token }}
+        run: |
+          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push origin HEAD:automation/release

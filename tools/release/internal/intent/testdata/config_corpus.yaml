@@ -12,6 +12,9 @@ required_names:
   - bad-bot-kind
   - duplicate-bot-branch
   - empty-branch-value
+  - bot-branch-outside-prefix
+  - bot-branch-no-prefix
+  - bot-branch-prefix-alone
   - two-documents
 cases:
   - name: full-config
@@ -190,6 +193,49 @@ cases:
     sibling: full-config
     provenance: {source: boundary, ref: "config: each bot kind needs its branch"}
     mutation: {description: "cleared a bot branch"}
+  - name: bot-branch-outside-prefix
+    input:
+      document: |
+        releases: true
+        tag_prefix: v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        bot_branches:
+          release: main
+    expected: {code: "config-invalid"}
+    classification: must-fail
+    sibling: full-config
+    provenance: {source: requirement, ref: "config: a bot branch sits under the reserved automation/ prefix, so it can never name the default branch"}
+    mutation: {description: "named the default branch as the release bot branch"}
+  - name: bot-branch-no-prefix
+    input:
+      document: |
+        releases: true
+        tag_prefix: v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        bot_branches:
+          release: automation/release
+          cut-release: cut-release
+    expected: {code: "config-invalid"}
+    classification: must-fail
+    sibling: full-config
+    provenance: {source: requirement, ref: "config: a bot branch sits under the reserved automation/ prefix"}
+    mutation: {description: "dropped the reserved prefix from one bot branch"}
+  - name: bot-branch-prefix-alone
+    input:
+      document: |
+        releases: true
+        tag_prefix: v
+        automation_author: peasant-labs-releaser[bot]
+        changelog: CHANGELOG.md
+        bot_branches:
+          release: automation/
+    expected: {code: "config-invalid"}
+    classification: must-fail
+    sibling: full-config
+    provenance: {source: boundary, ref: "config: a bot branch names a branch under the reserved prefix, not the prefix alone"}
+    mutation: {description: "named the bare prefix as the release bot branch"}
   - name: two-documents
     input:
       document: |

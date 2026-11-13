@@ -16,8 +16,9 @@ import (
 // Each member names the workflow shape it pins: which workflows trigger on
 // the merge queue and report unfiltered, how the release job gates every
 // write on the planner's action, how the title guard stays honest, how range
-// readers take the floor, how each bot branch keeps exactly one writer, and
-// how the tool pin, the cut button, and the title checks stay exact.
+// readers take the floor, how every credential stays in the listed jobs and
+// runs only closed templates there, and how the tool pin, the cut button,
+// and the title checks stay exact.
 // Required-contexts entries must resolve, and the operator compares the
 // printed list with the ruleset. The token rule and the classify rule keep
 // one classifier, no branch literals, and the ref checked before the App key
@@ -55,14 +56,35 @@ const (
 	// range to pass the recovery floor from its repository variable, so a
 	// subject the tool cannot parse leaves parsing everywhere at once.
 	QueueRuleRangeFloor QueueRule = "range-readers-take-the-floor"
-	// QueueRuleNoPush holds every ref write in every job to what that job may
-	// write: the release job pushes its own bot branch, and the planner's tag
-	// only in its tag step; each bot job pushes only its own kind's branch,
-	// resolved from the release config; every other job writes nothing. A
-	// write whose target cannot be proven is reported, so nothing reaches the
-	// default branch outside the merge queue. A second job on one bot kind is
-	// reported too.
-	QueueRuleNoPush QueueRule = "no-default-branch-push-from-workflows"
+	// QueueRuleTokenReadOnly holds the default workflow token to reads:
+	// every workflow and every job declares permissions; every scope is read
+	// or none, except id-token write (OIDC publishing, no ref) and contents
+	// write in the workflow that runs only on a pushed release tag; and
+	// every actions/checkout sets persist-credentials: false.
+	QueueRuleTokenReadOnly QueueRule = "default-token-read-only"
+	// QueueRuleCredentialScope keeps every credential (the minted App token,
+	// the secrets that mint it, a default token that can write) inside the
+	// release job, the listed bot jobs and the publish jobs, and there only
+	// in the mint step's inputs and the env of a run step: never a workflow
+	// or job env, a job output, a reusable workflow, an action's inputs, or
+	// a run block's text.
+	QueueRuleCredentialScope QueueRule = "credentials-stay-in-listed-jobs"
+	// QueueRuleCredentialActions holds every job that may hold a credential
+	// to the allowed actions, each pinned to a 40-hex commit, with no
+	// reusable workflow and no container.
+	QueueRuleCredentialActions QueueRule = "credential-jobs-use-pinned-actions"
+	// QueueRuleCredentialTemplates holds every step that receives a
+	// credential to exactly one command from the closed template set its
+	// job may run, built from the release config and the job's own bot kind.
+	// It also resolves each listed job's bot branch: a kind the config does
+	// not name, or a kind two jobs claim, is reported here.
+	QueueRuleCredentialTemplates QueueRule = "credential-steps-run-one-template"
+	// QueueRuleCredentialJobShape holds every job that may hold a credential
+	// to allowed actions, plumbing templates and credential templates: no
+	// general step, no service container, no working directory, an
+	// environment of template env names only, and a handoff from the jobs it
+	// needs through job outputs and artifacts alone.
+	QueueRuleCredentialJobShape QueueRule = "credential-jobs-run-no-general-steps"
 	// QueueRuleTokenMint requires every job that mints the releaser App token
 	// to check that github.ref is the default branch, in a job-level or
 	// mint-step if, and to mint only when tag mode is on. A dispatch on any
@@ -109,7 +131,11 @@ var AllQueueRules = []QueueRule{
 	QueueRuleReleaseActions,
 	QueueRuleTitleGuard,
 	QueueRuleRangeFloor,
-	QueueRuleNoPush,
+	QueueRuleTokenReadOnly,
+	QueueRuleCredentialScope,
+	QueueRuleCredentialActions,
+	QueueRuleCredentialTemplates,
+	QueueRuleCredentialJobShape,
 	QueueRuleTokenMint,
 	QueueRuleUnfiltered,
 	QueueRuleMergeGate,

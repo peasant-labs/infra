@@ -74,13 +74,16 @@ func checkSiblings(t *testing.T, rows []siblingCased) {
 	}
 }
 
-// queueCaseExpected states the rule a reject case must trip (and only that
-// rule, parsed into its QueueRule member when the corpus loads) with the message fragments its diagnostics must carry. An accept case
-// carries its sampled rule and no fragments; the run must yield no diagnostics
-// at all.
+// queueCaseExpected states the rule a reject case must trip, parsed into its
+// QueueRule member when the corpus loads, with the message fragments its
+// diagnostics must carry. Also lists the other rules the same fault must
+// trip, for a fault that two rules each see; the run must trip exactly the
+// rule and the also rules. An accept case carries its sampled rule, no
+// fragments and no also rules; the run must yield no diagnostics at all.
 type queueCaseExpected struct {
-	Rule         QueueRule `yaml:"rule"`
-	WantContains []string  `yaml:"want_contains"`
+	Rule         QueueRule   `yaml:"rule"`
+	Also         []QueueRule `yaml:"also"`
+	WantContains []string    `yaml:"want_contains"`
 }
 
 // queueCaseRow is one corpus row: the standard case fields plus the accept
@@ -140,8 +143,8 @@ func loadQueueWorkflowFixtures(t *testing.T) queueWorkflowFixtures {
 	rows := make([]siblingCased, 0, len(f.Rows))
 	for _, row := range f.Rows {
 		row := row
-		if row.Classification != testcase.MustFail && row.Sibling != "" {
-			t.Fatalf("accept case %q must not name a sibling", row.Name)
+		if row.Classification != testcase.MustFail && (row.Sibling != "" || len(row.Expected.Also) != 0) {
+			t.Fatalf("accept case %q must not name a sibling or also rules", row.Name)
 		}
 		// The decoder already parsed the rule into a member; a row that
 		// omits the key is the only way to reach the zero value here.

@@ -3,9 +3,13 @@ on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
   merge_group:
+permissions:
+  contents: read
 jobs:
   title-guard:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - run: release-intent classify --author x --head-branch y --rev z
       - run: release-intent check-title --base x --head y --author z --head-branch w

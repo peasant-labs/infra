@@ -19,6 +19,12 @@ import (
 // and hold steps test the gate. A tool output is not a gate by itself: a
 // needs edge is satisfied by any job that succeeds, and an exit 0 in one step
 // does not stop the next step.
+//
+// The release job holds the credential and runs only templates, so the
+// planning runs in the jobs it needs and reaches it through job outputs. The
+// rule reads the needed jobs' steps and then the release job's steps as one
+// sequence, and reads each needs.<job>.outputs.<name> in an if as the step
+// output that job maps it from.
 
 var (
 	// actionGate matches an if that compares one plan step's action output
@@ -41,14 +47,6 @@ var (
 	rangeReader = regexp.MustCompile(toolCall(intent.CommandPlan, intent.CommandReleasePR))
 	// preTagRunner matches any implemented subcommand of the release tool.
 	preTagRunner = regexp.MustCompile(toolCall(intent.AllCommands...))
-	// prWrite matches a run line that opens, edits, closes, merges, or
-	// releases a PR. Ref writes are read by stepRefWrites.
-	prWrite = regexp.MustCompile(`\bgh\s+pr\s+(create|edit|close|merge)\b|\bgh\s+release\s+create\b`)
-	// tagPush matches a run line that pushes a tag: a tag refspec, an
-	// explicit tag, or a release creation.
-	tagPush = regexp.MustCompile(regexp.QuoteMeta(intent.TagRefPrefix) + `|\bgit\s+tag\b|\bgh\s+release\s+create\b`)
-	// prOpenEdit matches a run line that opens or edits the release PR.
-	prOpenEdit = regexp.MustCompile(`\bgh\s+pr\s+(create|edit)\b`)
 )
 
 // gateAlternatives renders the planner's closed gate set as a regex
@@ -68,10 +66,6 @@ func gatedAction(literal string) (intent.Action, bool) {
 	action, err := intent.ParseAction(literal)
 	return action, err == nil
 }
-
-// appTokenOutput is the output a GitHub App token step exposes; a step that
-// reads it holds the App token.
-const appTokenOutput = "outputs.token"
 
 // appTokenAction is the action that mints a GitHub App token.
 const appTokenAction = "create-github-app-token"
@@ -97,7 +91,7 @@ func (c *queueChecker) checkReleaseActions() {
 			"jobs."+rel.Job+" is missing during merge-queue policy validation, but the policy names it as the release job. Add the job that carries out the planner's action")
 		return
 	}
-	r := &releaseChecker{c: c, workflow: rel.Workflow, doc: doc, job: job, preTag: rel.PreTagSteps}
+	r := &releaseChecker{c: c, workflow: rel.Workflow, jobName: rel.Job, doc: doc, job: job, preTag: rel.PreTagSteps}
 	r.collectSteps()
 	r.checkVerdictForm()
 	r.checkWriteStepsGated()
@@ -109,31 +103,67 @@ func (c *queueChecker) checkReleaseActions() {
 	r.checkArmHold()
 }
 
-// releaseChecker holds one release-actions-gated evaluation: the release job's
-// steps in order with their ids, and the step indexes each clause flags.
+// releaseChecker holds one release-actions-gated evaluation. The release
+// job holds the credential and runs only templates, so the planning runs in
+// the jobs it needs; the checker reads the release as one sequence: the
+// steps of every job the release job needs, in needs order, then the release
+// job's own steps. stepJobs names each step's job, ids maps a step id to its
+// place, and flagged holds the places each clause flags.
 type releaseChecker struct {
 	c        *queueChecker
 	workflow string
+	jobName  string
 	doc      *yaml.Node
 	job      *yaml.Node
 	preTag   []string
 	steps    []*yaml.Node
+	stepJobs []string
 	ids      map[string]int
 	flagged  map[int]bool
 }
 
-// collectSteps indexes the release job's steps in order. A step without an id
+// collectSteps indexes the release sequence in order. A step without an id
 // still participates (by position); clauses that need a named step report the
 // missing id.
 func (r *releaseChecker) collectSteps() {
-	r.steps = stepsOf(r.job)
 	r.ids = map[string]int{}
 	r.flagged = map[int]bool{}
-	for i, step := range r.steps {
-		if id := stepID(step); id != "" {
-			r.ids[id] = i
+	needs, _ := needsList(r.job)
+	for _, name := range append(needs, r.jobName) {
+		job := jobNode(r.doc, name)
+		if name == r.jobName {
+			job = r.job
+		}
+		for _, step := range stepsOf(job) {
+			if id := stepID(step); id != "" {
+				r.ids[id] = len(r.steps)
+			}
+			r.steps = append(r.steps, step)
+			r.stepJobs = append(r.stepJobs, name)
 		}
 	}
+}
+
+// ifText returns the if of the step at place i with every needs output read
+// replaced by the step output it maps, so a gate in the release job reads
+// as the step output of the planning job it tests.
+func (r *releaseChecker) ifText(i int) string {
+	return resolvedIf(r.doc, jobNode(r.doc, r.stepJobs[i]), r.steps[i])
+}
+
+// needsOutputRead matches one needs output read inside an expression.
+var needsOutputRead = regexp.MustCompile(`needs\.` + stepIDPattern + `\.outputs\.[A-Za-z0-9_-]+`)
+
+// resolvedIf returns a step's if with every needs.<job>.outputs.<name> that
+// maps one step output of a needed job replaced by that step output.
+func resolvedIf(doc, job, step *yaml.Node) string {
+	return needsOutputRead.ReplaceAllStringFunc(stepIfText(step), func(read string) string {
+		mapped, key, ok := resolveOutput(doc, job, read)
+		if !ok {
+			return read
+		}
+		return "steps." + stepID(mapped) + ".outputs." + key
+	})
 }
 
 // stepIf returns the step's if text, or "" when it has none.
@@ -183,41 +213,30 @@ func isMintStep(step *yaml.Node) bool {
 	return strings.Contains(stepUsesText(step), appTokenAction)
 }
 
-// isWriteStep reports whether the step can write: it mints the App token, it
-// consumes a minted token output, its run writes a ref, or it writes a PR.
-func isWriteStep(step *yaml.Node) bool {
-	if isMintStep(step) {
-		return true
-	}
-	for _, s := range stepScalars(step) {
-		if strings.Contains(s, appTokenOutput) {
-			return true
-		}
-	}
-	return prWrite.MatchString(stepRunText(step)) || hasRefWrite(step)
+// isArmHoldStep reports whether the step is gated on the queue gate output,
+// read directly or through a needs output, rather than on the planner's
+// action; those steps belong to clause (8) and are exempt from the
+// action-gate clauses.
+func isArmHoldStep(doc, job, step *yaml.Node) bool {
+	return gateTest.MatchString(resolvedIf(doc, job, step))
 }
 
-// isArmHoldStep reports whether the step is gated on the queue gate output
-// rather than on the planner's action; those steps belong to clause (8) and
-// are exempt from the action-gate clauses.
-func isArmHoldStep(step *yaml.Node) bool {
-	return gateTest.MatchString(stepIfText(step))
+// isTagStep reports whether a release-workflow step pushes a tag: it
+// receives a credential and runs the tag push template.
+func (r *releaseChecker) isTagStep(jobName string, step *yaml.Node) bool {
+	return r.c.isTemplateStep(r.workflow, jobName, step, TemplatePushReleaseTag)
 }
 
-// isTagStep reports whether the step pushes a tag.
-func isTagStep(step *yaml.Node) bool {
-	return tagPush.MatchString(stepRunText(step))
+// isBranchPushStep reports whether the step at place i pushes the release
+// branch.
+func (r *releaseChecker) isBranchPushStep(i int) bool {
+	return r.c.isTemplateStep(r.workflow, r.stepJobs[i], r.steps[i], TemplatePushOwnBranch)
 }
 
-// isBranchPushStep reports whether the step writes a ref that is not a tag:
-// a branch push, or a write the reader cannot prove.
-func isBranchPushStep(step *yaml.Node) bool {
-	return hasBranchOrUnprovenWrite(step) && !isTagStep(step)
-}
-
-// isPROpenEditStep reports whether the step opens or edits the release PR.
-func isPROpenEditStep(step *yaml.Node) bool {
-	return prOpenEdit.MatchString(stepRunText(step))
+// isPROpenEditStep reports whether the step at place i opens or edits the
+// release PR.
+func (r *releaseChecker) isPROpenEditStep(i int) bool {
+	return r.c.isTemplateStep(r.workflow, r.stepJobs[i], r.steps[i], TemplatePRCreate, TemplatePREdit)
 }
 
 // isQueueReadStep reports whether the step reads the merge queue or runs the
@@ -290,14 +309,14 @@ func (r *releaseChecker) checkVerdictForm() {
 // run that needs a token.
 func (r *releaseChecker) checkWriteStepsGated() {
 	for i, step := range r.steps {
-		if !isWriteStep(step) || isArmHoldStep(step) {
+		if !r.c.isWriteStep(r.workflow, r.stepJobs[i], step) || gateTest.MatchString(r.ifText(i)) {
 			continue
 		}
 		r.flagged[i] = true
 		if isMintStep(step) {
 			continue
 		}
-		cond := stepIfText(step)
+		cond := r.ifText(i)
 		m := actionGate.FindStringSubmatch(cond)
 		if m == nil {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
@@ -336,35 +355,36 @@ func hasTagModeGate(cond string) bool {
 // the tag action of a plan step that passes the verdict flag, with no other
 // step or job pushing a tag.
 func (r *releaseChecker) checkTagPush() {
-	for _, jobName := range jobNames(r.doc) {
-		job := jobNode(r.doc, jobName)
-		for _, step := range stepsOf(job) {
-			if !isTagStep(step) {
-				continue
-			}
-			r.flagged[r.stepIndex(step)] = true
-			cond := stepIfText(step)
-			m := actionGate.FindStringSubmatch(cond)
-			if m == nil || !gatesOn(m[2], intent.ActionTag) || hasDisjunction(cond) {
-				r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
-					"a step that pushes a tag is not gated on the tag action during merge-queue policy validation. Gate it on "+equals(stepOutput("<plan>", intent.OutputAction), intent.ActionTag.String())+" as a single conjunction, with no ||, always() or success(), so only the verdict's tag action pushes the tag")
-				continue
-			}
-			idx, ok := r.ids[m[1]]
-			var planRun string
-			if ok {
-				planRun = stepRunText(r.steps[idx])
-			}
-			if !ok || !strings.Contains(planRun, intent.FlagVerdict.String()) {
-				r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
-					"the tag step is gated on steps."+m[1]+" during merge-queue policy validation, which is not a plan step that passes "+intent.FlagVerdict.String()+". Gate the tag on the verdict's tag action so a stale candidate is never tagged")
-			}
+	tagCount := 0
+	for i, step := range r.steps {
+		if !r.isTagStep(r.stepJobs[i], step) {
+			continue
+		}
+		tagCount++
+		r.flagged[i] = true
+		cond := r.ifText(i)
+		m := actionGate.FindStringSubmatch(cond)
+		if m == nil || !gatesOn(m[2], intent.ActionTag) || hasDisjunction(cond) {
+			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
+				"a step that pushes a tag is not gated on the tag action during merge-queue policy validation. Gate it on "+equals(stepOutput("<plan>", intent.OutputAction), intent.ActionTag.String())+" as a single conjunction, with no ||, always() or success(), so only the verdict's tag action pushes the tag")
+			continue
+		}
+		idx, ok := r.ids[m[1]]
+		var planRun string
+		if ok {
+			planRun = stepRunText(r.steps[idx])
+		}
+		if !ok || !strings.Contains(planRun, intent.FlagVerdict.String()) {
+			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
+				"the tag step is gated on steps."+m[1]+" during merge-queue policy validation, which is not a plan step that passes "+intent.FlagVerdict.String()+". Gate the tag on the verdict's tag action so a stale candidate is never tagged")
 		}
 	}
-	tagCount := 0
 	for _, jobName := range jobNames(r.doc) {
+		if jobName == r.jobName || r.stepJobsHas(jobName) {
+			continue
+		}
 		for _, step := range stepsOf(jobNode(r.doc, jobName)) {
-			if isTagStep(step) {
+			if r.isTagStep(jobName, step) {
 				tagCount++
 			}
 		}
@@ -378,15 +398,14 @@ func (r *releaseChecker) checkTagPush() {
 	}
 }
 
-// stepIndex returns the release-job step index of step, or -1 for a step in
-// another job (only used for flagging release-job steps).
-func (r *releaseChecker) stepIndex(step *yaml.Node) int {
-	for i, s := range r.steps {
-		if s == step {
-			return i
+// stepJobsHas reports whether the release sequence holds the job's steps.
+func (r *releaseChecker) stepJobsHas(job string) bool {
+	for _, name := range r.stepJobs {
+		if name == job {
+			return true
 		}
 	}
-	return -1
+	return false
 }
 
 // checkPreTagSteps (clause 4) requires each policy pre-tag step to exist by
@@ -403,7 +422,7 @@ func (r *releaseChecker) checkPreTagSteps() {
 		}
 		r.flagged[idx] = true
 		step := r.steps[idx]
-		cond := stepIfText(step)
+		cond := r.ifText(idx)
 		m := actionGate.FindStringSubmatch(cond)
 		if m == nil || !gatesOn(m[2], intent.ActionVerify) {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
@@ -448,7 +467,7 @@ func (r *releaseChecker) checkStatusFunctions() {
 		if i <= first {
 			continue
 		}
-		if !planRunner.MatchString(stepRunText(step)) && !strings.Contains(stepIfText(step), stepOutputSuffix(intent.OutputAction)) {
+		if !planRunner.MatchString(stepRunText(step)) && !strings.Contains(r.ifText(i), stepOutputSuffix(intent.OutputAction)) {
 			continue
 		}
 		r.flagged[i] = true
@@ -456,6 +475,12 @@ func (r *releaseChecker) checkStatusFunctions() {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
 				"a step after the first pre-tag step has no status function during merge-queue policy validation. Carry "+statusNotCancelled+" so a failed check rebuilds the release PR instead of skipping every step after it")
 		}
+	}
+	// The release job needs the planning job, and a job whose needs failed
+	// is skipped unless its own if carries the status function.
+	if cond := mappingValue(r.job, "if"); cond == nil || !strings.Contains(cond.Value, statusNotCancelled) {
+		r.c.emit(QueueRuleReleaseActions, r.workflow, r.jobName,
+			"jobs."+r.jobName+" has no status function in its job if during merge-queue policy validation, but the job it needs runs pre-tag steps. A failed pre-tag step fails that job, and GitHub then skips every job that needs it; carry "+statusNotCancelled+" in the release job's if so a failed check still rebuilds the release PR")
 	}
 }
 
@@ -473,7 +498,7 @@ func (r *releaseChecker) checkPushOutputs() {
 		}
 	}
 	for i, step := range r.steps {
-		if !isBranchPushStep(step) && !isPROpenEditStep(step) && !isQueueReadStep(step) {
+		if !r.isBranchPushStep(i) && !r.isPROpenEditStep(i) && !isQueueReadStep(step) {
 			continue
 		}
 		r.flagged[i] = true
@@ -482,7 +507,7 @@ func (r *releaseChecker) checkPushOutputs() {
 				"a push, PR, or queue-read step has no "+intent.CommandReleasePR.String()+" "+intent.FlagWrite.String()+" step in this run during merge-queue policy validation. Write the release content first so these steps can test the push it printed")
 			continue
 		}
-		m := pushTest.FindStringSubmatch(stepIfText(step))
+		m := pushTest.FindStringSubmatch(r.ifText(i))
 		writeID := stepID(r.steps[write])
 		if m == nil || (writeID != "" && m[1] != writeID) {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
@@ -512,7 +537,7 @@ func (r *releaseChecker) checkContinueOnError() {
 func (r *releaseChecker) checkArmHold() {
 	seen := map[intent.Gate]bool{}
 	for i, step := range r.steps {
-		m := gateTest.FindStringSubmatch(stepIfText(step))
+		m := gateTest.FindStringSubmatch(r.ifText(i))
 		if m == nil {
 			continue
 		}

@@ -2,6 +2,7 @@ package policy
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,8 +46,9 @@ func TestCheckWorkflows_Cases(t *testing.T) {
 
 // assertQueueRule checks one corpus case against its classification: an accept
 // case passes only with zero diagnostics and the policy's required contexts
-// back in order; a reject case passes only when every diagnostic carries the
-// expected rule and every expected fragment appears in the diagnostics.
+// back in order; a reject case passes only when the diagnostics trip exactly
+// the expected rule and its also rules, and every expected fragment appears
+// in the diagnostics.
 func assertQueueRule(t *testing.T, row queueCaseRow, policy QueuePolicy, diags []Diagnostic, required []RequiredContext) {
 	t.Helper()
 	if row.Classification == testcase.MustPass {
@@ -67,19 +69,23 @@ func assertQueueRule(t *testing.T, row queueCaseRow, policy QueuePolicy, diags [
 		}
 		return
 	}
-	rule := row.Expected.Rule
+	want := append([]QueueRule{row.Expected.Rule}, row.Expected.Also...)
 	if len(row.Expected.WantContains) == 0 {
 		t.Fatalf("reject case %q declares no want_contains fragments (fixture error)", row.Name)
 	}
 	var msgs []string
+	fired := map[QueueRule]bool{}
 	for _, d := range diags {
 		msgs = append(msgs, d.Message)
-		if d.Rule != rule {
-			t.Fatalf("reject case %q tripped rule %s, want only %s:\n%s", row.Name, d.Rule, rule, d.Message)
+		fired[d.Rule] = true
+		if !slices.Contains(want, d.Rule) {
+			t.Fatalf("reject case %q tripped rule %s, want only %v:\n%s", row.Name, d.Rule, want, d.Message)
 		}
 	}
-	if len(diags) == 0 {
-		t.Fatalf("reject case %q tripped no %s diagnostic", row.Name, rule)
+	for _, rule := range want {
+		if !fired[rule] {
+			t.Fatalf("reject case %q tripped no %s diagnostic:\n%s", row.Name, rule, strings.Join(msgs, "\n"))
+		}
 	}
 	joined := strings.Join(msgs, "\n")
 	for _, want := range row.Expected.WantContains {

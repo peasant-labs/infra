@@ -4,18 +4,24 @@ on:
   merge_group:
 concurrency:
   group: title-guard-${{ github.run_id }}
+permissions:
+  contents: read
 jobs:
   title-guard:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/checkout@v5
         with:
           repository: peasant-labs/infra
           ref: 71e687cef7eede9a63659be98ce9adac3c563398
           path: infra-tool
+          persist-credentials: false
       - uses: actions/setup-go@v6
         with:
           go-version-file: infra-tool/tools/release/go.mod

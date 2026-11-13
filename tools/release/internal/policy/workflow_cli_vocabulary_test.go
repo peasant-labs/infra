@@ -28,7 +28,7 @@ type workflowCLIExample struct {
 // one run block: whether it holds an invocation, and every problem the
 // tool-calls-match-the-cli rule reports for its invocations, in order.
 func workflowCLIProblems(run string) (bool, []string) {
-	calls, _ := toolCalls(run)
+	calls := toolCalls(run)
 	var problems []string
 	for _, call := range calls {
 		problems = append(problems, toolCallProblems(call)...)
@@ -66,7 +66,7 @@ func TestWorkflowCLIVocabularyExamples(t *testing.T) {
 	accepted := map[intent.Command]bool{}
 	missing := map[intent.Command]bool{}
 	for _, row := range corpus.Cases {
-		calls, _ := toolCalls(row.Run)
+		calls := toolCalls(row.Run)
 		for _, call := range calls {
 			if len(call) < 2 {
 				continue

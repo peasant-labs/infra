@@ -175,6 +175,16 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   `queue:` only.** `policy.DefaultPath` owns that path. Job-graph rules for a
   tag-triggered release workflow stay in schema's release-guard and its own
   policy file; do not define a rule in both.
+- **The workflow checker confines credentials; it does not read shell.** A
+  job that may hold a credential runs only `policy.AllAllowedActions`, the
+  plumbing templates (`policy.AllPlumbingTemplates`) and the credential
+  templates (`policy.AllCredentialTemplates`); all other work runs in an
+  earlier job without a credential and hands over through job outputs and an
+  artifact. Never widen it by teaching a reader another spelling of a write,
+  or by letting a general step back into the credential job: add a typed
+  template, and say in the PR why the existing ones do not fit. The README's
+  "What a consumer workflow may do with a credential" is the consumer-facing
+  summary; keep it in step.
 - Test cases live in `testdata/*.yaml` corpora with required-name manifests,
   not inline tables.
 

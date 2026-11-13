@@ -7,20 +7,54 @@ on:
     - cron: "11 * * * *"
 concurrency:
   group: vendor-hash-${{ github.ref }}
+permissions:
+  contents: read
 jobs:
-  update:
+  fix:
+    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@c134e4c9e34bac6cab09cf239815f9339aaaf84e
       - id: refcheck
         run: test "${{ github.ref }}" = "refs/heads/develop"
+      - id: fix
+        run: |
+          nix run .#update-vendor-hash
+          git checkout -B automation/vendor-hash
+          git commit -am "fix(nix): refresh the vendor hash"
+          git bundle create vendor.bundle refs/heads/automation/vendor-hash
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vendor-bundle
+          path: vendor.bundle
+  update:
+    needs: [fix]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: vendor-bundle
+          path: bundle
       - id: mint
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
         with:
           app-id: ${{ vars.RELEASER_APP_ID }}
           private-key: ${{ secrets.RELEASER_APP_KEY }}
+      - run: git fetch --no-tags bundle/vendor.bundle automation/vendor-hash:automation/vendor-hash
       - env:
-          GH_TOKEN: ${{ steps.mint.outputs.token }}
-        run: git push origin HEAD:automation/vendor-hash
+          APP_TOKEN: ${{ steps.mint.outputs.token }}
+        run: |
+          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push --force origin automation/vendor-hash
       - env:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
         run: gh pr create --head automation/vendor-hash --base develop --title "vendor" --body "bot"

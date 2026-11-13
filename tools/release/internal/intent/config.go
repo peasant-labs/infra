@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -147,6 +148,11 @@ func checkConfig(cfg Config, where string) error {
 			return fail("bot_branches entry "+strconv.Quote(string(kind))+" names an empty branch",
 				"each bot PR kind needs the one head branch its PR uses",
 				"set the head branch that bot PR is opened from")
+		}
+		if !strings.HasPrefix(branch, BotBranchPrefix) || branch == BotBranchPrefix {
+			return fail("bot_branches entry "+strconv.Quote(string(kind))+" names branch "+strconv.Quote(branch)+", which is not under "+strconv.Quote(BotBranchPrefix),
+				"the workflow checker lets each bot job push only its own bot branch and cannot see the default branch, so a bot branch outside the reserved prefix could name the default branch and let a workflow push it outside the merge queue",
+				"rename the branch to "+strconv.Quote(BotBranchPrefix+"<name>")+", for example "+strconv.Quote(BotBranchPrefix+string(kind)))
 		}
 		if first, dup := seenBranches[branch]; dup {
 			return fail("bot_branches names branch "+strconv.Quote(branch)+" for two kinds",
