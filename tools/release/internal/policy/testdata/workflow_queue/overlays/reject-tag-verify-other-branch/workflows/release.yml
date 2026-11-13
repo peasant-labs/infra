@@ -68,27 +68,33 @@ jobs:
     env:
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
-      - uses: actions/checkout@v5
+      - id: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
-      - uses: actions/checkout@v5
+      - id: tool
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: peasant-labs/infra
           ref: 71e687cef7eede9a63659be98ce9adac3c563398
           path: infra-tool
+          sparse-checkout: |
+            tools/release
           persist-credentials: false
-      - uses: actions/setup-go@v6
+      - id: go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version-file: infra-tool/tools/release/go.mod
-      - name: Build release-intent
-        working-directory: infra-tool
+          cache: false
+      - id: build
+        env:
+          GOWORK: "off"
+        run: go build -C infra-tool/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent
+      - id: verify
         run: |
-          go build -o "$RUNNER_TEMP/release-intent" ./tools/release/cmd/release-intent
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - name: Verify the tag is a release tag on the default branch
-        run: release-intent verify-tag --tag "${GITHUB_REF_NAME}" --branch origin/release-staging
+          "${RUNNER_TEMP}/release-intent" verify-tag --tag "${GITHUB_REF_NAME}" --branch origin/release-staging
 
   notes:
     name: release notes

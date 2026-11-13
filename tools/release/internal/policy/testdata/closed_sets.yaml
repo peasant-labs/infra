@@ -21,6 +21,10 @@ required_names:
   - plumbing-template
   - credential-job-class
   - runner-label
+  - verify-step
+  - verify-action
+  - verify-input
+  - verify-env
 sets:
   - name: queue-rule
     members:
@@ -138,3 +142,26 @@ sets:
   - name: runner-label
     members: [ubuntu-latest, ubuntu-24.04, ubuntu-22.04]
     refused: ["", "self-hosted", "linux", "macos-latest", "Ubuntu-Latest"]
+
+  # The steps a tag-verify job may run, each in one fixed shape.
+  - name: verify-step
+    members: [repo-checkout, tool-checkout, setup-go, build, verify]
+    refused: ["", "upload", "cache", "Build", "run"]
+
+  # The actions a tag-verify job may use. Every other action, the cache and
+  # a script action included, runs code before the verify step.
+  - name: verify-action
+    members: [actions/checkout, actions/setup-go]
+    refused: ["", "actions/cache", "actions/github-script", "actions/download-artifact", "actions/setup-go@v5", "Actions/Checkout"]
+
+  # The inputs a tag-verify job's actions may take. token, ssh-key, clean,
+  # submodules and the setup-go cache path are refused.
+  - name: verify-input
+    members: [persist-credentials, fetch-depth, fetch-tags, repository, ref, path, sparse-checkout, go-version-file, cache]
+    refused: ["", "token", "ssh-key", "submodules", "clean", "cache-dependency-path", "go-version", "Ref"]
+
+  # The env names a tag-verify job may carry. PATH, BASH_ENV, GOFLAGS and
+  # GOTOOLCHAIN could change which binary runs or what the build compiles.
+  - name: verify-env
+    members: [DEFAULT_BRANCH, GOWORK]
+    refused: ["", "PATH", "BASH_ENV", "GOFLAGS", "GOTOOLCHAIN", "GOPROXY", "RUNNER_TEMP", "GITHUB_REF_NAME", "gowork"]

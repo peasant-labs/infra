@@ -45,8 +45,6 @@ var (
 	planRunner = regexp.MustCompile(toolCall(intent.CommandPlan))
 	// rangeReader matches a step that reads a commit range.
 	rangeReader = regexp.MustCompile(toolCall(intent.CommandPlan, intent.CommandReleasePR))
-	// preTagRunner matches any implemented subcommand of the release tool.
-	preTagRunner = regexp.MustCompile(toolCall(intent.AllCommands...))
 )
 
 // gateAlternatives renders the planner's closed gate set as a regex
@@ -410,8 +408,10 @@ func (r *releaseChecker) stepJobsHas(job string) bool {
 
 // checkPreTagSteps (clause 4) requires each policy pre-tag step to exist by
 // id, to run only on the verify action, to carry the status function on every
-// step after the first, and to run exactly one planner command with no
-// chaining, no shell override, and no multi-line run.
+// step after the first, and to run exactly one implemented tool command, read
+// through singleCommand: no second command or line, no control operator,
+// pipe or background job, and no shell override, so the step's exit status
+// is the check's verdict.
 func (r *releaseChecker) checkPreTagSteps() {
 	for i, name := range r.preTag {
 		idx, ok := r.ids[name]
@@ -431,22 +431,34 @@ func (r *releaseChecker) checkPreTagSteps() {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
 				"pre-tag step "+strconv.Quote(name)+" runs after a pre-tag step without the status function during merge-queue policy validation. Carry "+statusNotCancelled+" so a failed earlier check still rebuilds the release PR instead of skipping every later step")
 		}
-		run := stepRunText(step)
+		words, why := singleCommand(r.doc, jobNode(r.doc, r.stepJobs[idx]), step)
 		switch {
-		case strings.Contains(run, "\n"):
+		case why != "":
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
-				"pre-tag step "+strconv.Quote(name)+" has a multi-line run during merge-queue policy validation. Run exactly one command so the step's exit status is the check's verdict and nothing else can mask it")
-		case mappingValue(step, "shell") != nil:
+				"pre-tag step "+strconv.Quote(name)+" does not run exactly one command during merge-queue policy validation: "+why+". Run exactly one "+intent.ProgramName+" command, with no ||, &&, ;, &, pipe, second line, set +e or shell override, so the step's exit status is the check's verdict and nothing else can mask it")
+		case !isToolCommand(words):
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
-				"pre-tag step "+strconv.Quote(name)+" overrides the shell during merge-queue policy validation. Drop the shell override so the step runs the one tool command with the default failure semantics")
-		case !preTagRunner.MatchString(run):
-			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
-				"pre-tag step "+strconv.Quote(name)+" runs "+strconv.Quote(firstLine(run))+" during merge-queue policy validation instead of an implemented "+intent.ProgramName+" subcommand. Run the check itself here; a wrapper script that exits zero on a break would tag a rejected commit")
-		case strings.Contains(run, "||") || strings.Contains(run, "&&") || strings.Contains(run, ";") || strings.Contains(run, "|") || strings.Contains(run, "set +e"):
-			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
-				"pre-tag step "+strconv.Quote(name)+" chains commands during merge-queue policy validation. Run exactly one command with no ||, &&, ;, pipe, or set +e so the step's exit status is the check's verdict")
+				"pre-tag step "+strconv.Quote(name)+" runs "+strconv.Quote(firstLine(stepRunText(step)))+" during merge-queue policy validation instead of an implemented "+intent.ProgramName+" subcommand. Run the check itself here; a wrapper script that exits zero on a break would tag a rejected commit")
 		}
 	}
+}
+
+// isToolCommand reports whether one command's words call the tool by name
+// with an implemented subcommand.
+func isToolCommand(words []templateWord) bool {
+	if len(words) < 2 {
+		return false
+	}
+	program, ok := words[0].literal()
+	if !ok || program != intent.ProgramName {
+		return false
+	}
+	sub, ok := words[1].literal()
+	if !ok {
+		return false
+	}
+	_, err := intent.ParseCommand(sub)
+	return err == nil
 }
 
 // checkStatusFunctions (clause 5) requires every step after the first pre-tag

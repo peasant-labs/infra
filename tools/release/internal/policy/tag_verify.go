@@ -1,10 +1,14 @@
 package policy
 
 import (
+	"path"
+	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/peasant-labs/infra/tools/release/internal/closedset"
+
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
-	regexp "github.com/wasilibs/go-re2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,9 +17,18 @@ import (
 // only a write to refs/tags/: the tag can name a commit that never landed on
 // the default branch. So every job of such a workflow that can publish (a
 // GitHub Release through contents write, a package through an OIDC token)
-// needs a job without a credential that runs `release-intent verify-tag` on
-// the triggering tag and the default branch, and GitHub skips the publish
-// job unless that job succeeds.
+// needs a tag-verify job, and GitHub skips the publish job unless that job
+// succeeds.
+//
+// The tag-verify job's success is the verdict on the tag, so anything in it
+// that can make it succeed without the tool's yes is a bypass: a masked exit
+// status (|| true, ; exit 0, a pipe, a background job, set +e, a custom
+// shell), a PATH entry or a stub binary that answers in the tool's place, a
+// go.work in the tag's checkout that swaps the tool's modules, or a restored
+// build cache. So the job is confined the way a job that holds a credential
+// is: it runs only the steps of the VerifyStep set, each in one fixed shape,
+// with an environment of VerifyEnv names at their fixed values, and every
+// run step is read through singleCommand.
 
 // triggerKeyTagsIgnore is the push trigger key that names tags to skip; a
 // workflow that names it is tag-triggered too.
@@ -29,12 +42,20 @@ const defaultBranchExpression = "github.event.repository.default_branch"
 // the --branch value: nothing, or the remote-tracking ref of origin.
 var remoteBranchPrefixes = []string{"", "origin/", "refs/remotes/origin/"}
 
+// verifyStepKeys are the keys a tag-verify job's step may set. shell,
+// working-directory, if and continue-on-error are not among them: each can
+// change what the step runs or whether its failure fails the job.
+var verifyStepKeys = []string{"id", "name", "uses", "with", "run", "env", "timeout-minutes"}
+
+// verifyJobKeys are the keys a tag-verify job may set. defaults, container,
+// services, uses, strategy and continue-on-error are not among them: each
+// can change the shell, the machine, the code that runs, or whether a
+// failure fails the job.
+var verifyJobKeys = []string{"name", "needs", "if", "runs-on", "permissions", "env", "outputs", "timeout-minutes", "concurrency", "environment", "steps"}
+
 // publishStatusFunctions are the status functions that run a job after a job
 // it needs failed, which would publish an unverified tag.
 var publishStatusFunctions = []string{"always()", "cancelled()", "failure()"}
-
-// expressionBody matches one ${{ }} expression alone and captures its body.
-var expressionBody = regexp.MustCompile(`^\$\{\{\s*(.*?)\s*\}\}$`)
 
 // tagTriggered reports whether the workflow runs on pushed tags.
 func tagTriggered(doc *yaml.Node) bool {
@@ -80,20 +101,40 @@ func (c *queueChecker) checkTagVerified() {
 			if !publishes(doc, job) {
 				continue
 			}
-			if why := c.publishVerifyFault(name, doc, jobName, job); why != "" {
+			if why := c.publishVerifyFault(name, doc, job); why != "" {
 				c.emit(QueueRuleTagVerified, name, jobName, violation(
 					"jobs."+jobName+" can publish for a pushed tag, but "+why,
-					"a tag push needs only a write to refs/tags/, so the tag can name a commit that never landed on the default branch; the publish job may run only after the tool verified the tag",
+					"a tag push needs only a write to refs/tags/, so the tag can name a commit that never landed on the default branch; the publish job may run only after the tool verified the tag, and only a confined tag-verify job's success means it did",
 					rejected,
-					"add a job without a credential that checks out with fetch-depth: 0 and fetch-tags: true and runs "+intent.ProgramName+" "+intent.CommandVerifyTag.String()+" "+intent.FlagTag.String()+" \"${GITHUB_REF_NAME}\" "+intent.FlagBranch.String()+" \"origin/${DEFAULT_BRANCH}\" with DEFAULT_BRANCH mapped from ${{ "+defaultBranchExpression+" }}, and list it in the publish job's needs"))
+					"list in the publish job's needs a job without a credential whose steps are only "+verifyShapes()+", with env "+verifyEnvShapes()+" and no other env, shell, working-directory, defaults, if or continue-on-error"))
 			}
 		}
 	})
 }
 
+// verifyShapes lists the tag-verify steps for a message.
+func verifyShapes() string {
+	var out []string
+	for _, s := range AllVerifySteps {
+		out = append(out, s.String()+" `"+s.Shape()+"`")
+	}
+	return strings.Join(out, "; ")
+}
+
+// verifyEnvShapes lists the tag-verify env names and values for a message.
+func verifyEnvShapes() string {
+	var out []string
+	for _, e := range AllVerifyEnvs {
+		out = append(out, e.String()+": "+e.Value())
+	}
+	return strings.Join(out, ", ")
+}
+
 // publishVerifyFault says why a publish job does not run behind a verified
-// tag, or "" when it does.
-func (c *queueChecker) publishVerifyFault(file string, doc *yaml.Node, jobName string, job *yaml.Node) string {
+// tag, or "" when it does: its if carries no status function that runs it
+// after a failure, and one job it needs is a confined tag-verify job. When
+// none is, it names each candidate's first fault.
+func (c *queueChecker) publishVerifyFault(file string, doc, job *yaml.Node) string {
 	if cond := mappingValue(job, "if"); cond != nil {
 		for _, fn := range publishStatusFunctions {
 			if strings.Contains(cond.Value, fn) {
@@ -102,124 +143,247 @@ func (c *queueChecker) publishVerifyFault(file string, doc *yaml.Node, jobName s
 		}
 	}
 	needs, _ := needsList(job)
+	var faults []string
 	for _, need := range needs {
 		verifier := jobNode(doc, need)
 		if verifier == nil || publishes(doc, verifier) {
 			continue
 		}
-		cj := c.creds[file][need]
-		if cj.class != "" || len(cj.mints) > 0 {
-			continue
+		why := c.tagVerifyJobFault(file, doc, need, verifier)
+		if why == "" {
+			return ""
 		}
-		if cont := mappingValue(verifier, "continue-on-error"); cont != nil && cont.Value != "false" {
-			continue
-		}
-		for _, step := range stepsOf(verifier) {
-			if c.verifiesTag(doc, verifier, step) {
-				return ""
-			}
-		}
+		faults = append(faults, "jobs."+need+" "+why)
 	}
-	return "no job it needs is a job without a credential whose step runs " + intent.ProgramName + " " + intent.CommandVerifyTag.String() + " on the triggering tag and the default branch, with no if and no continue-on-error"
+	if len(faults) == 0 {
+		return "it needs no job without a credential, so nothing verifies the tag before it publishes"
+	}
+	return "no job it needs is a confined tag-verify job (" + strings.Join(faults, "; ") + ")"
 }
 
-// verifiesTag reports whether a step runs the verify command on the
-// triggering tag and the default branch, unconditionally.
-func (c *queueChecker) verifiesTag(doc, job, step *yaml.Node) bool {
-	if mappingValue(step, "if") != nil {
-		return false
+// tagVerifyJobFault says why a job is not a confined tag-verify job, or ""
+// when it is.
+func (c *queueChecker) tagVerifyJobFault(file string, doc *yaml.Node, jobName string, job *yaml.Node) string {
+	if cj := c.creds[file][jobName]; cj.class != "" || len(cj.mints) > 0 {
+		return "may hold a credential"
 	}
-	if cont := mappingValue(step, "continue-on-error"); cont != nil && cont.Value != "false" {
-		return false
+	if key := keyOutside(job, verifyJobKeys); key != "" {
+		return "sets " + key + ", which a tag-verify job may not set"
 	}
-	env := effectiveEnv(doc, job, step)
-	for _, call := range toolCalls(stepRunText(step)) {
-		if len(call) < 2 || call[1].bare != intent.CommandVerifyTag.String() {
-			continue
-		}
-		tag, branch := flagWord(call, intent.FlagTag), flagWord(call, intent.FlagBranch)
-		if isTriggeringTag(tag, env) && isDefaultBranch(branch, env) {
-			return true
-		}
+	if mappingValue(doc, "defaults") != nil {
+		return "runs in a workflow that sets defaults, which can change the shell of every run step"
 	}
-	return false
-}
-
-// flagWord returns the bare word after a flag in one tool call, or "".
-func flagWord(call shellCommand, flag intent.Flag) string {
-	for i := 2; i+1 < len(call); i++ {
-		if call[i].bare == flag.String() {
-			return call[i+1].bare
+	if why := runnerFault(mappingValue(job, "runs-on")); why != "" {
+		return why
+	}
+	steps := stepsOf(job)
+	toolPath, why := verifyToolCheckout(steps)
+	if why != "" {
+		return why
+	}
+	verified := false
+	for i, step := range steps {
+		kind, why := c.verifyStepFault(doc, job, step, toolPath)
+		if why != "" {
+			return "has " + strings.TrimPrefix(stepLabel(jobName, i, step), "jobs."+jobName+" ") + ", which " + why
 		}
+		verified = verified || kind == VerifyStepVerify
+	}
+	if !verified {
+		return "runs no " + VerifyStepVerify.String() + " step `" + VerifyStepVerify.Shape() + "`"
 	}
 	return ""
 }
 
-// isTriggeringTag reports whether a word carries the triggering tag:
-// ${{ github.ref_name }}, $GITHUB_REF_NAME, or an env name mapped from
-// ${{ github.ref_name }}.
-func isTriggeringTag(word string, env map[string]string) bool {
-	if expressionOf(word) == triggeringRefName {
-		return true
-	}
-	name, ok := shellParameter(word)
-	if !ok {
-		return false
-	}
-	if value, set := env[name]; set {
-		return expressionOf(value) == triggeringRefName
-	}
-	return name == runnerEnvRefName
-}
-
-// isDefaultBranch reports whether a word names the default branch, as a
-// branch or origin's remote-tracking ref: ${{ github.event.repository.
-// default_branch }} or an env name mapped from it, after one of the
-// remote prefixes.
-func isDefaultBranch(word string, env map[string]string) bool {
-	for _, prefix := range remoteBranchPrefixes {
-		rest, ok := strings.CutPrefix(word, prefix)
-		if !ok {
-			continue
-		}
-		if expressionOf(rest) == defaultBranchExpression {
-			return true
-		}
-		if name, ok := shellParameter(rest); ok && expressionOf(env[name]) == defaultBranchExpression {
-			return true
-		}
-	}
-	return false
-}
-
-// expressionOf returns the body of a value that is one ${{ }} expression, or
+// keyOutside returns the first key of a mapping outside the allowed set, or
 // "".
-func expressionOf(value string) string {
-	if m := expressionBody.FindStringSubmatch(strings.TrimSpace(value)); m != nil {
-		return m[1]
+func keyOutside(node *yaml.Node, allowed []string) string {
+	for i := 0; node != nil && i+1 < len(node.Content); i += 2 {
+		if key := node.Content[i].Value; !slices.Contains(allowed, key) {
+			return key
+		}
 	}
 	return ""
 }
 
-// shellParameter returns the name of a lone $NAME or ${NAME}.
-func shellParameter(word string) (string, bool) {
-	name, ok := strings.CutPrefix(word, "$")
-	if !ok {
-		return "", false
-	}
-	if inner, braced := strings.CutPrefix(name, "{"); braced {
-		name, ok = strings.CutSuffix(inner, "}")
-		if !ok {
-			return "", false
+// verifyToolCheckout returns the path of the job's one tool checkout, the
+// directory the build step changes into.
+func verifyToolCheckout(steps []*yaml.Node) (string, string) {
+	var paths []string
+	for _, step := range steps {
+		with := mappingValue(step, "with")
+		if isVerifyAction(step, VerifyActionCheckout) && mappingValue(with, VerifyInputRepository.String()) != nil {
+			paths = append(paths, path.Clean(valueOf(mappingValue(with, VerifyInputPath.String()))))
 		}
 	}
-	if name == "" {
-		return "", false
+	if len(paths) != 1 {
+		return "", "checks out the tool " + strconv.Itoa(len(paths)) + " times, and a tag-verify job builds exactly one tool checkout"
 	}
-	for i := 0; i < len(name); i++ {
-		if !isNameChar(name[i], i == 0) {
-			return "", false
+	return paths[0], ""
+}
+
+// isVerifyAction reports whether a step uses the given action at any ref.
+func isVerifyAction(step *yaml.Node, action VerifyAction) bool {
+	name, _, ok := usesAction(stepUsesText(step))
+	return ok && name == action.String()
+}
+
+// verifyStepFault classifies one step of a tag-verify job and says why it is
+// not that kind's one shape, or "" when it is.
+func (c *queueChecker) verifyStepFault(doc, job, step *yaml.Node, toolPath string) (VerifyStep, string) {
+	if key := keyOutside(step, verifyStepKeys); key != "" {
+		return "", "sets " + key + ", which a tag-verify step may not set"
+	}
+	if why := verifyEnvFault(effectiveEnv(doc, job, step)); why != "" {
+		return "", why
+	}
+	if uses := stepUsesText(step); uses != "" {
+		return verifyActionFault(step, uses, toolPath)
+	}
+	words, why := singleCommand(doc, job, step)
+	if why != "" {
+		return "", "is not one command: " + why
+	}
+	if why := matchVerifyBuild(words, toolPath); why == "" {
+		if env := effectiveEnv(doc, job, step); env[VerifyEnvGoWork.String()] != VerifyEnvGoWork.Value() {
+			return VerifyStepBuild, "builds the tool without " + VerifyEnvGoWork.String() + ": " + VerifyEnvGoWork.Value() + ", so a go.work file in the tag's checkout could replace the tool's modules"
+		}
+		return VerifyStepBuild, ""
+	}
+	if why := matchVerifyTag(words); why != "" {
+		return "", why
+	}
+	return VerifyStepVerify, ""
+}
+
+// verifyEnvFault says why an effective env is not made only of VerifyEnv
+// names at their values, or "".
+func verifyEnvFault(env map[string]string) string {
+	for _, name := range sortedKeys(env) {
+		member, err := ParseVerifyEnv(name)
+		if err != nil {
+			return "runs with env " + name + ", which is not one of " + closedset.Join(AllVerifyEnvs, ", ") + " and can change which binary runs or what the build compiles"
+		}
+		if strings.TrimSpace(env[name]) != member.Value() {
+			return "runs with env " + name + " set to " + strconv.Quote(env[name]) + " instead of " + strconv.Quote(member.Value())
 		}
 	}
-	return name, true
+	return ""
+}
+
+// verifyActionFault classifies an action step of a tag-verify job and says
+// why it is not one of the three action shapes, or "".
+func verifyActionFault(step *yaml.Node, uses, toolPath string) (VerifyStep, string) {
+	name, ref, ok := usesAction(uses)
+	action, err := ParseVerifyAction(name)
+	if !ok || err != nil {
+		return "", "uses " + strconv.Quote(uses) + ", which is not one of " + closedset.Join(AllVerifyActions, ", ")
+	}
+	if !actionPinSHA.MatchString(ref) {
+		return "", "uses " + strconv.Quote(uses) + ", pinned to " + strconv.Quote(ref) + " instead of a 40-hex commit"
+	}
+	with := mappingValue(step, "with")
+	kind := VerifyStepSetupGo
+	if action == VerifyActionCheckout {
+		kind = VerifyStepRepoCheckout
+		if mappingValue(with, VerifyInputRepository.String()) != nil {
+			kind = VerifyStepToolCheckout
+		}
+	}
+	allowed, required := verifyInputs(kind)
+	for i := 0; with != nil && i+1 < len(with.Content); i += 2 {
+		key, value := with.Content[i].Value, with.Content[i+1].Value
+		input, err := ParseVerifyInput(key)
+		if err != nil || !slices.Contains(allowed, input) {
+			return kind, "passes input " + key + ", which the " + kind.String() + " step may not take (it takes " + closedset.Join(allowed, ", ") + ")"
+		}
+		if strings.Contains(value, "${{") {
+			return kind, "passes input " + key + " from an expression; the " + kind.String() + " step takes literal inputs"
+		}
+		if why := verifyInputValueFault(input, strings.TrimSpace(value), toolPath); why != "" {
+			return kind, "passes " + key + ": " + strconv.Quote(value) + ", but " + why
+		}
+	}
+	for _, input := range required {
+		if mappingValue(with, input.String()) == nil {
+			return kind, "does not pass " + input.String() + ", which the " + kind.String() + " step must pass: " + kind.Shape()
+		}
+	}
+	return kind, ""
+}
+
+// verifyInputValueFault says why a literal input value is not one the input
+// may carry, or "".
+func verifyInputValueFault(input VerifyInput, value, toolPath string) string {
+	switch input {
+	case VerifyInputPersistCredentials, VerifyInputCache:
+		if value != "false" {
+			return input.String() + " must be false"
+		}
+	case VerifyInputRepository:
+		if value != toolRepository {
+			return "the tool comes only from " + toolRepository
+		}
+	case VerifyInputRef:
+		if !actionPinSHA.MatchString(value) {
+			return "the tool checkout names a 40-hex commit"
+		}
+	case VerifyInputPath:
+		if !pathWord.MatchString(value) || strings.Contains(value, "..") {
+			return "the tool checkout lands in a literal subdirectory of the workspace"
+		}
+	case VerifyInputGoVersionFile:
+		if want := path.Join(toolBuildDir(toolPath), toolGoMod); value != want {
+			return "the Go version comes from the tool's own " + strconv.Quote(want)
+		}
+	}
+	return ""
+}
+
+// matchVerifyBuild checks one command against the build template: the tool
+// checkout's module built into the runner's temporary directory.
+func matchVerifyBuild(words []templateWord, toolPath string) string {
+	want := []string{"go", "build", "-C", toolBuildDir(toolPath), "-o", "", toolMainPackage}
+	if len(words) != len(want) {
+		return "is not the build template"
+	}
+	for i, lit := range want {
+		if lit == "" {
+			if !words[i].params("", runnerEnvTemp, "/"+intent.ProgramName) {
+				return "is not the build template"
+			}
+			continue
+		}
+		if got, ok := words[i].literal(); !ok || got != lit {
+			return "is not the build template"
+		}
+	}
+	return ""
+}
+
+// matchVerifyTag checks one command against the verify template: the tool
+// built in this job, run by its absolute path on the triggering tag and the
+// default branch.
+func matchVerifyTag(words []templateWord) string {
+	notOne := "runs neither the " + VerifyStepBuild.String() + " template `" + VerifyStepBuild.Shape() + "` nor the " + VerifyStepVerify.String() + " template `" + VerifyStepVerify.Shape() + "`"
+	if len(words) != 6 || !words[0].params("", runnerEnvTemp, "/"+intent.ProgramName) {
+		return notOne
+	}
+	for i, lit := range []string{intent.CommandVerifyTag.String(), intent.FlagTag.String()} {
+		if got, ok := words[i+1].literal(); !ok || got != lit {
+			return notOne
+		}
+	}
+	if !words[3].params("", runnerEnvRefName, "") {
+		return "verifies the tag " + quote(words[3].raw) + ", not the triggering tag \"${" + runnerEnvRefName + "}\""
+	}
+	if got, ok := words[4].literal(); !ok || got != intent.FlagBranch.String() {
+		return notOne
+	}
+	for _, prefix := range remoteBranchPrefixes {
+		if words[5].params(prefix, VerifyEnvDefaultBranch.String(), "") {
+			return ""
+		}
+	}
+	return "verifies against " + quote(words[5].raw) + ", not the default branch \"origin/${" + VerifyEnvDefaultBranch.String() + "}\""
 }

@@ -429,14 +429,11 @@ func runnerFault(runsOn *yaml.Node) string {
 // plumbingFault says why a no-credential run step of a credential job is
 // not exactly one plumbing template its class may run, or "" when it is.
 func (c *queueChecker) plumbingFault(doc, job, step *yaml.Node, cj credentialJob) string {
-	if shell := effectiveShell(step, job, doc); shell != "" && shell != shellBash {
-		return "runs under shell " + strconv.Quote(shell) + " instead of the runner's default bash"
-	}
 	env := effectiveEnv(doc, job, step)
 	if bad := badEnvName(env); bad != "" {
 		return "runs with env " + bad + ", which is not one of " + closedset.Join(AllTemplateEnvs, ", ") + " and can change what the command does"
 	}
-	words, why := tokenizeCommand(stepRunText(step))
+	words, why := singleCommand(doc, job, step)
 	if why != "" {
 		return "is a general step: its run block is not one command: " + why
 	}
@@ -554,16 +551,13 @@ func templateShapes(class credentialJobClass) string {
 // templateFault says why a credential step is not exactly one template its
 // job may run, or "" when it is.
 func (c *queueChecker) templateFault(doc, job, step *yaml.Node, cj credentialJob) string {
-	if shell := effectiveShell(step, job, doc); shell != "" && shell != shellBash {
-		return "runs under shell " + strconv.Quote(shell) + " instead of the runner's default bash"
-	}
 	env := effectiveEnv(doc, job, step)
 	for _, name := range sortedKeys(env) {
 		if _, err := ParseTemplateEnv(name); err != nil {
 			return "its env sets " + name + ", which is not one of " + closedset.Join(AllTemplateEnvs, ", ") + " and can change what the command does"
 		}
 	}
-	words, why := tokenizeCommand(stepRunText(step))
+	words, why := singleCommand(doc, job, step)
 	if why != "" {
 		return "its run block is not one command: " + why
 	}

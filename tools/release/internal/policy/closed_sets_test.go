@@ -68,6 +68,10 @@ func closedSetsUnderTest() map[string]closedSetUnderTest {
 		"plumbing-template":            {memberNames(AllPlumbingTemplates), parserOf(ParsePlumbingTemplate)},
 		"credential-job-class":         {memberNames(allCredentialJobClasses), nil},
 		"runner-label":                 {memberNames(AllRunnerLabels), parserOf(ParseRunnerLabel)},
+		"verify-step":                  {memberNames(AllVerifySteps), parserOf(ParseVerifyStep)},
+		"verify-action":                {memberNames(AllVerifyActions), parserOf(ParseVerifyAction)},
+		"verify-input":                 {memberNames(AllVerifyInputs), parserOf(ParseVerifyInput)},
+		"verify-env":                   {memberNames(AllVerifyEnvs), parserOf(ParseVerifyEnv)},
 	}
 }
 

@@ -161,15 +161,46 @@ one artifact holding git bundles.
   release config.
 - **`tag-publish-verifies-the-tag`.** In every workflow that runs on pushed
   tags, every job that can publish (`contents: write` or `id-token: write`)
-  needs a job without a credential that runs
-  `release-intent verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"`
-  (`DEFAULT_BRANCH` mapped from `${{ github.event.repository.default_branch }}`),
-  in a step with no `if` and no `continue-on-error`. The publish job's `if`
-  carries no `always()`, `cancelled()` or `failure()`. `verify-tag` exits 0 only
-  when the tag is the release prefix plus an X.Y.Z version and the default
-  branch reaches its commit, reading the release config from that branch. A tag
-  push needs only a write to `refs/tags/`, so nothing publishes a tag the tool
-  has not checked.
+  needs a **tag-verify job**, and its `if` carries no `always()`, `cancelled()`
+  or `failure()`. `verify-tag` exits 0 only when the tag is the release prefix
+  plus an X.Y.Z version and the default branch reaches its commit, reading the
+  release config from that branch. A tag push needs only a write to
+  `refs/tags/`, so nothing publishes a tag the tool has not checked.
+
+  The tag-verify job's success is the verdict on the tag, so it is confined
+  the way a credential job is. It holds no credential and no write, runs on
+  one literal GitHub-hosted label, and runs only these steps:
+
+  | step | shape |
+  |---|---|
+  | `repo-checkout` | `actions/checkout@<40-hex>` with `persist-credentials: false` and optionally `fetch-depth`, `fetch-tags` |
+  | `tool-checkout` | `actions/checkout@<40-hex>` with `repository: peasant-labs/infra`, `ref: <40-hex>`, `path: <dir>`, `persist-credentials: false`, and optionally `sparse-checkout` |
+  | `setup-go` | `actions/setup-go@<40-hex>` with `go-version-file: <dir>/tools/release/go.mod` and `cache: false` |
+  | `build` | `go build -C <dir>/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent`, with `GOWORK: "off"` |
+  | `verify` | `"${RUNNER_TEMP}/release-intent" verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"` (`--branch` may also be `"${DEFAULT_BRANCH}"` or `"refs/remotes/origin/${DEFAULT_BRANCH}"`) |
+
+  Every input is a literal. The env (workflow, job and step) holds only
+  `DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}` and
+  `GOWORK: "off"`. No step sets `shell`, `working-directory`, `if` or
+  `continue-on-error`, and the job sets no `defaults`, `container`,
+  `services`, `strategy` or `continue-on-error`. The workflow sets no
+  `defaults` either. Each run step is exactly one command, read by the same
+  reader as a credential step, so the step exits with the command's status.
+
+  Each limit closes one way the job could succeed without the tool's yes:
+  - The single-command reading refuses `|| true`, `; exit 0`, `| cat`, a
+    second line, `set +e`, `& wait` and a custom shell such as `bash {0}`.
+  - The tool runs by its absolute path, and the env refuses `PATH`, so neither
+    a `PATH` entry nor a stub on `PATH` can answer in its place.
+  - `GOWORK=off` stops a `go.work` file in the tag's checkout, which sits in a
+    parent directory of the tool, from replacing the tool's modules.
+  - `cache: false` keeps setup-go from restoring a build cache written by
+    another run.
+  - The env refuses `BASH_ENV`, `GOFLAGS`, `GOTOOLCHAIN` and `GOPROXY`, each
+    of which can change what runs or what the build compiles.
+
+  The pre-tag checks of `release-actions-gated` are read through the same
+  single-command reader.
 
 | plumbing template (no credential) | command |
 |---|---|

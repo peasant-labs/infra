@@ -3,12 +3,17 @@ package policy
 import (
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
-// This file reads the run block of every step in a job that may hold a
-// credential. Such a step runs exactly one command, so the reader does not
+// This file reads the run block of every step whose exit status or effect
+// the policy must know exactly: a step in a job that may hold a credential,
+// a pre-tag check of the release job, and a step of the job that verifies a
+// pushed tag. Such a step runs exactly one command, so the reader does not
 // approximate a shell: it splits one command into words and refuses
-// everything else. A run block is accepted only when every character belongs
+// everything else. singleCommand is the one entry point every rule reads
+// such a step through. A run block is accepted only when every character belongs
 // to a form listed here:
 //
 //   - unquoted literal characters from a small allowlist (letters, digits,
@@ -26,6 +31,43 @@ import (
 // runs, so a value from an earlier job could end a quote and add a command;
 // a template reads every value from its env instead. A refused block cannot
 // be one template, so it never runs in such a job.
+
+// singleCommand reads a run step as exactly one command and returns its
+// words, or why it is not one. The step runs under the runner's default
+// bash (no shell override, or only the plain "bash" GitHub runs with -e and
+// pipefail): any other shell, or a custom command line such as "bash {0}",
+// decides how the block runs and what the step exits with. The run block is
+// then split by tokenizeCommand, which refuses a second command, a second
+// line, a control operator, a pipe, a background job and every expansion
+// that can run code, so the step's exit status is the command's.
+func singleCommand(doc, job, step *yaml.Node) ([]templateWord, string) {
+	if shell := effectiveShell(step, job, doc); shell != "" && shell != shellBash {
+		return nil, "it runs under shell " + quote(shell) + " instead of the runner's default bash, so the shell line decides how the block runs and what the step exits with"
+	}
+	return tokenizeCommand(stepRunText(step))
+}
+
+// params reports whether the word is exactly the given parts: an optional
+// literal prefix, one parameter, and an optional literal suffix.
+func (w templateWord) params(prefix, name, suffix string) bool {
+	var want []wordPart
+	if prefix != "" {
+		want = append(want, wordPart{partLiteral, prefix})
+	}
+	want = append(want, wordPart{partParam, name})
+	if suffix != "" {
+		want = append(want, wordPart{partLiteral, suffix})
+	}
+	if w.redirect || len(w.parts) != len(want) {
+		return false
+	}
+	for i := range want {
+		if w.parts[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
 
 // partKind is what one part of a command word is.
 type partKind int
