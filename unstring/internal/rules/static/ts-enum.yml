@@ -1,0 +1,16 @@
+# Rule 10: a TypeScript enum declaration.
+id: ts-enum
+language: tsx
+severity: warning
+message: a TypeScript enum is declared.
+metadata:
+  why: >-
+    an enum is a TypeScript-only construct with its own runtime object and nominal rules;
+    the workspace's closed sets are `closed()` members with a derived type, which JavaScript
+    modules and the schema package share.
+  fix: >-
+    declare the set as a frozen object of `closed()` members next to its owner, and derive
+    the type with (typeof X)[keyof typeof X]. The rule accepts an unstring-allow marker with a
+    reason.
+rule:
+  kind: enum_declaration

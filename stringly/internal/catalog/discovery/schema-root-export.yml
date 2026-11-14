@@ -1,9 +1,0 @@
-# Recognize the root's star re-export; unknown forms get no import suggestion.
-id: stringly-discover-schema-root-export
-language: tsx
-severity: hint
-message: schema package root export
-rule:
-  kind: export_statement
-  regex: '^export\s+\*\s+from\s+'
-  has: { field: source, kind: string, pattern: '$MODULE' }

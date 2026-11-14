@@ -1,0 +1,36 @@
+# Rule 17: an outermost map[string]any (or map[string]interface{}) literal, or a
+# slice of them, with at least one string-literal key: a JSON body written by
+# string key.
+id: go-json-body-map
+language: go
+severity: warning
+message: a JSON body is written as a map[string]any literal with string keys.
+metadata:
+  why: >-
+    each string key is a field name restated by hand, so the shape is fixed where it is
+    written but nothing checks it against the type that reads it; a renamed or retyped field
+    goes unnoticed until a client or test decodes the wrong thing.
+  fix: >-
+    write the body as a struct with `json` tags: a request or response of our own API takes
+    the schema type (for example schema.VillageStatusResponse), a third-party payload takes a
+    local struct next to its client, and a provider fixture record takes the decoder's own
+    record struct or a fixture file. A map that is dynamic by design may take an
+    unstring-allow marker with a reason.
+utils:
+  any-map:
+    kind: composite_literal
+    has:
+      field: type
+      any:
+        - { kind: map_type, regex: '^map\[string\](any|interface\s*\{\s*\})$' }
+        - { kind: slice_type, regex: '^\[\]map\[string\](any|interface\s*\{\s*\})$' }
+rule:
+  matches: any-map
+  all:
+    - not: { inside: { stopBy: end, matches: any-map } }
+    - has:
+        stopBy: end
+        kind: keyed_element
+        has:
+          field: key
+          has: { any: [{ kind: interpreted_string_literal }, { kind: raw_string_literal }] }

@@ -1,0 +1,19 @@
+# Rule 3: a hand-built [data-testid=…] selector string.
+id: testid-selector-string
+language: tsx
+severity: warning
+message: a selector string names data-testid by hand.
+metadata:
+  why: >-
+    a hand-built selector repeats both the attribute name and the id as text, so neither a
+    renamed id nor a typo in the selector fails the build.
+  fix: >-
+    locate the element with a test-id query and the component's typed test-id member. If the
+    repository has one selector helper that must build this string, list it under `exempt` in
+    .unstring.yaml with a reason; elsewhere the rule accepts an unstring-allow marker with a
+    reason.
+rule:
+  any:
+    - kind: string
+    - kind: template_string
+  regex: 'data-testid='
