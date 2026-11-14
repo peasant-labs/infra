@@ -101,6 +101,8 @@ const (
 	FlagVerdict Flag = "--verdict"
 	// FlagWrite writes the release content into the working tree.
 	FlagWrite Flag = "--write"
+	// FlagCommit prepares and commits the generated release content locally.
+	FlagCommit Flag = "--commit"
 	// FlagCheck compares the working tree with the release content.
 	FlagCheck Flag = "--check"
 	// FlagCurrent names the open release branch to compare before a push.
@@ -119,7 +121,7 @@ var AllFlags = []Flag{
 	FlagBase, FlagHead, FlagAuthor, FlagHeadBranch,
 	FlagRev, FlagRef,
 	FlagBranch, FlagMode, FlagFloor, FlagVerdict,
-	FlagWrite, FlagCheck, FlagCurrent,
+	FlagWrite, FlagCommit, FlagCheck, FlagCurrent,
 	FlagQueue, FlagReleasePR,
 	FlagTag,
 }
@@ -160,7 +162,7 @@ func (c Command) Flags() []FlagUse {
 	case CommandPlan:
 		return []FlagUse{{FlagBranch, true}, {FlagMode, true}, {FlagFloor, false}, {FlagVerdict, false}}
 	case CommandReleasePR:
-		return []FlagUse{{FlagBranch, true}, {FlagFloor, false}, {FlagWrite, false}, {FlagCheck, false}, {FlagCurrent, false}}
+		return []FlagUse{{FlagBranch, true}, {FlagFloor, false}, {FlagWrite, false}, {FlagCommit, false}, {FlagCheck, false}, {FlagCurrent, false}}
 	case CommandQueueGate:
 		return []FlagUse{{FlagQueue, true}, {FlagReleasePR, true}}
 	case CommandVerifyTag:

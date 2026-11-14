@@ -98,6 +98,42 @@ repository at a full commit SHA and build the command from that checkout:
 Run its checks with `make release-tool-check` (gofmt, build, vet, test). The
 `Release tool` workflow runs the same steps on every pull request.
 
+### Prepare a release branch locally
+
+In a job with **no App credential**, check out the configured release bot
+branch at the source branch's tip and run from the repository root:
+
+```sh
+release-intent release-pr --branch <source-ref> --commit [--current <existing-release-ref>] [--floor <sha>]
+```
+
+`--commit` is an alternative to `--write` and `--check`, not an additional
+switch. It requires a clean index and worktree, including untracked files. It
+uses the source commit's config and refuses unsafe or overlapping output paths,
+symlinks, multiply linked files, non-regular or missing source files, and an
+active Git reference hook.
+It stages only the generated changelog and the named JSON version-field changes,
+verifies the staged paths and bytes, then creates one local commit with the fixed
+releaser-bot author and committer and the source commit's timestamp. The JSON
+bytes outside the named field stay unchanged. `push=true` means the checked-out
+bot branch now points to that commit; its HEAD can be bundled against the source
+commit. `push=false` means the existing `--current` branch already has fresh,
+in-scope content and merges
+cleanly; no commit is made. Omit `--current` when there is no existing branch.
+An unreadable current ref, a required push with no generated changes, or a
+version-only result with no changelog change is an error, not a no-op. The
+planner identifies release candidates by their changelog change. After an
+interrupted or failed staging operation, discard
+the incomplete checkout and retry from a clean one. The new mode requires a
+Unix runner; existing `--write` remains a working-tree-only operation.
+
+This command does not push, tag, create a PR, or verify permission to publish.
+The separately required independent pre-push verifier and its workflow safety
+gates must still be implemented and reviewed before enabling the release pilot.
+The existing workflow policy recognizes `--write` as the source of the push
+output; it does not yet recognize this new mode. A consuming workflow needs a
+separately reviewed policy and workflow integration before it can use it.
+
 ### What a consumer workflow may do with a credential
 
 `release-intent check-workflows` does not try to read every way a shell can
@@ -108,10 +144,13 @@ not list.
 credential does the work. A job with the credential only pushes or calls
 `gh`, and takes everything it pushes from the first job:
 
+The following diagram illustrates credential confinement, not a complete
+safe tag-push job graph: the independent pre-push verifier is still required.
+
 ```
 plan (no credential)                    release (credential), needs: [plan]
   build release-intent, plan, verify      checkout          persist-credentials: false
-  release-pr --write, commit              download-artifact name: release-bundles, path: bundles
+  release-pr --commit                     download-artifact name: release-bundles, path: bundles
   git tag -a <tag>                        create-github-app-token
   git bundle create bundles/*.bundle      git fetch bundles/tag.bundle "refs/tags/${TAG}:refs/tags/${TAG}"
   read the merge queue, queue-gate        git -c http.extraheader=... push origin "refs/tags/${TAG}:refs/tags/${TAG}"

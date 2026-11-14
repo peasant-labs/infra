@@ -39,11 +39,12 @@ commands:
       - {flag: --floor}
       - {flag: --verdict}
   - name: release-pr
-    usage: "usage: release-intent release-pr --branch REF [--floor SHA] [--write] [--check] [--current REF]"
+    usage: "usage: release-intent release-pr --branch REF [--floor SHA] [--write] [--commit] [--check] [--current REF]"
     flags:
       - {flag: --branch, required: true}
       - {flag: --floor}
       - {flag: --write}
+      - {flag: --commit}
       - {flag: --check}
       - {flag: --current}
   - name: queue-gate
@@ -72,6 +73,7 @@ flags:
   - {flag: --floor, takes_value: true}
   - {flag: --verdict, takes_value: true}
   - {flag: --write}
+  - {flag: --commit}
   - {flag: --check}
   - {flag: --current, takes_value: true}
   - {flag: --queue, takes_value: true}

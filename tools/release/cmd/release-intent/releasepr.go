@@ -9,9 +9,15 @@ import (
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
-// runReleasePR implements the release-pr command: write the release content
-// into the working tree, or check the working tree against it.
+// runReleasePR writes or checks working-tree content, or prepares a separate
+// validated local release commit.
 func runReleasePR(flags flagValues) error {
+	if flags.Has(intent.FlagCommit) {
+		if flags.Has(intent.FlagWrite) || flags.Has(intent.FlagCheck) {
+			return usageErr("%s: %s is a separate mode; do not combine it with %s or %s", intent.CommandReleasePR, intent.FlagCommit, intent.FlagWrite, intent.FlagCheck)
+		}
+		return runReleaseCommit(flags)
+	}
 	wantWrite, wantCheck := flags.Has(intent.FlagWrite), flags.Has(intent.FlagCheck)
 	if wantWrite == wantCheck {
 		return usageErr("%s (need exactly one of %s or %s): %s, %s",

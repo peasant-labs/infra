@@ -60,6 +60,8 @@ func shapeOf(f intent.Flag) flagShape {
 		return flagShape{"VERDICT", "the pre-tag report, one of " + closedset.Join(reportedVerdicts(), " or ")}
 	case intent.FlagWrite:
 		return flagShape{"", "write the release content into the working tree"}
+	case intent.FlagCommit:
+		return flagShape{"", "prepare a validated local release commit on the configured bot branch"}
 	case intent.FlagCheck:
 		return flagShape{"", "compare the working tree with the release content"}
 	case intent.FlagCurrent:

@@ -1,0 +1,102 @@
+required_names:
+  - initial-commit-and-bundle
+  - deterministic-commit
+  - breaking-release-title
+  - unchanged-release-branch
+  - unchanged-after-main-advances
+  - new-pending-content
+  - unsafe-current-branch-rebuilt
+  - unrelated-current-branch-rebuilt
+  - mode-changed-current-branch-rebuilt
+  - conflicting-current-branch-rebuilt
+  - empty-required-rejected
+  - version-only-release-rejected
+  - dirty-unrelated
+  - staged-unrelated
+  - untracked-unrelated
+  - dirty-version-document
+  - assume-unchanged-refused
+  - skip-worktree-refused
+  - alternate-index-refused
+  - staged-bytes-tampering-refused
+  - tree-race-tampering-refused
+  - bad-current-ref
+  - missing-version-source
+  - invalid-version-source
+  - missing-source-branch
+  - duplicate-configured-path
+  - symlink-version-source
+  - symlink-parent-directory
+  - hardlink-version-source
+  - unsafe-pathspec
+  - protected-output
+  - wrong-checked-out-branch
+  - bot-branch-at-wrong-tip
+  - commit-plus-write-refused
+  - commit-plus-check-refused
+  - old-write-is-not-a-commit
+cases:
+  cases:
+    - name: initial-commit-and-bundle
+      input: {scenario: initial}
+      expected: &initial-output
+        exit: 0
+        push: true
+        version: "0.2.0"
+        title: "release[minor]: v0.2.0"
+        identity: "peasant-labs-releaser[bot] <peasant-labs-releaser[bot]@users.noreply.github.com>|peasant-labs-releaser[bot] <peasant-labs-releaser[bot]@users.noreply.github.com>"
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n"
+        version_file: "{\"version\":\"0.2.0\"}\n"
+      classification: must-pass
+      provenance: {source: requirement, ref: "generated branch tree is committed and fetchable"}
+      mutation: {description: "Create the first bot branch commit."}
+    - {name: deterministic-commit, input: {scenario: deterministic}, expected: *initial-output, classification: must-pass, provenance: {source: requirement, ref: "identical source and generated content produce the same commit"}, mutation: {description: "Build the same release commit twice from the same source."}}
+    - name: breaking-release-title
+      input: {scenario: breaking}
+      expected:
+        <<: *initial-output
+        title: "release![minor]: v0.2.0"
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- incompatible fix (BREAKING)\n"
+      classification: must-pass
+      provenance: {source: requirement, ref: "a breaking release commit carries the formatted breaking title"}
+      mutation: {description: "Include a breaking subject in the pending set."}
+    - {name: unchanged-release-branch, input: {scenario: unchanged}, expected: {exit: 0, push: false, version: "0.2.0"}, classification: must-pass, provenance: {source: requirement, ref: "unchanged current release branch is a no-op"}, mutation: {description: "Compare against an existing fresh branch."}}
+    - {name: unchanged-after-main-advances, input: {scenario: advanced}, expected: {exit: 0, push: false, version: "0.2.0"}, classification: must-pass, provenance: {source: requirement, ref: "a clean main advance need not rebuild the bot branch"}, mutation: {description: "Add an unrelated non-releasing commit on the source branch."}}
+    - name: new-pending-content
+      input: {scenario: later}
+      expected:
+        <<: *initial-output
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- later fix\n"
+      classification: must-pass
+      provenance: {source: requirement, ref: "new releasing content rebuilds the branch"}
+      mutation: {description: "Add a later releasing commit on the source branch."}
+    - {name: unsafe-current-branch-rebuilt, input: {scenario: current-extra}, expected: *initial-output, classification: must-pass, provenance: {source: requirement, ref: "a branch with non-version edits cannot be treated as unchanged"}, mutation: {description: "Tamper with the existing branch version document."}}
+    - {name: unrelated-current-branch-rebuilt, input: {scenario: current-unrelated}, expected: *initial-output, classification: must-pass, provenance: {source: requirement, ref: "a branch with unrelated edits cannot be treated as unchanged"}, mutation: {description: "Change unrelated source on the existing branch."}}
+    - {name: mode-changed-current-branch-rebuilt, input: {scenario: current-mode}, expected: *initial-output, classification: must-pass, provenance: {source: requirement, ref: "a branch with file mode changes cannot be treated as unchanged"}, mutation: {description: "Change the generated document's executable bit on the existing branch."}}
+    - {name: conflicting-current-branch-rebuilt, input: {scenario: current-conflict}, expected: *initial-output, classification: must-pass, provenance: {source: requirement, ref: "an unmergeable current branch must be rebuilt"}, mutation: {description: "Make the source and release branches conflict outside generated content."}}
+    - {name: empty-required-rejected, input: {scenario: empty}, expected: {exit: 1, error: "no changes"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "a required push cannot yield an empty bundle"}, mutation: {description: "Put generated content on the source tip already."}}
+    - {name: version-only-release-rejected, input: {scenario: version-only}, expected: {exit: 1, error: "changelog"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "a release commit must remain visible to the changelog-based candidate detector"}, mutation: {description: "Put the generated changelog on the source tip but leave the version stale."}}
+    - {name: dirty-unrelated, input: {scenario: dirty}, expected: {exit: 1, error: "clean"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "dirty unrelated content never gets staged"}, mutation: {description: "Modify an ordinary tracked file."}}
+    - {name: staged-unrelated, input: {scenario: staged}, expected: {exit: 1, error: "clean"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "pre-staged content is refused"}, mutation: {description: "Stage an unrelated tracked file."}}
+    - {name: untracked-unrelated, input: {scenario: untracked}, expected: {exit: 1, error: "clean"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "untracked content is refused"}, mutation: {description: "Create an untracked file."}}
+    - {name: dirty-version-document, input: {scenario: json-dirty}, expected: {exit: 1, error: "clean"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "non-version JSON edits are never committed"}, mutation: {description: "Change an ordinary field in the version document."}}
+    - {name: assume-unchanged-refused, input: {scenario: assume-unchanged}, expected: {exit: 1, error: "index"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "index flags cannot conceal dirty tracked files"}, mutation: {description: "Mark an unrelated path assume-unchanged and edit it."}}
+    - {name: skip-worktree-refused, input: {scenario: skip-worktree}, expected: {exit: 1, error: "index"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "sparse index flags cannot conceal tracked changes"}, mutation: {description: "Mark an unrelated path skip-worktree and edit it."}}
+    - {name: alternate-index-refused, input: {scenario: alternate-index}, expected: {exit: 1, error: "GIT_INDEX_FILE"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "preparation cannot write an inherited index outside its checkout"}, mutation: {description: "Pass an alternate index file through the process environment."}}
+    - {name: staged-bytes-tampering-refused, input: {scenario: tamper-stage}, expected: {exit: 1, error: "staged bytes"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "staged bytes must match the generated bytes exactly"}, mutation: {description: "Substitute a different changelog blob after the Git index update."}}
+    - {name: tree-race-tampering-refused, input: {scenario: tamper-tree}, expected: {exit: 1, error: "tree"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "the committed tree cannot acquire unrelated paths after index validation"}, mutation: {description: "Change an unrelated index entry immediately before the tree is written."}}
+    - {name: bad-current-ref, input: {scenario: missing-current}, expected: {exit: 1, error: "current"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "a failed current-ref read is not a new branch"}, mutation: {description: "Supply an absent current ref."}}
+    - {name: missing-version-source, input: {scenario: missing-version}, expected: {exit: 1, error: "package.json"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "a missing source document is an error"}, mutation: {description: "Remove the version document from the source tree."}}
+    - {name: invalid-version-source, input: {scenario: invalid-version}, expected: {exit: 1, error: "package.json"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "an invalid source document is an error"}, mutation: {description: "Remove the protected JSON field from the source tree."}}
+    - {name: missing-source-branch, input: {scenario: missing-source}, expected: {exit: 1, error: "source branch"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "a missing source ref fails closed"}, mutation: {description: "Point the command at a nonexistent source ref."}}
+    - {name: duplicate-configured-path, input: {scenario: duplicate}, expected: {exit: 1, error: "duplicate"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "a generated file has exactly one configured role"}, mutation: {description: "Configure the same version path twice."}}
+    - {name: symlink-version-source, input: {scenario: symlink}, expected: {exit: 1, error: "symlink"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "generated files must not be symlinks"}, mutation: {description: "Replace the tracked version document with a symlink."}}
+    - {name: symlink-parent-directory, input: {scenario: symlink-parent}, expected: {exit: 1, error: "symlink"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "generated file ancestors must not be symlinks"}, mutation: {description: "Route a configured file through a symlink directory."}}
+    - {name: hardlink-version-source, input: {scenario: hardlink}, expected: {exit: 1, error: "hard link"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "preparation cannot overwrite another file through a hard link"}, mutation: {description: "Link the version file to an outside file with identical bytes."}}
+    - {name: unsafe-pathspec, input: {scenario: pathspec}, expected: {exit: 1, error: "unsafe"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "configured paths are literal confined paths"}, mutation: {description: "Supply Git pathspec magic as the changelog."}}
+    - {name: protected-output, input: {scenario: protected}, expected: {exit: 1, error: "protected"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "additional protected paths must not be generated over"}, mutation: {description: "Protect the configured version document as a whole file."}}
+    - {name: wrong-checked-out-branch, input: {scenario: wrong-branch}, expected: {exit: 1, error: "branch"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "the operation never creates a default-branch commit"}, mutation: {description: "Run with the ordinary branch checked out."}}
+    - {name: bot-branch-at-wrong-tip, input: {scenario: wrong-tip}, expected: {exit: 1, error: "source tip"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "the single commit must have the source tip as its parent"}, mutation: {description: "Check out the bot branch at an older commit."}}
+    - {name: commit-plus-write-refused, input: {scenario: mixed-write}, expected: {exit: 1, error: "separate mode"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "write-only mode stays distinct from commit mode"}, mutation: {description: "Pass both write and commit switches."}}
+    - {name: commit-plus-check-refused, input: {scenario: mixed-check}, expected: {exit: 1, error: "separate mode"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "check mode stays read-only"}, mutation: {description: "Pass both check and commit switches."}}
+    - {name: old-write-is-not-a-commit, input: {scenario: old-write}, expected: {exit: 0, push: true, version: "0.2.0"}, classification: must-pass, provenance: {source: requirement, ref: "legacy write remains write-only and cannot make a bundle"}, mutation: {description: "Run the original write-only mode."}}
