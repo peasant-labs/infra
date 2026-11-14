@@ -13,6 +13,7 @@ required_names:
   - accept-merge-group
   - accept-concurrency
   - accept-release-actions
+  - accept-release-actions-commit
   - accept-title-guard
   - accept-range-floor
   - accept-token-mint
@@ -36,6 +37,7 @@ required_names:
   - reject-release-actions-pretag-script
   - reject-release-actions-no-status-function
   - reject-release-actions-push-no-push-test
+  - reject-release-actions-commit-push-untested
   - reject-release-actions-arm-no-gate
   - reject-release-actions-disjunction
   - reject-token-mint-tagmode-ne
@@ -156,6 +158,14 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-actions-gated" }
     mutation: { description: "base repo: release job in the canonical gated shape" }
+
+  - name: accept-release-actions-commit
+    input: { overlay: "accept-release-actions-commit" }
+    expected: { rule: "release-actions-gated", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-actions-gated" }
+    mutation: { description: "prepare the release content with release-pr --commit instead of --write" }
 
   - name: accept-title-guard
     input: { overlay: "" }
@@ -340,6 +350,14 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-actions-gated" }
     mutation: { description: "push the branch on the action alone without the write step push test" }
+
+  - name: reject-release-actions-commit-push-untested
+    input: { overlay: "reject-release-actions-commit-push-untested" }
+    expected: { rule: "release-actions-gated", want_contains: ["does not test the write step"] }
+    sibling: accept-release-actions-commit
+    classification: must-fail
+    provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-actions-gated" }
+    mutation: { description: "prepare the release commit but push the branch on the action alone without the commit step's push test" }
 
   - name: reject-release-actions-arm-no-gate
     input: { overlay: "reject-release-actions-arm-no-gate" }

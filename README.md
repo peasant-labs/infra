@@ -130,9 +130,9 @@ Unix runner; existing `--write` remains a working-tree-only operation.
 This command does not push, tag, create a PR, or verify permission to publish.
 The separately required independent pre-push verifier and its workflow safety
 gates must still be implemented and reviewed before enabling the release pilot.
-The existing workflow policy recognizes `--write` as the source of the push
-output; it does not yet recognize this new mode. A consuming workflow needs a
-separately reviewed policy and workflow integration before it can use it.
+The workflow policy recognizes both `--write` and `--commit` as the mode that
+prints the push decision. A consuming workflow still needs its own reviewed
+policy and workflow integration before it can use the commit mode.
 
 ### What a consumer workflow may do with a credential
 

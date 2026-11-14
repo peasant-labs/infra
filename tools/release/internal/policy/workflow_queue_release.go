@@ -518,10 +518,20 @@ func (r *releaseChecker) checkStatusFunctions() {
 // the push output the write step printed in the same run. A step with
 // !cancelled() runs after any failure, so without the push test it would push
 // or touch the PR when the write step never ran.
+// releasePushStep reports whether a step prints the push decision: either the
+// working-tree write or the validated local release commit. Both are
+// release-pr modes that emit the push output the later steps gate on.
+func releasePushStep(run string) bool {
+	if !strings.Contains(run, intent.CommandReleasePR.String()) {
+		return false
+	}
+	return strings.Contains(run, intent.FlagWrite.String()) || strings.Contains(run, intent.FlagCommit.String())
+}
+
 func (r *releaseChecker) checkPushOutputs() {
 	write := -1
 	for i, step := range r.steps {
-		if strings.Contains(stepRunText(step), intent.CommandReleasePR.String()) && strings.Contains(stepRunText(step), intent.FlagWrite.String()) {
+		if releasePushStep(stepRunText(step)) {
 			write = i
 			break
 		}
@@ -533,7 +543,7 @@ func (r *releaseChecker) checkPushOutputs() {
 		r.flagged[i] = true
 		if write == -1 {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, stepID(step),
-				"a push, PR, or queue-read step has no "+intent.CommandReleasePR.String()+" "+intent.FlagWrite.String()+" step in this run during merge-queue policy validation. Write the release content first so these steps can test the push it printed")
+				"a push, PR, or queue-read step has no "+intent.CommandReleasePR.String()+" "+intent.FlagWrite.String()+" or "+intent.FlagCommit.String()+" step in this run during merge-queue policy validation. Write or commit the release content first so these steps can test the push it printed")
 			continue
 		}
 		m := pushTest.FindStringSubmatch(r.ifText(i))
