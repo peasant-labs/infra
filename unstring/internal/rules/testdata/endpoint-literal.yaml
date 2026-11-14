@@ -1,0 +1,82 @@
+rule: endpoint-literal
+params:
+  endpointCallees: [api]
+cases:
+  - name: flags-prefix-string
+    files:
+      src/lib/queries.ts: |
+        const res = await fetch("/api/v1/groups");
+    hits: {src/lib/queries.ts: [1]}
+  - name: flags-template-with-substitution
+    files:
+      src/lib/queries.ts: |
+        const res = await fetch(`/api/v1/transcripts/${id}`);
+    hits: {src/lib/queries.ts: [1]}
+  - name: flags-template-with-base
+    files:
+      src/lib/queries.ts: |
+        const res = await fetch(`${base}/api/v1/me`);
+    hits: {src/lib/queries.ts: [1]}
+  - name: flags-mux-method-form
+    files:
+      src/mocks.ts: |
+        server.use("GET /api/v1/auth/me", handler);
+    hits: {src/mocks.ts: [1]}
+  - name: flags-full-url
+    files:
+      e2e/a.spec.ts: |
+        await page.goto("https://village.example.test/api/v1/groups?limit=2");
+    hits: {e2e/a.spec.ts: [1]}
+  - name: flags-exported-constant
+    files:
+      src/lib/routes.ts: |
+        export const GROUPS = "/api/v1/groups";
+    hits: {src/lib/routes.ts: [1]}
+  - name: flags-bare-prefix
+    files:
+      src/lib/client.ts: |
+        const base = "/api/v1";
+    hits: {src/lib/client.ts: [1]}
+  - name: flags-configured-callee-with-relative-path
+    files:
+      src/lib/queries.ts: |
+        const groups = await api("/groups");
+        const pull = await api(`/pulls/${owner}/${name}`);
+    hits: {src/lib/queries.ts: [1, 2]}
+  - name: flags-another-configured-prefix
+    params:
+      endpointPrefixes: [/api/v1, /internal/v2]
+    files:
+      src/lib/queries.ts: |
+        const a = await fetch("/internal/v2/status");
+        const b = await fetch("/api/v1/status");
+    hits: {src/lib/queries.ts: [1, 2]}
+  - name: passes-import-source
+    files:
+      src/lib/queries.ts: |
+        import { groups } from "/api/v1/groups";
+        export { me } from "/api/v1/me";
+  - name: passes-third-party-api-version
+    files:
+      src/lib/gitlab.ts: |
+        const user = await fetch("https://gitlab.example.com/api/v4/user");
+  - name: passes-docs-url-ending-api
+    files:
+      src/lib/docs.ts: |
+        const docs = "https://docs.example.com/reference/api";
+        const near = "/api/v10/x";
+  - name: passes-unconfigured-callee
+    files:
+      src/lib/queries.ts: |
+        const groups = await request("/groups");
+        const second = await api(base, "/groups");
+  - name: passes-callee-without-configuration
+    params:
+      endpointCallees: []
+    files:
+      src/lib/queries.ts: |
+        const groups = await api("/groups");
+  - name: passes-route-member-path
+    files:
+      src/lib/queries.ts: |
+        const pull = await api(VillageRoute.GetPullRequestAttachment.path({ owner, name, number }));

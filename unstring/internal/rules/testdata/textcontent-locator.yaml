@@ -1,0 +1,44 @@
+rule: textcontent-locator
+cases:
+  - name: flags-strict-equality-in-find
+    files:
+      src/a.test.ts: |
+        const button = buttons.find((el) => el.textContent === "delete");
+    hits: {src/a.test.ts: [1]}
+  - name: flags-includes-in-filter
+    files:
+      src/a.test.ts: |
+        const rows = items.filter((el) => el.textContent?.trim().includes('pending'));
+    hits: {src/a.test.ts: [1]}
+  - name: flags-inner-text
+    files:
+      scripts/probe.mjs: |
+        const hit = [...nodes].some(
+          (n) => n.innerText !== "open",
+        );
+    hits: {scripts/probe.mjs: [2]}
+  - name: flags-starts-with-in-find-index
+    files:
+      src/a.test.ts: |
+        const i = cells.findIndex((c) => c.textContent.startsWith(`total`));
+    hits: {src/a.test.ts: [1]}
+  - name: passes-expect-text-content
+    files:
+      src/a.test.ts: |
+        expect(el.textContent).toBe("delete");
+  - name: passes-comparison-with-empty-literal
+    files:
+      src/a.test.ts: |
+        const nonEmpty = items.filter((e) => e.textContent.trim() !== '');
+  - name: passes-comparison-with-empty-template
+    files:
+      src/a.test.ts: |
+        const nonEmpty = items.some((e) => e.innerText != ``);
+  - name: passes-comparison-outside-a-lookup-callback
+    files:
+      src/a.ts: |
+        if (el.textContent === "delete") done();
+  - name: passes-other-property-in-find
+    files:
+      src/a.ts: |
+        const row = rows.find((r) => r.title === "delete");

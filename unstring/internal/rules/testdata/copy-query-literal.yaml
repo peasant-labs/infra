@@ -1,0 +1,55 @@
+rule: copy-query-literal
+cases:
+  - name: flags-get-by-text-string
+    files:
+      src/a.test.tsx: |
+        screen.getByText("please add the picker");
+    hits: {src/a.test.tsx: [1]}
+  - name: flags-regex-literal
+    files:
+      src/a.test.tsx: |
+        await screen.findByText(/removed/i);
+    hits: {src/a.test.tsx: [1]}
+  - name: flags-get-by-role-name
+    files:
+      src/a.test.tsx: |
+        screen.getByRole("button", { name: "delete collective" });
+    hits: {src/a.test.tsx: [1]}
+  - name: flags-get-by-role-description
+    files:
+      src/a.test.tsx: |
+        screen.queryAllByRole("row", { description: `pending review` });
+    hits: {src/a.test.tsx: [1]}
+  - name: flags-playwright-get-by-label
+    files:
+      e2e/a.spec.ts: |
+        await page.getByLabel('collective name').fill(name);
+    hits: {e2e/a.spec.ts: [1]}
+  - name: flags-other-query-families
+    files:
+      src/a.test.tsx: |
+        screen.getByLabelText("name");
+        screen.getAllByPlaceholderText("search");
+        screen.queryByAltText("avatar");
+        screen.findAllByTitle("close");
+        screen.getByDisplayValue("acme");
+        page.getByPlaceholder("search");
+    hits: {src/a.test.tsx: [1, 2, 3, 4, 5, 6]}
+  - name: passes-label-member
+    files:
+      src/a.test.tsx: |
+        screen.getByRole("button", { name: DeleteCollectiveLabels.Trigger });
+        screen.getByText(DeleteCollectiveLabels.Confirm);
+  - name: passes-fixture-field
+    files:
+      src/a.test.tsx: |
+        screen.getByText(pageCase.comment.body);
+  - name: passes-role-literal-without-name
+    files:
+      src/a.test.tsx: |
+        screen.getAllByRole("listitem");
+        screen.getByRole("button", { hidden: true });
+  - name: passes-template-with-substitution
+    files:
+      src/a.test.tsx: |
+        screen.getByText(`${count} removed`);

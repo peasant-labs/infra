@@ -1,0 +1,114 @@
+# Go typed string constants: a named type whose underlying type is string,
+# with two or more distinct non-empty values in the non-test files of one
+# package. The set is <package>.<Type>; the name is the constant.
+cases:
+  - name: sets-across-files-of-one-package
+    lang: go
+    roots: [backend]
+    files:
+      backend/go.mod: |
+        module example.test/backend
+      backend/share/status.go: |
+        package share
+
+        type Status string
+      backend/share/values.go: |
+        package share
+
+        const (
+        	StatusPending Status = "pending"
+        	StatusDone    Status = "done"
+        )
+
+        const StatusFailed = Status("failed")
+    members:
+      - { value: pending, source: go-typed-constant, set: share.Status, name: StatusPending, file: backend/share/values.go, line: 4 }
+      - { value: done, source: go-typed-constant, set: share.Status, name: StatusDone, file: backend/share/values.go, line: 5 }
+      - { value: failed, source: go-typed-constant, set: share.Status, name: StatusFailed, file: backend/share/values.go, line: 8 }
+
+  - name: not-sets
+    # A single-constant type, a type with one non-empty member, test-file
+    # constants, an alias, a type over another type, untyped constants, and
+    # vendor and testdata directories.
+    lang: go
+    files:
+      kinds/kinds.go: |
+        package kinds
+
+        type Lone string
+
+        const OnlyLone Lone = "lonely"
+
+        type Blank string
+
+        const (
+        	BlankEmpty Blank = ""
+        	BlankOne   Blank = "blank-one"
+        )
+
+        type Alias = string
+
+        const (
+        	AliasA Alias = "alias-a"
+        	AliasB Alias = "alias-b"
+        )
+
+        type Wrapped Lone
+
+        const (
+        	WrappedA Wrapped = "wrapped-a"
+        	WrappedB Wrapped = "wrapped-b"
+        )
+
+        const (
+        	UntypedA = "untyped-a"
+        	UntypedB = "untyped-b"
+        )
+      kinds/kinds_test.go: |
+        package kinds
+
+        const (
+        	TestA Lone = "test-a"
+        	TestB Lone = "test-b"
+        )
+      vendor/dep/dep.go: |
+        package dep
+
+        type V string
+
+        const (
+        	VA V = "vendor-a"
+        	VB V = "vendor-b"
+        )
+      kinds/testdata/fixture.go: |
+        package fixture
+
+        type F string
+
+        const (
+        	FA F = "fixture-a"
+        	FB F = "fixture-b"
+        )
+    members: []
+
+  - name: same-type-name-in-two-packages-is-two-sets
+    lang: go
+    files:
+      a/a.go: |
+        package a
+
+        type Kind string
+
+        const (
+        	KindX Kind = "x"
+        	KindY Kind = "y"
+        )
+      b/b.go: |
+        package b
+
+        type Kind string
+
+        const KindZ Kind = "z"
+    members:
+      - { value: x, source: go-typed-constant, set: a.Kind, name: KindX, file: a/a.go, line: 6 }
+      - { value: y, source: go-typed-constant, set: a.Kind, name: KindY, file: a/a.go, line: 7 }

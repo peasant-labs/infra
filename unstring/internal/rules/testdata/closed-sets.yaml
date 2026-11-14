@@ -1,0 +1,65 @@
+# Required members of the closed sets in this package, with the attributes
+# each member must carry. The test asserts exact set membership in both
+# directions: a member added to the code without an entry here fails, and so
+# does an entry left behind after a member is removed. No count is asserted.
+
+langs: [go, ts]
+
+origins: [static, generated]
+
+exclusionGroups: [language-vocabulary, external-vocabulary]
+
+# Every rule id, with its language, where it comes from, and whether an
+# unstring-allow marker may suppress its hits. The two closed-set rules are
+# generated from the catalog and take no marker.
+ruleIds:
+  - {id: jsx-literal-testid, lang: ts, origin: static, acceptsMarker: true}
+  - {id: testid-query-literal, lang: ts, origin: static, acceptsMarker: true}
+  - {id: testid-selector-string, lang: ts, origin: static, acceptsMarker: true}
+  - {id: textcontent-locator, lang: ts, origin: static, acceptsMarker: true}
+  - {id: copy-query-literal, lang: ts, origin: static, acceptsMarker: true}
+  - {id: closed-set-literal, lang: ts, origin: generated, acceptsMarker: false}
+  - {id: go-closed-set-literal, lang: go, origin: generated, acceptsMarker: false}
+  - {id: boundary-cast, lang: ts, origin: static, acceptsMarker: true}
+  - {id: explicit-any, lang: ts, origin: static, acceptsMarker: true}
+  - {id: ts-enum, lang: ts, origin: static, acceptsMarker: true}
+  - {id: go-json-key-assert, lang: go, origin: static, acceptsMarker: true}
+  - {id: endpoint-literal, lang: ts, origin: static, acceptsMarker: true}
+  - {id: go-endpoint-literal, lang: go, origin: static, acceptsMarker: true}
+  - {id: data-path-literal, lang: ts, origin: static, acceptsMarker: true}
+  - {id: go-data-path-literal, lang: go, origin: static, acceptsMarker: true}
+  - {id: exported-literal-union, lang: ts, origin: static, acceptsMarker: true}
+  - {id: go-json-body-map, lang: go, origin: static, acceptsMarker: true}
+  - {id: json-body-object, lang: ts, origin: static, acceptsMarker: true}
+
+# Every operand shape the closed-set rules exclude, with the group that
+# carries its authority and the rule whose generated pattern holds it.
+excludedOperands:
+  - {id: typeof, group: language-vocabulary, rule: closed-set-literal}
+  - {id: go-runtime-goos, group: language-vocabulary, rule: go-closed-set-literal}
+  - {id: go-runtime-goarch, group: language-vocabulary, rule: go-closed-set-literal}
+  - {id: key, group: external-vocabulary, rule: closed-set-literal}
+  - {id: code, group: external-vocabulary, rule: closed-set-literal}
+  - {id: tag-name, group: external-vocabulary, rule: closed-set-literal}
+  - {id: node-name, group: external-vocabulary, rule: closed-set-literal}
+  - {id: local-name, group: external-vocabulary, rule: closed-set-literal}
+  - {id: aria-property, group: external-vocabulary, rule: closed-set-literal}
+  - {id: get-attribute-aria, group: external-vocabulary, rule: closed-set-literal}
+  - {id: get-attribute-role, group: external-vocabulary, rule: closed-set-literal}
+  - {id: await-get-attribute, group: external-vocabulary, rule: closed-set-literal}
+  - {id: event-type, group: external-vocabulary, rule: closed-set-literal}
+
+# Wire values every parser must refuse: near misses in case and separator, the
+# empty string, and a value from a neighbouring set.
+invalid:
+  - ""
+  - Go
+  - TS
+  - tsx
+  - closed_set_literal
+  - Closed-Set-Literal
+  - " closed-set-literal"
+  - unused-suppression
+  - Typeof
+  - external
+  - "*"

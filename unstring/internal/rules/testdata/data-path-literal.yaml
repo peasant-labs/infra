@@ -1,0 +1,85 @@
+rule: data-path-literal
+cases:
+  - name: flags-path-through-a-data-directory
+    files:
+      src/reads.test.ts: |
+        test("reads", () => {
+          const raw = readFileSync(join(here, "testdata/reads.yaml"), "utf8");
+        });
+    hits: {src/reads.test.ts: [2]}
+  - name: flags-bare-data-directory-segment
+    files:
+      src/reads.test.ts: |
+        function load(name: string) {
+          return path.join(here, 'fixtures', name);
+        }
+    hits: {src/reads.test.ts: [2]}
+  - name: flags-path-inside-a-message
+    files:
+      src/reads.test.ts: |
+        function check(ok: boolean) {
+          if (!ok) throw new Error(`regenerate testdata/conversation-turn-count-reads.yaml first`);
+        }
+    hits: {src/reads.test.ts: [2]}
+  - name: flags-data-file-passed-to-read
+    files:
+      scripts/load.mjs: |
+        export async function load() {
+          return JSON.parse(await readFile("baseline.json", "utf8"));
+        }
+    hits: {scripts/load.mjs: [2]}
+  - name: flags-another-configured-data-directory
+    params:
+      dataDirs: [golden]
+    files:
+      src/a.test.ts: |
+        function load() {
+          return readFileSync("golden/a.txt");
+        }
+    hits: {src/a.test.ts: [2]}
+  - name: passes-module-level-const
+    files:
+      src/reads.test.ts: |
+        const READS = "testdata/reads.yaml";
+        export const CAPTURES = "./captures/home.png";
+  - name: passes-new-url-in-module-level-const
+    files:
+      src/reads.test.ts: |
+        const READS = new URL("./testdata/reads.yaml", import.meta.url);
+  - name: passes-import
+    files:
+      src/reads.test.ts: |
+        import reads from "./testdata/reads.json";
+        export { cases } from "./fixtures/cases";
+  - name: passes-require
+    files:
+      src/reads.test.cjs: |
+        function load() {
+          return require('./fixtures/x.json');
+        }
+  - name: passes-dynamic-import
+    files:
+      src/reads.test.ts: |
+        async function load() {
+          return import('./fixtures/x.js');
+        }
+  - name: passes-absolute-path
+    files:
+      src/routes.ts: |
+        function route() {
+          return "/fixtures/tool";
+        }
+  - name: passes-word-captures-in-prose
+    files:
+      src/a.ts: |
+        function message() {
+          return "the visual run captures both themes";
+        }
+  - name: passes-directory-not-configured
+    params:
+      dataDirs: [golden]
+    files:
+      src/a.test.ts: |
+        function load() {
+          return readFile(join(here, "testdata/a.txt"));
+        }

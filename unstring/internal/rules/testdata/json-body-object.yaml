@@ -1,0 +1,51 @@
+rule: json-body-object
+cases:
+  - name: flags-body-property
+    files:
+      src/lib/queries/pulls.ts: |
+        await fetch(url, {
+          method: "POST",
+          body: JSON.stringify({ group_ids: [id] }),
+        });
+    hits: {src/lib/queries/pulls.ts: [3]}
+  - name: flags-new-response
+    files:
+      src/mocks/handlers.ts: |
+        const res = new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    hits: {src/mocks/handlers.ts: [1]}
+  - name: flags-socket-send
+    files:
+      src/lib/socket.ts: |
+        ws.send(JSON.stringify({ type: "subscribe", id }));
+    hits: {src/lib/socket.ts: [1]}
+  - name: flags-shorthand-and-spread-properties
+    files:
+      scripts/server.mjs: |
+        res.end(JSON.stringify({ sessions }));
+        res.write(JSON.stringify({ ...defaults }));
+    hits: {scripts/server.mjs: [1, 2]}
+  - name: passes-satisfies-on-the-literal
+    files:
+      src/lib/queries/pulls.ts: |
+        await fetch(url, { body: JSON.stringify({ group_ids: [id] } satisfies VillageShareRequest) });
+  - name: passes-variable
+    files:
+      src/lib/queries/pulls.ts: |
+        const request: VillageShareRequest = { group_ids: [id] };
+        await fetch(url, { body: JSON.stringify(request) });
+  - name: passes-console-log
+    files:
+      src/lib/log.ts: |
+        console.log(JSON.stringify({ step: "done" }));
+  - name: passes-local-storage
+    files:
+      src/lib/prefs.ts: |
+        localStorage.setItem(key, JSON.stringify({ theme }));
+  - name: passes-body-inside-attach
+    files:
+      e2e/a.spec.ts: |
+        await testInfo.attach("evidence", { body: JSON.stringify({ shots }), contentType: "application/json" });
+  - name: passes-empty-object
+    files:
+      src/mocks/handlers.ts: |
+        const res = new Response(JSON.stringify({}));

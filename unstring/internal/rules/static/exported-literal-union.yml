@@ -1,0 +1,24 @@
+# Rule 16: an exported type alias whose whole value is a union of two or more
+# string literals.
+id: exported-literal-union
+language: tsx
+severity: warning
+message: an exported type is declared as a union of string literals.
+metadata:
+  why: >-
+    a literal union exists only at compile time, so every use site compares against bare
+    strings; the workspace rule accepts such a union as an internal type and rejects it on an
+    exported boundary, where other modules come to depend on the words.
+  fix: >-
+    declare the set as a frozen object of `closed()` members next to its owner, export that,
+    and derive the type with (typeof X)[keyof typeof X]. A type that mirrors a third-party
+    library's option may take an unstring-allow marker with a reason.
+rule:
+  kind: type_alias_declaration
+  inside: { kind: export_statement }
+  has:
+    field: value
+    kind: union_type
+    # Each member is a double- or single-quoted literal, matched per quote
+    # style so a member may hold the other quote ("don't").
+    regex: '^\|?\s*((?:"[^"]*"|''[^'']*'')\s*\|\s*)+(?:"[^"]*"|''[^'']*'')$'

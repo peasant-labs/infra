@@ -1,0 +1,48 @@
+# Rule 4: an element located by comparing its visible text with a literal
+# inside a .find/.filter/.findIndex/.some/.every callback.
+id: textcontent-locator
+language: tsx
+severity: warning
+message: an element is located by comparing its textContent or innerText with a literal.
+metadata:
+  why: >-
+    the literal repeats copy the component renders; a copy change makes the lookup find
+    nothing, and a second element with the same text makes it find the wrong one.
+  fix: >-
+    locate the element by its typed test id or by role, with the accessible name taken from the
+    component's label set (for example getByRole("button", { name: DeleteCollectiveLabels.Trigger })).
+    Asserting text after the element is found (expect(el.textContent).toBe(...)) is not a
+    lookup and is not flagged. The rule accepts an unstring-allow marker with a reason.
+utils:
+  text-read:
+    kind: member_expression
+    has: { field: property, regex: '^(textContent|innerText)$' }
+  non-empty-literal:
+    any:
+      - kind: string
+        not: { regex: '^(""|'''')$' }
+      - kind: template_string
+        not: { regex: '^``$' }
+rule:
+  any:
+    - kind: binary_expression
+      all:
+        - has: { field: operator, regex: '^(===|!==|==|!=)$' }
+        - has: { matches: text-read, stopBy: end }
+        - has: { matches: non-empty-literal }
+    - kind: call_expression
+      all:
+        - has:
+            field: function
+            kind: member_expression
+            all:
+              - has: { field: property, regex: '^(startsWith|endsWith|includes)$' }
+              - has: { field: object, matches: text-read, stopBy: end }
+        - has: { field: arguments, has: { matches: non-empty-literal } }
+  inside:
+    stopBy: end
+    kind: call_expression
+    has:
+      field: function
+      kind: member_expression
+      has: { field: property, regex: '^(find|filter|findIndex|some|every)$' }

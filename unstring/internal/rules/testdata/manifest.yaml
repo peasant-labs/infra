@@ -1,0 +1,121 @@
+# Required case names per static rule. The test asserts that every name listed
+# here exists in testdata/<rule-id>.yaml, and that the rules listed here are
+# exactly the static rules. It asserts no count: a fixture may hold more cases.
+# The two closed-set rules are generated from the catalog; their cases,
+# including the three cases of every excluded operand, live with the catalog.
+required:
+  jsx-literal-testid:
+    - flags-string-value
+    - flags-braced-string
+    - flags-template-without-substitution
+    - passes-member-wire
+    - passes-template-with-substitution
+  testid-query-literal:
+    - flags-each-query-name
+    - flags-playwright-page-query
+    - flags-two-calls-on-one-line-count-once
+    - passes-member
+    - passes-variable
+  testid-selector-string:
+    - flags-string-selector
+    - flags-template-selector
+    - passes-test-id-query
+  textcontent-locator:
+    - flags-strict-equality-in-find
+    - flags-includes-in-filter
+    - flags-inner-text
+    - passes-expect-text-content
+    - passes-comparison-with-empty-literal
+  copy-query-literal:
+    - flags-get-by-text-string
+    - flags-regex-literal
+    - flags-get-by-role-name
+    - flags-playwright-get-by-label
+    - passes-label-member
+    - passes-fixture-field
+    - passes-role-literal-without-name
+    - passes-template-with-substitution
+  boundary-cast:
+    - flags-json-parse-cast
+    - flags-awaited-response-json-cast
+    - flags-search-params-get-cast
+    - passes-as-const
+    - passes-as-unknown
+    - passes-cast-after-a-variable
+  explicit-any:
+    - flags-annotation
+    - flags-as-any
+    - flags-generic-argument
+    - passes-unknown
+    - passes-word-in-string-or-comment
+  ts-enum:
+    - flags-enum
+    - flags-const-enum
+    - passes-closed-set
+  go-json-key-assert:
+    - flags-string-key-assertion
+    - passes-variable-key
+    - passes-typed-struct-read
+  endpoint-literal:
+    - flags-prefix-string
+    - flags-template-with-substitution
+    - flags-mux-method-form
+    - flags-full-url
+    - flags-configured-callee-with-relative-path
+    - passes-import-source
+    - passes-third-party-api-version
+    - passes-docs-url-ending-api
+    - passes-unconfigured-callee
+  go-endpoint-literal:
+    - flags-prefix-literal
+    - flags-raw-string
+    - flags-any-slash-argument-in-configured-router-file
+    - passes-same-call-in-another-file
+    - passes-repos-path-outside-router-files
+  data-path-literal:
+    - flags-path-through-a-data-directory
+    - flags-bare-data-directory-segment
+    - flags-path-inside-a-message
+    - flags-data-file-passed-to-read
+    - passes-module-level-const
+    - passes-new-url-in-module-level-const
+    - passes-import
+    - passes-require
+    - passes-dynamic-import
+    - passes-absolute-path
+    - passes-word-captures-in-prose
+  go-data-path-literal:
+    - flags-path-through-a-data-directory
+    - flags-data-file-passed-to-read
+    - passes-const
+    - passes-go-embed
+  exported-literal-union:
+    - flags-exported-union
+    - flags-multi-line-leading-bar
+    - flags-member-holding-the-other-quote
+    - passes-non-exported-alias
+    - passes-inline-union
+    - passes-derived-type
+    - passes-union-with-non-literal-member
+  go-json-body-map:
+    - flags-literal-passed-to-encoder
+    - flags-assigned-then-encoded
+    - flags-returned-from-a-helper
+    - flags-argument-of-a-test-request-helper
+    - flags-slice-of-maps
+    - flags-interface-value-type
+    - flags-nested-map-counts-once
+    - passes-empty-literal
+    - passes-keys-all-expressions
+    - passes-string-valued-map
+    - passes-struct-literal
+  json-body-object:
+    - flags-body-property
+    - flags-new-response
+    - flags-socket-send
+    - flags-shorthand-and-spread-properties
+    - passes-satisfies-on-the-literal
+    - passes-variable
+    - passes-console-log
+    - passes-local-storage
+    - passes-body-inside-attach

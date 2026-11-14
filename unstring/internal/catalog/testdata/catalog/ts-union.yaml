@@ -1,0 +1,49 @@
+# String members of TS union types, wherever the union stands. The set is the
+# alias when the union is an alias's whole value; any other union is inline.
+cases:
+  - name: alias-property-parameter-and-nested
+    lang: ts
+    files:
+      types.ts: |
+        export type ReadState = 'ready' | 'error';
+        type Grouped = 'g1' | ('g2' | 'g3');
+        interface Row { status: "open" | "closed"; kind: 'lone' }
+        function pick(mode: 'm1' | 'm2', list: Array<'a1' | 'a2'>) {}
+        export type Many = ('x1' | 'x2')[];
+        type Mixed = 'mixed' | Other | '';
+    members:
+      - { value: ready, source: ts-union, set: ReadState, file: types.ts, line: 1 }
+      - { value: error, source: ts-union, set: ReadState, file: types.ts, line: 1 }
+      - { value: g1, source: ts-union, set: Grouped, file: types.ts, line: 2 }
+      - { value: g2, source: ts-union, set: Grouped, file: types.ts, line: 2 }
+      - { value: g3, source: ts-union, set: Grouped, file: types.ts, line: 2 }
+      - { value: open, source: ts-union, file: types.ts, line: 3 }
+      - { value: closed, source: ts-union, file: types.ts, line: 3 }
+      - { value: m1, source: ts-union, file: types.ts, line: 4 }
+      - { value: m2, source: ts-union, file: types.ts, line: 4 }
+      - { value: a1, source: ts-union, file: types.ts, line: 4 }
+      - { value: a2, source: ts-union, file: types.ts, line: 4 }
+      - { value: x1, source: ts-union, file: types.ts, line: 5 }
+      - { value: x2, source: ts-union, file: types.ts, line: 5 }
+      - { value: mixed, source: ts-union, set: Mixed, file: types.ts, line: 6 }
+
+  - name: multi-line-leading-pipe
+    lang: ts
+    files:
+      tone.tsx: |
+        export type Tone =
+          | "wait"
+          | "ok";
+    members:
+      - { value: wait, source: ts-union, set: Tone, file: tone.tsx, line: 2 }
+      - { value: ok, source: ts-union, set: Tone, file: tone.tsx, line: 3 }
+
+  - name: not-sources
+    # A lone literal type and an as-const array are not unions.
+    lang: ts
+    files:
+      shapes.ts: |
+        type One = { kind: 'profile' };
+        const NAMES = ['first', 'second'] as const;
+        const v = 'a' | 'b';
+    members: []

@@ -1,0 +1,13 @@
+required:
+  - closed-member-is-the-fix
+  - schema-go-constant
+  - repository-go-constant
+  - union-only-converts-the-union
+  - jsdoc-only-declares-a-closed-set
+  - many-sites-are-summarised
+  - built-schema-ts-names-exported-member
+  - built-schema-go-names-go-constant
+  - built-schema-ts-missing-member-names-set
+  - built-schema-ts-union-without-member
+  - built-schema-ts-does-not-use-unexported-member
+  - built-schema-ts-does-not-use-unreexported-enums

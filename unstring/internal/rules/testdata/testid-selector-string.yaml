@@ -1,0 +1,20 @@
+rule: testid-selector-string
+cases:
+  - name: flags-string-selector
+    files:
+      e2e/home.spec.ts: |
+        await page.locator('[data-testid="home-row"]').click();
+    hits: {e2e/home.spec.ts: [1]}
+  - name: flags-template-selector
+    files:
+      scripts/visual/capture.mjs: |
+        const row = document.querySelector(`[data-testid=${id}]`);
+    hits: {scripts/visual/capture.mjs: [1]}
+  - name: passes-test-id-query
+    files:
+      e2e/home.spec.ts: |
+        await page.getByTestId(HomeTestId.Row.wire).click();
+  - name: passes-attribute-name-alone
+    files:
+      src/attrs.ts: |
+        export const attribute = "data-testid";
