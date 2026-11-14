@@ -220,15 +220,23 @@ func tagGateFault(cond string, needs []string) string {
 // checkReleaseTagTriggers holds the release job's workflow to the events
 // whose github.sha the job's own condition can pin to the default branch.
 func (c *queueChecker) checkReleaseTagTriggers(workflow, job string, doc *yaml.Node) {
+	canTag, fault := pushTagCapability(doc)
+	if fault != "" {
+		c.emit(QueueRuleReleaseTagBoundary, workflow, job, violation(
+			"cannot determine whether the workflow triggers on pushed tags: "+fault,
+			"the release job must run only on events whose ref and commit its default-branch condition can prove",
+			rejected,
+			"write literal, unambiguous branch-only push filters and supported events"))
+		return
+	}
+	if canTag {
+		c.emit(QueueRuleReleaseTagBoundary, workflow, job, violation(
+			"the workflow triggers on pushed tags",
+			"a tag push sets github.sha to the tagged commit, which is not the default-branch commit the release job's condition proves",
+			rejected,
+			"trigger the release job on branches, schedule and workflow_dispatch only; publish from a separate tag-triggered workflow"))
+	}
 	for _, t := range workflowTriggers(doc) {
-		if t.Event == GitHubEventPush && (mappingValue(t.Config, triggerKeyTags) != nil || mappingValue(t.Config, triggerKeyTagsIgnore) != nil) {
-			c.emit(QueueRuleReleaseTagBoundary, workflow, job, violation(
-				"the workflow triggers on pushed tags",
-				"a tag push sets github.sha to the tagged commit, which is not the default-branch commit the release job's condition proves",
-				rejected,
-				"trigger the release job on branches, schedule and workflow_dispatch only; publish from a separate tag-triggered workflow"))
-			continue
-		}
 		if containsEvent(releaseTagTriggers, t.Event) {
 			continue
 		}

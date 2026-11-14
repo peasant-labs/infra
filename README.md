@@ -171,6 +171,15 @@ one artifact holding git bundles.
   commit, reading the release config from that branch. A tag push needs only a
   write to `refs/tags/`, so nothing publishes a tag the tool has not checked.
 
+  An unfiltered `push` includes tag pushes, whether written as a scalar, in an
+  event list, with a null or empty mapping, or with only path filters (GitHub
+  does not apply path filters to tag pushes). Explicit `tags` or `tags-ignore`
+  filters, including alongside branch filters, are tag-capable. A push with
+  only branch filters is not. The checker refuses malformed or ambiguous
+  publisher triggers rather than assuming they exclude tags. This does not
+  broaden the separate `contents: write` exception: that still requires the
+  single, explicit release-tag-only trigger.
+
   The tag-verify job's success is the verdict on the tag, so it is confined
   the way a credential job is. It holds no credential and no write, runs on
   one literal GitHub-hosted label, carries no job-level `if` (a skipped verify
@@ -219,7 +228,8 @@ one artifact holding git bundles.
   tagged commit, so the tag has to be checked before it leaves that job.
   - The release workflow triggers only on `push`, `schedule` and
     `workflow_dispatch`: never on a pushed tag, a `workflow_run`, or another
-    event without its own proof for a release job.
+    event without its own proof for a release job. Its `push` must therefore
+    have branch filters and no tag filters; an unfiltered `push` includes tags.
   - The release job's `if` proves the run is on the default branch: the
     comparison `github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`
     is one conjunct of a conjunction. A disjunction, a negation, a second

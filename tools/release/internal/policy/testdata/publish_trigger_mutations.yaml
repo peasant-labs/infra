@@ -1,0 +1,485 @@
+# Original Fairtrade files are retained byte-for-byte; preparation adapts only the older
+# verifier and release guard to the current policy before the isolated mutation.
+repository: "https://github.com/peasant-labs/fairtrade-design-system"
+commit: "1da19970ce24a0ca5a993a8f3ee6a0a4879cbf4a"
+source:
+  - file: ".github/release-intent.yaml"
+    sha256: "ae12d2d26dc875fda053ab0e86b15827432878b04f36d84bdb01b344cec6ad20"
+  - file: ".github/release-queue.policy.yml"
+    sha256: "4b425aa74d577a4caeed0ddbb11264bf291a0f5ae6ab5eed11dfc5df8cafd6bf"
+  - file: ".github/workflows/ci.yml"
+    sha256: "8a8bdde08965713e71093a9f57b9a55171f7c92db9c4bd6f04f3448d02c477b3"
+  - file: ".github/workflows/cut-release.yml"
+    sha256: "75876c95480605a7aa06e843ae93e145062c86b441292563095f25f3d9a32359"
+  - file: ".github/workflows/discord-pr-notify.yml"
+    sha256: "a60476e819b0d10e09ce9034f103cf39cc7c076f27c5d7e6c5394bebe678d71e"
+  - file: ".github/workflows/npm-publish.yml"
+    sha256: "dbfd517639b3ff1bff9b3346c4fd70fc0606f5edac8b38ec2d19166e15437e9a"
+  - file: ".github/workflows/release-batch.yml"
+    sha256: "c1bfaa5cc9d31fe49e7a9066debf27b44c16cd91c8e183bc20053d53220b1a9a"
+  - file: ".github/workflows/release.yml"
+    sha256: "fa07426597cc36732351127636be5a623e85e46bc8af0ce48f6e1de494312b72"
+  - file: ".github/workflows/title-guard.yml"
+    sha256: "b374021f8a3249f2fc076f137f86b2720deeb617e7ba7b332fcbf34aac37593b"
+preparation:
+  - file: ".github/workflows/npm-publish.yml"
+    find: "          cache-dependency-path: infra-tool/tools/release/go.sum\n"
+    replace: "          cache: false\n"
+  - file: ".github/workflows/npm-publish.yml"
+    find: "        working-directory: infra-tool/tools/release\n        run: |\n          go build -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n          echo \"${RUNNER_TEMP}\" >> \"${GITHUB_PATH}\"\n"
+    replace: "        env:\n          GOWORK: \"off\"\n        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+  - file: ".github/workflows/npm-publish.yml"
+    find: "        run: release-intent verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "        run: '\"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"'\n"
+  - file: ".github/workflows/release.yml"
+    find: "          cache-dependency-path: infra-tool/tools/release/go.sum\n"
+    replace: "          cache: false\n"
+  - file: ".github/workflows/release.yml"
+    find: "        working-directory: infra-tool/tools/release\n        run: |\n          go build -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n          echo \"${RUNNER_TEMP}\" >> \"${GITHUB_PATH}\"\n"
+    replace: "        env:\n          GOWORK: \"off\"\n        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+  - file: ".github/workflows/release.yml"
+    find: "        run: release-intent verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"\n"
+    replace: "        run: '\"${RUNNER_TEMP}/release-intent\" verify-tag --tag \"${GITHUB_REF_NAME}\" --branch \"origin/${DEFAULT_BRANCH}\"'\n"
+  - file: ".github/workflows/release-batch.yml"
+    find: "    if: github.ref == 'refs/heads/main' && needs.plan.outputs.proceed == 'true'\n"
+    replace: "    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.plan.outputs.proceed == 'true'\n"
+  - file: ".github/workflows/release-batch.yml"
+    find: "      - name: Tag the fresh release candidate\n"
+    replace: "      - name: Check the release tag is on the run commit\n        id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n\n      - name: Tag the fresh release candidate\n"
+required_names:
+  - baseline-real-pilot-confined
+  - explicit-tag-without-verifier
+  - safe-scalar
+  - missing-verify-scalar
+  - safe-list
+  - missing-verify-list
+  - safe-null
+  - missing-verify-null
+  - safe-explicit-null
+  - missing-verify-explicit-null
+  - safe-empty-mapping
+  - missing-verify-empty-mapping
+  - safe-paths-only
+  - missing-verify-paths-only
+  - safe-paths-ignore-only
+  - missing-verify-paths-ignore-only
+  - safe-tags-ignore
+  - missing-verify-tags-ignore
+  - safe-mixed-branches-tags
+  - missing-verify-mixed-branches-tags
+  - safe-mixed-branches-tags-ignore
+  - missing-verify-mixed-branches-tags-ignore
+  - branch-only-no-verify
+  - branch-ignore-only-no-verify
+  - branch-and-path-no-verify
+  - dispatch-only-no-verify
+  - malformed-on-null
+  - malformed-on-mixed-sequence
+  - malformed-push-sequence
+  - malformed-push-boolean
+  - malformed-unknown-filter
+  - malformed-empty-branches
+  - malformed-empty-tags
+  - malformed-numeric-tag
+  - malformed-nested-branch
+  - malformed-null-branch
+  - malformed-duplicate-push
+  - malformed-duplicate-filter
+  - malformed-opposing-tag-filters
+  - malformed-opposing-branch-filters
+  - malformed-opposing-path-filters
+  - malformed-alias-push
+  - effective-workflow-oidc-without-verify
+  - release-push-default-branch
+  - release-push-tag-to-branch
+  - contents-write-on-branch-workflow
+  - github-release-without-verifier
+  - malformed-filter-expression
+  - malformed-duplicate-on
+  - malformed-on-alias
+  - malformed-workflow-merge
+  - malformed-non-string-event
+  - malformed-empty-event-list
+  - malformed-empty-event-map
+  - malformed-capitalized-event
+  - malformed-tag-filter-with-contents-write
+  - release-job-unfiltered-push
+  - release-job-malformed-push
+  - unfiltered-verifier-may-fail
+  - unfiltered-verifier-skipped
+  - unfiltered-publisher-forces-run
+  - unfiltered-id-token-read-only
+  - workflow-oidc-inherited-with-verifier
+  - branch-positive-and-negative-no-verify
+  - malformed-branch-negative-only
+  - malformed-tag-negative-only
+  - malformed-branch-bare-negation
+cases:
+  - name: "baseline-real-pilot-confined"
+    rules: []
+  - name: "explicit-tag-without-verifier"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "safe-scalar"
+    trigger: "on: push\n"
+    rules: []
+  - name: "missing-verify-scalar"
+    trigger: "on: push\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-scalar"
+  - name: "safe-list"
+    trigger: "on: [push, workflow_dispatch]\n"
+    rules: []
+  - name: "missing-verify-list"
+    trigger: "on: [push, workflow_dispatch]\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-list"
+  - name: "safe-null"
+    trigger: "on:\n  push:\n"
+    rules: []
+  - name: "missing-verify-null"
+    trigger: "on:\n  push:\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-null"
+  - name: "safe-explicit-null"
+    trigger: "on:\n  push: null\n"
+    rules: []
+  - name: "missing-verify-explicit-null"
+    trigger: "on:\n  push: null\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-explicit-null"
+  - name: "safe-empty-mapping"
+    trigger: "on:\n  push: {}\n"
+    rules: []
+  - name: "missing-verify-empty-mapping"
+    trigger: "on:\n  push: {}\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-empty-mapping"
+  - name: "safe-paths-only"
+    trigger: "on:\n  push:\n    paths: [\"src/**\"]\n"
+    rules: []
+  - name: "missing-verify-paths-only"
+    trigger: "on:\n  push:\n    paths: [\"src/**\"]\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-paths-only"
+  - name: "safe-paths-ignore-only"
+    trigger: "on:\n  push:\n    paths-ignore: [\"docs/**\"]\n"
+    rules: []
+  - name: "missing-verify-paths-ignore-only"
+    trigger: "on:\n  push:\n    paths-ignore: [\"docs/**\"]\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-paths-ignore-only"
+  - name: "safe-tags-ignore"
+    trigger: "on:\n  push:\n    tags-ignore: [\"experimental-*\"]\n"
+    rules: []
+  - name: "missing-verify-tags-ignore"
+    trigger: "on:\n  push:\n    tags-ignore: [\"experimental-*\"]\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-tags-ignore"
+  - name: "safe-mixed-branches-tags"
+    trigger: "on:\n  push:\n    branches: [main]\n    tags: [\"fairtrade-v*\"]\n"
+    rules: []
+  - name: "missing-verify-mixed-branches-tags"
+    trigger: "on:\n  push:\n    branches: [main]\n    tags: [\"fairtrade-v*\"]\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-mixed-branches-tags"
+  - name: "safe-mixed-branches-tags-ignore"
+    trigger: "on:\n  push:\n    branches-ignore: [dev]\n    tags-ignore: [\"experimental-*\"]\n"
+    rules: []
+  - name: "missing-verify-mixed-branches-tags-ignore"
+    trigger: "on:\n  push:\n    branches-ignore: [dev]\n    tags-ignore: [\"experimental-*\"]\n"
+    drop_need: true
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag", "needs no job without a credential"]
+    sibling: "safe-mixed-branches-tags-ignore"
+  - name: "branch-only-no-verify"
+    trigger: "on:\n  push:\n    branches: [main]\n"
+    drop_need: true
+    rules: []
+  - name: "branch-ignore-only-no-verify"
+    trigger: "on:\n  push:\n    branches-ignore: [dev]\n"
+    drop_need: true
+    rules: []
+  - name: "branch-and-path-no-verify"
+    trigger: "on:\n  push:\n    branches: [main]\n    paths: [\"src/**\"]\n"
+    drop_need: true
+    rules: []
+  - name: "dispatch-only-no-verify"
+    trigger: "on: workflow_dispatch\n"
+    drop_need: true
+    rules: []
+  - name: "malformed-on-null"
+    trigger: "on: null\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-on-mixed-sequence"
+    trigger: "on: [push, {push: {}}]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-push-sequence"
+    trigger: "on:\n  push: [tags]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-push-boolean"
+    trigger: "on:\n  push: true\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-unknown-filter"
+    trigger: "on:\n  push:\n    brenches: [main]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-empty-branches"
+    trigger: "on:\n  push:\n    branches: []\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-empty-tags"
+    trigger: "on:\n  push:\n    tags: []\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-numeric-tag"
+    trigger: "on:\n  push:\n    tags: [42]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-nested-branch"
+    trigger: "on:\n  push:\n    branches: [[main]]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-null-branch"
+    trigger: "on:\n  push:\n    branches:\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-duplicate-push"
+    trigger: "on:\n  push:\n    branches: [main]\n  push:\n    tags: [\"fairtrade-v*\"]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-duplicate-filter"
+    trigger: "on:\n  push:\n    branches: [main]\n    branches: [dev]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-opposing-tag-filters"
+    trigger: "on:\n  push:\n    tags: [\"fairtrade-v*\"]\n    tags-ignore: [\"*-rc*\"]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-opposing-branch-filters"
+    trigger: "on:\n  push:\n    branches: [main]\n    branches-ignore: [dev]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-opposing-path-filters"
+    trigger: "on:\n  push:\n    paths: [\"src/**\"]\n    paths-ignore: [\"docs/**\"]\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "malformed-alias-push"
+    trigger: "push_config: &push_config\n  branches: [main]\non:\n  push: *push_config\n"
+    rules: ["tag-publish-verifies-the-tag"]
+    want_contains: ["cannot determine whether"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "effective-workflow-oidc-without-verify"
+    trigger: "on:\n  push:\n"
+    drop_need: true
+    edits:
+      - file: .github/workflows/npm-publish.yml
+        find: "permissions:\n  contents: read\n\njobs:\n"
+        replace: "permissions:\n  contents: read\n  id-token: write\n\njobs:\n"
+      - file: .github/workflows/npm-publish.yml
+        find: "    permissions:\n      contents: read # checkout only; no tag/commit is pushed from this job\n      id-token: write # mint the OIDC token npm Trusted Publishing exchanges\n"
+        replace: ""
+    rules: ["tag-publish-verifies-the-tag", "default-token-read-only"]
+    want_contains: ["jobs.npm-publish can publish for a pushed tag"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "release-push-default-branch"
+    edits:
+      - file: .github/workflows/release-batch.yml
+        find: "push --force-with-lease origin automation/release"
+        replace: "push --force-with-lease origin main"
+    rules: ["credential-steps-run-one-template"]
+    want_contains: ["jobs.release"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "release-push-tag-to-branch"
+    edits:
+      - file: .github/workflows/release-batch.yml
+        find: "push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
+        replace: "push origin \"refs/tags/${TAG}:refs/heads/main\""
+    rules: ["credential-steps-run-one-template"]
+    want_contains: ["jobs.release"]
+    sibling: "baseline-real-pilot-confined"
+  - name: "contents-write-on-branch-workflow"
+    edits:
+      - file: .github/workflows/release.yml
+        find: "on:\n  push:\n    tags: ['fairtrade-v*']\n"
+        replace: "on:\n  push:\n    branches: [main]\n"
+    rules: ["default-token-read-only", "credentials-stay-in-listed-jobs"]
+    want_contains: ["contents: write"]
+    sibling: "baseline-real-pilot-confined"
+  - name: github-release-without-verifier
+    edits:
+      - file: .github/workflows/release.yml
+        find: "    needs: [guard, verify, notes]\n"
+        replace: "    needs: [guard, notes]\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["jobs.release can publish for a pushed tag"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-filter-expression
+    trigger: "on:\n  push:\n    branches: ['${{ inputs.branch }}']\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-duplicate-on
+    trigger: "on: workflow_dispatch\non:\n  push:\n    tags: ['fairtrade-v*']\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-on-alias
+    trigger: "events: &events [push]\non: *events\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-workflow-merge
+    trigger: "other: &events {on: push}\n<<: *events\non: workflow_dispatch\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-non-string-event
+    trigger: "on: [push, 42]\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-empty-event-list
+    trigger: "on: []\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-empty-event-map
+    trigger: "on: {}\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-capitalized-event
+    trigger: "on: Push\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-tag-filter-with-contents-write
+    edits:
+      - file: .github/workflows/release.yml
+        find: "on:\n  push:\n    tags: ['fairtrade-v*']\n"
+        replace: "on:\n  push:\n    tags: ['fairtrade-v*', 42]\n"
+    rules: [default-token-read-only, credentials-stay-in-listed-jobs, tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether", "contents: write"]
+    sibling: baseline-real-pilot-confined
+  - name: release-job-unfiltered-push
+    edits:
+      - file: .github/workflows/release-batch.yml
+        find: "  push:\n    branches: [main]\n"
+        replace: "  push:\n"
+    rules: [release-tag-checked-before-push]
+    want_contains: ["the workflow triggers on pushed tags"]
+    sibling: baseline-real-pilot-confined
+  - name: release-job-malformed-push
+    edits:
+      - file: .github/workflows/release-batch.yml
+        find: "  push:\n    branches: [main]\n"
+        replace: "  push:\n    brenches: [main]\n"
+    rules: [release-tag-checked-before-push]
+    want_contains: ["cannot determine whether the workflow triggers on pushed tags"]
+    sibling: baseline-real-pilot-confined
+  - name: unfiltered-verifier-may-fail
+    trigger: "on: push\n"
+    edits:
+      - file: .github/workflows/npm-publish.yml
+        find: "    name: verify the tag\n"
+        replace: "    name: verify the tag\n    continue-on-error: true\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["jobs.verify sets continue-on-error"]
+    sibling: safe-scalar
+  - name: unfiltered-verifier-skipped
+    trigger: "on: push\n"
+    edits:
+      - file: .github/workflows/npm-publish.yml
+        find: "    name: verify the tag\n"
+        replace: "    name: verify the tag\n    if: false\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["sets a job-level if"]
+    sibling: safe-scalar
+  - name: unfiltered-publisher-forces-run
+    trigger: "on: push\n"
+    edits:
+      - file: .github/workflows/npm-publish.yml
+        find: "  npm-publish:\n    needs: verify\n"
+        replace: "  npm-publish:\n    needs: verify\n    if: ${{ success() || true }}\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["status function success()"]
+    sibling: safe-scalar
+  - name: unfiltered-id-token-read-only
+    trigger: "on: push\n"
+    drop_need: true
+    edits:
+      - file: .github/workflows/npm-publish.yml
+        find: "      id-token: write # mint the OIDC token npm Trusted Publishing exchanges\n"
+        replace: "      id-token: read\n"
+    rules: []
+  - name: workflow-oidc-inherited-with-verifier
+    trigger: "on: push\n"
+    edits:
+      - file: .github/workflows/npm-publish.yml
+        find: "permissions:\n  contents: read\n\njobs:\n"
+        replace: "permissions:\n  contents: read\n  id-token: write\n\njobs:\n"
+      - file: .github/workflows/npm-publish.yml
+        find: "    permissions:\n      contents: read # checkout only; no tag/commit is pushed from this job\n      id-token: write # mint the OIDC token npm Trusted Publishing exchanges\n"
+        replace: ""
+    rules: [default-token-read-only]
+    want_contains: ["jobs.npm-publish declares no permissions"]
+    sibling: baseline-real-pilot-confined
+  - name: branch-positive-and-negative-no-verify
+    trigger: "on:\n  push:\n    branches: ['main', '!old-*']\n"
+    drop_need: true
+    rules: []
+  - name: malformed-branch-negative-only
+    trigger: "on:\n  push:\n    branches: ['!old-*']\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-tag-negative-only
+    trigger: "on:\n  push:\n    tags: ['!old-*']\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined
+  - name: malformed-branch-bare-negation
+    trigger: "on:\n  push:\n    branches: ['main', '!']\n"
+    rules: [tag-publish-verifies-the-tag]
+    want_contains: ["cannot determine whether"]
+    sibling: baseline-real-pilot-confined

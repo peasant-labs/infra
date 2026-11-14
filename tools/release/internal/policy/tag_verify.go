@@ -34,10 +34,6 @@ import (
 // check only when the expression calls no status function, and that implicit
 // check is what skips the publish job after a failed or skipped verify job.
 
-// triggerKeyTagsIgnore is the push trigger key that names tags to skip; a
-// workflow that names it is tag-triggered too.
-const triggerKeyTagsIgnore = "tags-ignore"
-
 // defaultBranchExpression is the expression for the repository's default
 // branch name, which the verify call compares against.
 const defaultBranchExpression = "github.event.repository.default_branch"
@@ -75,15 +71,6 @@ func publishIfFault(cond string) string {
 	return ""
 }
 
-// tagTriggered reports whether the workflow runs on pushed tags.
-func tagTriggered(doc *yaml.Node) bool {
-	push, ok := findTrigger(doc, GitHubEventPush)
-	if !ok {
-		return false
-	}
-	return mappingValue(push.Config, triggerKeyTags) != nil || mappingValue(push.Config, triggerKeyTagsIgnore) != nil
-}
-
 // publishes reports whether a job's default token can publish: contents
 // write (a GitHub Release) or id-token write (a registry through OIDC). A
 // missing or unreadable permissions value can.
@@ -111,12 +98,21 @@ func publishes(doc, job *yaml.Node) bool {
 // checkTagVerified applies the rule to every tag-triggered workflow.
 func (c *queueChecker) checkTagVerified() {
 	c.eachDoc(QueueRuleTagVerified, func(name string, doc *yaml.Node) {
-		if !tagTriggered(doc) {
+		canTag, fault := pushTagCapability(doc)
+		if !canTag && fault == "" {
 			return
 		}
 		for _, jobName := range jobNames(doc) {
 			job := jobNode(doc, jobName)
 			if !publishes(doc, job) {
+				continue
+			}
+			if fault != "" {
+				c.emit(QueueRuleTagVerified, name, jobName, violation(
+					"cannot determine whether jobs."+jobName+" can publish for a pushed tag: "+fault,
+					"an unreadable trigger cannot prove that a publish job is unreachable on a tag",
+					rejected,
+					"write "+workflowKeyOn+" and its "+GitHubEventPush.String()+" filters as literal, unambiguous GitHub workflow syntax"))
 				continue
 			}
 			if why := c.publishVerifyFault(name, doc, job); why != "" {

@@ -123,8 +123,8 @@ type trigger struct {
 
 // workflowTriggers parses the workflow's 'on:' in the three forms GitHub
 // accepts: one event name, a sequence of names, or a mapping of name to
-// configuration. It is the one place a trigger name becomes a GitHubEvent;
-// every rule reads the result.
+// configuration. It uses ParseGitHubEvent for the shared event vocabulary;
+// rules that need only event presence read the result here.
 func workflowTriggers(doc *yaml.Node) []trigger {
 	on := mappingValue(doc, workflowKeyOn)
 	if on == nil {
@@ -209,11 +209,16 @@ func activityTypes(t trigger) (actions []PullRequestAction, listed bool) {
 // Workflow syntax keys the checker reads. They are GitHub's spelling, named
 // once so every rule reads the same key.
 const (
-	workflowKeyOn   = "on"
-	triggerKeyTypes = "types"
-	triggerKeyTags  = "tags"
+	workflowKeyOn            = "on"
+	triggerKeyTypes          = "types"
+	triggerKeyTags           = "tags"
+	triggerKeyTagsIgnore     = "tags-ignore"
+	triggerKeyBranches       = "branches"
+	triggerKeyBranchesIgnore = "branches-ignore"
+	triggerKeyPaths          = "paths"
+	triggerKeyPathsIgnore    = "paths-ignore"
 )
 
 // triggerFilterKeys are the trigger keys that can skip a run for some
 // changes: path filters and the branch exclusion.
-var triggerFilterKeys = []string{"paths", "paths-ignore", "branches-ignore"}
+var triggerFilterKeys = []string{triggerKeyPaths, triggerKeyPathsIgnore, triggerKeyBranchesIgnore}

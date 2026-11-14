@@ -344,6 +344,9 @@ func bareWord(word string) string {
 // tagOnlyTriggerFault says why the workflow's on: is not exactly push: tags:
 // with every pattern under the tag prefix, or "" when it is.
 func tagOnlyTriggerFault(doc *yaml.Node, prefix string) string {
+	if _, fault := pushTagCapability(doc); fault != "" {
+		return "the workflow's trigger is not understood: " + fault
+	}
 	push, only := soleTrigger(doc, GitHubEventPush)
 	if !only {
 		return "the workflow's only trigger is not " + GitHubEventPush.String() + ": " + triggerKeyTags + ":"
