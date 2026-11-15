@@ -1,0 +1,305 @@
+# Title round-trip corpus: rows of intent.FormatTitle against
+# intent.ParseTitle. An accept row is a typed title and its exact text:
+# formatting the title gives the text, parsing the text gives the title, and
+# formatting that gives the text again. A reject row is a typed title the
+# parser never returns: its text is refused, or reads back as a different
+# title.
+required_names:
+  - feat-with-level
+  - fix-with-level
+  - release-with-level
+  - refactor-without-level
+  - perf-without-level
+  - build-without-level
+  - revert-without-level
+  - docs-plain
+  - test-plain
+  - ci-plain
+  - chore-plain
+  - style-plain
+  - may-release-with-patch
+  - two-scopes
+  - breaking-below-1
+  - breaking-from-1
+  - landed-subject
+  - landed-without-level
+  - quiet-repo
+  - subject-with-syntax-marks
+  - subject-with-inner-pr-mention
+  - subject-unicode
+  - must-release-without-level
+  - never-release-with-level
+  - major-without-break
+  - uppercase-scope
+  - empty-subject
+  - subject-holding-a-landed-suffix
+  - subject-with-leading-space
+cases:
+  - name: feat-with-level
+    input:
+      title: {type: "feat", scopes: [], breaking: false, level: "minor", subject: "ship the change", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "feat[minor]: ship the change"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the feat type with its level"}
+  - name: fix-with-level
+    input:
+      title: {type: "fix", scopes: [], breaking: false, level: "patch", subject: "ship the change", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "fix[patch]: ship the change"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the fix type with its level"}
+  - name: release-with-level
+    input:
+      title: {type: "release", scopes: [], breaking: false, level: "minor", subject: "ship the change", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "release[minor]: ship the change"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the release type with its level"}
+  - name: refactor-without-level
+    input:
+      title: {type: "refactor", scopes: ["store"], breaking: false, level: "none", subject: "move the reader", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "refactor(store): move the reader"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the refactor type with a scope and no level"}
+  - name: perf-without-level
+    input:
+      title: {type: "perf", scopes: ["store"], breaking: false, level: "none", subject: "move the reader", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "perf(store): move the reader"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the perf type with a scope and no level"}
+  - name: build-without-level
+    input:
+      title: {type: "build", scopes: ["store"], breaking: false, level: "none", subject: "move the reader", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "build(store): move the reader"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the build type with a scope and no level"}
+  - name: revert-without-level
+    input:
+      title: {type: "revert", scopes: ["store"], breaking: false, level: "none", subject: "move the reader", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "revert(store): move the reader"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the revert type with a scope and no level"}
+  - name: docs-plain
+    input:
+      title: {type: "docs", scopes: [], breaking: false, level: "none", subject: "tidy the notes", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "docs: tidy the notes"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the docs type with nothing else"}
+  - name: test-plain
+    input:
+      title: {type: "test", scopes: [], breaking: false, level: "none", subject: "tidy the notes", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "test: tidy the notes"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the test type with nothing else"}
+  - name: ci-plain
+    input:
+      title: {type: "ci", scopes: [], breaking: false, level: "none", subject: "tidy the notes", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "ci: tidy the notes"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the ci type with nothing else"}
+  - name: chore-plain
+    input:
+      title: {type: "chore", scopes: [], breaking: false, level: "none", subject: "tidy the notes", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "chore: tidy the notes"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the chore type with nothing else"}
+  - name: style-plain
+    input:
+      title: {type: "style", scopes: [], breaking: false, level: "none", subject: "tidy the notes", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "style: tidy the notes"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the style type with nothing else"}
+  - name: may-release-with-patch
+    input:
+      title: {type: "refactor", scopes: ["store"], breaking: false, level: "patch", subject: "split the reader", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "refactor(store)[patch]: split the reader"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "round trip: an optional bracket is kept"}
+    mutation: {description: "gave a may-release type a level"}
+  - name: two-scopes
+    input:
+      title: {type: "feat", scopes: ["graph", "table"], breaking: false, level: "minor", subject: "add a facet", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "feat(graph,table)[minor]: add a facet"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "round trip: scopes keep their order and separator"}
+    mutation: {description: "listed two scopes"}
+  - name: breaking-below-1
+    input:
+      title: {type: "feat", scopes: ["graph"], breaking: true, level: "minor", subject: "drop the legacy field", pr: 0}
+      current: "0.4.2"
+      releases: true
+    expected: {text: "feat(graph)![minor]: drop the legacy field"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "round trip: the breaking mark sits before the bracket"}
+    mutation: {description: "declared a break below 1.0"}
+  - name: breaking-from-1
+    input:
+      title: {type: "fix", scopes: [], breaking: true, level: "major", subject: "drop the legacy field", pr: 0}
+      current: "1.4.2"
+      releases: true
+    expected: {text: "fix![major]: drop the legacy field"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "round trip: a break from 1.0 carries the major level"}
+    mutation: {description: "declared a break from 1.0"}
+  - name: landed-subject
+    input:
+      title: {type: "fix", scopes: ["api"], breaking: false, level: "patch", subject: "close the reader", pr: 412}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "fix(api)[patch]: close the reader (#412)"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "round trip: a PR number renders the landed suffix"}
+    mutation: {description: "gave the title a PR number"}
+  - name: landed-without-level
+    input:
+      title: {type: "chore", scopes: [], breaking: false, level: "none", subject: "bump the pins", pr: 7}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "chore: bump the pins (#7)"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "round trip: a quiet landed subject keeps its suffix"}
+    mutation: {description: "gave a never-release title a PR number"}
+  - name: quiet-repo
+    input:
+      title: {type: "feat", scopes: ["graph"], breaking: false, level: "none", subject: "add a facet", pr: 0}
+      current: ""
+      releases: false
+    expected: {text: "feat(graph): add a facet"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "round trip: a repo with releases off carries no bracket"}
+    mutation: {description: "turned releases off"}
+  - name: subject-with-syntax-marks
+    input:
+      title: {type: "fix", scopes: [], breaking: false, level: "patch", subject: "handle [x]: (y)! and #3 in text", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "fix[patch]: handle [x]: (y)! and #3 in text"}
+    classification: must-pass
+    provenance: {source: boundary, ref: "round trip: syntax marks inside the subject stay subject text"}
+    mutation: {description: "filled the subject with the grammar marks"}
+  - name: subject-with-inner-pr-mention
+    input:
+      title: {type: "fix", scopes: [], breaking: false, level: "patch", subject: "revert (#12) for now", pr: 40}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "fix[patch]: revert (#12) for now (#40)"}
+    classification: must-pass
+    provenance: {source: boundary, ref: "round trip: only the final suffix is the PR number"}
+    mutation: {description: "mentioned another PR inside the subject"}
+  - name: subject-unicode
+    input:
+      title: {type: "docs", scopes: [], breaking: false, level: "none", subject: "décrire la file d\u2019attente", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "docs: décrire la file d\u2019attente"}
+    classification: must-pass
+    provenance: {source: boundary, ref: "round trip: text outside ASCII survives unchanged"}
+    mutation: {description: "wrote the subject outside ASCII"}
+  - name: must-release-without-level
+    input:
+      title: {type: "feat", scopes: [], breaking: false, level: "none", subject: "ship the change", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "feat: ship the change", code: "missing-bump"}
+    classification: must-fail
+    sibling: feat-with-level
+    provenance: {source: boundary, ref: "round trip: a title the grammar refuses renders text the parser refuses"}
+    mutation: {description: "dropped the level from a must-release type"}
+  - name: never-release-with-level
+    input:
+      title: {type: "docs", scopes: [], breaking: false, level: "patch", subject: "tidy the notes", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "docs[patch]: tidy the notes", code: "bump-on-non-releasing"}
+    classification: must-fail
+    sibling: docs-plain
+    provenance: {source: boundary, ref: "round trip: a bracket on a never-release type does not come back"}
+    mutation: {description: "gave a never-release type a level"}
+  - name: major-without-break
+    input:
+      title: {type: "feat", scopes: [], breaking: false, level: "major", subject: "ship the change", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "feat[major]: ship the change", code: "bang-bump-mismatch"}
+    classification: must-fail
+    sibling: feat-with-level
+    provenance: {source: boundary, ref: "round trip: a major level with no break does not come back"}
+    mutation: {description: "raised the level to major with no break"}
+  - name: uppercase-scope
+    input:
+      title: {type: "feat", scopes: ["Graph"], breaking: false, level: "minor", subject: "ship the change", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "feat(Graph)[minor]: ship the change", code: "malformed"}
+    classification: must-fail
+    sibling: two-scopes
+    provenance: {source: boundary, ref: "round trip: a scope outside the scope grammar does not come back"}
+    mutation: {description: "capitalised the scope"}
+  - name: empty-subject
+    input:
+      title: {type: "feat", scopes: [], breaking: false, level: "minor", subject: "", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "feat[minor]: ", code: "malformed"}
+    classification: must-fail
+    sibling: feat-with-level
+    provenance: {source: boundary, ref: "round trip: an empty subject does not come back"}
+    mutation: {description: "emptied the subject"}
+  - name: subject-holding-a-landed-suffix
+    input:
+      title: {type: "fix", scopes: [], breaking: false, level: "patch", subject: "close the reader (#412)", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "fix[patch]: close the reader (#412)"}
+    classification: must-fail
+    sibling: landed-subject
+    provenance: {source: boundary, ref: "round trip: a suffix written into the subject reads back as the PR number, so this title is not one the parser returns"}
+    mutation: {description: "moved the PR number into the subject text"}
+  - name: subject-with-leading-space
+    input:
+      title: {type: "fix", scopes: [], breaking: false, level: "patch", subject: " close the reader", pr: 0}
+      current: "0.0.66"
+      releases: true
+    expected: {text: "fix[patch]:  close the reader", code: "malformed"}
+    classification: must-fail
+    sibling: fix-with-level
+    provenance: {source: boundary, ref: "round trip: a subject starts with text, not space"}
+    mutation: {description: "put a space before the subject"}

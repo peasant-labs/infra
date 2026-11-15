@@ -1,0 +1,169 @@
+name: Release
+
+# Tag-triggered publish: runs once for a release tag the release job already
+# pushed, behind the guard and gate jobs, and publishes the GitHub Release and
+# the package for that tag, each behind the job that verifies the tag. Only the publish job's default token may write,
+# and its credential steps each run one gh release command on the
+# triggering tag.
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    outputs:
+      kind: ${{ steps.parse.outputs.kind }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Parse + classify the tag
+        id: parse
+        run: go run ./cmd/release-guard parse-tag "$TAG"
+
+  contract-gates:
+    name: contract gates
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Determine prior release tag
+        id: prior
+        run: |
+          set -euo pipefail
+          prior="$(git describe --tags --abbrev=0 --match 'v*' --exclude 'v*-*' "${TAG}^" 2>/dev/null || true)"
+          echo "base_ref=${prior}" >> "$GITHUB_OUTPUT"
+      - name: Run contract gates
+        run: make gates BASE_REF="${{ steps.prior.outputs.base_ref }}"
+
+  verify:
+    name: verify the tag
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - id: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - id: tool
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: peasant-labs/infra
+          ref: 71e687cef7eede9a63659be98ce9adac3c563398
+          path: infra-tool
+          sparse-checkout: |
+            tools/release
+          persist-credentials: false
+      - id: go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+          cache: false
+      - id: build
+        env:
+          GOWORK: "off"
+        run: go build -C infra-tool/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent
+      - id: verify
+        run: |
+          "${RUNNER_TEMP}/release-intent" verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"
+
+  notes:
+    name: release notes
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Write the notes
+        run: |
+          mkdir -p notes
+          ./scripts/release-notes.sh "$TAG" > notes/notes.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-notes
+          path: notes
+
+  release:
+    name: publish GitHub Release
+    needs: [guard, contract-gates, notes, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-notes
+          path: notes
+      - name: Look for an existing Release
+        id: view
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
+      - name: Create the GitHub Release
+        if: steps.view.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes/notes.md --prerelease="$PRERELEASE"
+      - name: Mark the Release as latest
+        if: needs.guard.outputs.kind == 'final'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --latest
+
+  npm-publish:
+    name: publish npm package
+    needs: [guard, contract-gates, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Publish the package
+        run: pnpm --dir typescript publish --access public --no-git-checks

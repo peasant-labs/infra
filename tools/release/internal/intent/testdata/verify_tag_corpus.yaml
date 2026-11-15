@@ -1,0 +1,60 @@
+# Release-tag verification corpus: rows of intent.VerifyTag. The release
+# config rides in each input; reachable is the answer the command layer reads
+# from git (does the branch reach the tag's commit).
+required_names:
+  - release-tag-on-branch
+  - release-tag-off-branch
+  - other-prefix
+  - candidate-suffix
+  - prefix-only
+  - leading-text
+  - not-a-version
+cases:
+  - name: release-tag-on-branch
+    input: {config: {releases: true, tag_prefix: fairtrade-v, automation_author: bot, changelog: CHANGELOG.md}, check: {tag: fairtrade-v0.2.0, branch: refs/heads/main, reachable: true}}
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "verify-tag: a release tag on the default branch is published"}
+    mutation: {description: "the tag the release job pushes"}
+  - name: release-tag-off-branch
+    input: {config: {releases: true, tag_prefix: fairtrade-v, automation_author: bot, changelog: CHANGELOG.md}, check: {tag: fairtrade-v0.2.0, branch: refs/heads/main, reachable: false}}
+    expected: {code: "tag-unverified"}
+    classification: must-fail
+    sibling: release-tag-on-branch
+    provenance: {source: requirement, ref: "verify-tag: a tag whose commit is off the default branch is not published"}
+    mutation: {description: "pointed the release tag at a commit the branch does not reach"}
+  - name: other-prefix
+    input: {config: {releases: true, tag_prefix: fairtrade-v, automation_author: bot, changelog: CHANGELOG.md}, check: {tag: v0.2.0, branch: refs/heads/main, reachable: true}}
+    expected: {code: "tag-unverified"}
+    classification: must-fail
+    sibling: release-tag-on-branch
+    provenance: {source: requirement, ref: "verify-tag: the tag opens with the configured prefix"}
+    mutation: {description: "dropped the configured prefix"}
+  - name: candidate-suffix
+    input: {config: {releases: true, tag_prefix: fairtrade-v, automation_author: bot, changelog: CHANGELOG.md}, check: {tag: fairtrade-v0.2.0-rc1, branch: refs/heads/main, reachable: true}}
+    expected: {code: "tag-unverified"}
+    classification: must-fail
+    sibling: release-tag-on-branch
+    provenance: {source: requirement, ref: "verify-tag: the release job tags bare X.Y.Z versions only"}
+    mutation: {description: "added a release-candidate suffix"}
+  - name: prefix-only
+    input: {config: {releases: true, tag_prefix: fairtrade-v, automation_author: bot, changelog: CHANGELOG.md}, check: {tag: fairtrade-v, branch: refs/heads/main, reachable: true}}
+    expected: {code: "tag-unverified"}
+    classification: must-fail
+    sibling: release-tag-on-branch
+    provenance: {source: boundary, ref: "verify-tag: the prefix alone names no version"}
+    mutation: {description: "left the version out"}
+  - name: leading-text
+    input: {config: {releases: true, tag_prefix: fairtrade-v, automation_author: bot, changelog: CHANGELOG.md}, check: {tag: x-fairtrade-v0.2.0, branch: refs/heads/main, reachable: true}}
+    expected: {code: "tag-unverified"}
+    classification: must-fail
+    sibling: release-tag-on-branch
+    provenance: {source: boundary, ref: "verify-tag: nothing comes before the prefix"}
+    mutation: {description: "put text before the prefix"}
+  - name: not-a-version
+    input: {config: {releases: true, tag_prefix: fairtrade-v, automation_author: bot, changelog: CHANGELOG.md}, check: {tag: fairtrade-v0.2, branch: refs/heads/main, reachable: true}}
+    expected: {code: "tag-unverified"}
+    classification: must-fail
+    sibling: release-tag-on-branch
+    provenance: {source: boundary, ref: "verify-tag: the version is a full X.Y.Z"}
+    mutation: {description: "named a two-part version"}

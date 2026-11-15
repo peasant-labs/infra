@@ -1,0 +1,15 @@
+name: Contract
+on:
+  push:
+    branches: [develop]
+permissions:
+  contents: write
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create v0.1.0 --verify-tag generated/schema.json

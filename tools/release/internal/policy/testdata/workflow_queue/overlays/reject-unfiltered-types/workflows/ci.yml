@@ -1,0 +1,25 @@
+name: CI
+on:
+  pull_request:
+    types: [opened, reopened, labeled]
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  lib:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: make lib
+  merge-gate:
+    if: always()
+    needs: [lib]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: echo gate

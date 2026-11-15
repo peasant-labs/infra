@@ -1,0 +1,176 @@
+# The policy package's closed sets in their wire spelling. Each set lists its
+# exact members in canonical order and the names its parser must refuse: the
+# empty name, a name outside the set, and a member in the wrong case. The
+# refused names are the only raw invalid values; they exist to test the
+# boundary.
+#
+# required_names is the manifest: every set must be listed and every listed
+# set must exist.
+required_names:
+  - queue-rule
+  - github-event
+  - pull-request-action
+  - default-pull-request-actions
+  - permission-level
+  - permission-shorthand
+  - writable-scope
+  - allowed-action
+  - template-env
+  - credential-template
+  - action-input
+  - plumbing-template
+  - credential-job-class
+  - runner-label
+  - verify-step
+  - verify-action
+  - verify-input
+  - verify-env
+  - status-function
+sets:
+  - name: queue-rule
+    members:
+      - required-contexts
+      - merge-group-on-required-workflows
+      - required-workflows-concurrency-per-ref
+      - release-actions-gated
+      - title-guard-no-early-success
+      - range-readers-take-the-floor
+      - default-token-read-only
+      - credentials-stay-in-listed-jobs
+      - credential-jobs-use-pinned-actions
+      - credential-steps-run-one-template
+      - credential-jobs-run-no-general-steps
+      - tag-publish-verifies-the-tag
+      - release-tag-checked-before-push
+      - token-mint-ref-check
+      - required-workflows-unfiltered
+      - merge-gate-always-reports
+      - titles-never-interpolated
+      - cut-release-is-dispatch-only
+      - tool-pin-is-a-sha
+      - bot-branch-via-classify
+      - tool-calls-match-the-cli
+    refused: ["", "no-such-rule", "Required-Contexts"]
+
+  - name: github-event
+    members: [pull_request, merge_group, push, schedule, workflow_dispatch]
+    refused: ["", "workflow_run", "pull_request_target", "Push"]
+
+  - name: pull-request-action
+    members: [opened, synchronize, reopened, edited]
+    refused: ["", "labeled", "Opened"]
+
+  # The activity types GitHub runs on when a trigger names none: a subset of
+  # pull-request-action with no parser of its own.
+  - name: default-pull-request-actions
+    members: [opened, synchronize, reopened]
+    refused: []
+
+  - name: permission-level
+    members: [read, write, none]
+    refused: ["", "admin", "Read"]
+
+  - name: permission-shorthand
+    members: [read-all, write-all]
+    refused: ["", "none-all", "Read-All"]
+
+  # The scopes that may ever be write: id-token anywhere (OIDC publishing),
+  # contents only in the workflow that runs on a pushed release tag.
+  - name: writable-scope
+    members: [id-token, contents]
+    refused: ["", "pull-requests", "actions", "Contents"]
+
+  # The actions a job that may hold a credential may use, each pinned to a
+  # commit: check out, download what an earlier job prepared, mint. Setup
+  # actions, uploads and actions/github-script are refused there: each runs
+  # code the checker cannot read with the credential in reach.
+  - name: allowed-action
+    members:
+      - actions/checkout
+      - actions/download-artifact
+      - actions/create-github-app-token
+    refused: ["", "actions/github-script", "actions/setup-go", "actions/upload-artifact", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
+
+  # The with: inputs those actions may take in such a job.
+  - name: action-input
+    members:
+      - persist-credentials
+      - fetch-depth
+      - fetch-tags
+      - name
+      - path
+      - app-id
+      - client-id
+      - private-key
+      - owner
+      - repositories
+      - permission-contents
+      - permission-pull-requests
+    refused: ["", "ref", "token", "repository", "run-id", "github-token", "github-api-url", "Path"]
+
+  # The env names a credential step may carry: three credential carriers and
+  # the values the templates' typed parts read.
+  - name: template-env
+    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, TITLE, BODY, PRERELEASE, LATEST]
+    refused: ["", "PR_NUMBER", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "NODE_OPTIONS", "CANDIDATE", "gh_token"]
+
+  - name: credential-template
+    members:
+      - push-own-branch
+      - push-release-tag
+      - pr-create
+      - pr-edit
+      - pr-close
+      - pr-merge
+      - merge-queue-read
+      - release-view
+      - release-edit
+      - release-create
+    refused: ["", "push", "gh-api", "Push-Own-Branch"]
+
+  # The commands a job that may hold a credential may run without one: move
+  # what an earlier job bundled into the local repository.
+  - name: plumbing-template
+    members: [fetch-bundle-branch, fetch-bundle-tag, check-tag-ancestor]
+    refused: ["", "fetch", "git-config", "Fetch-Bundle-Branch"]
+
+  # Why a job may hold a credential; it has no parser of its own.
+  - name: credential-job-class
+    members: [release job, bot job, tag-triggered publish job]
+    refused: []
+
+  # The GitHub-hosted labels a job that may hold a credential may run on:
+  # a fresh machine per job. self-hosted and other images are refused.
+  - name: runner-label
+    members: [ubuntu-latest, ubuntu-24.04, ubuntu-22.04]
+    refused: ["", "self-hosted", "linux", "macos-latest", "Ubuntu-Latest"]
+
+  # The steps a tag-verify job may run, each in one fixed shape.
+  - name: verify-step
+    members: [repo-checkout, tool-checkout, setup-go, build, verify]
+    refused: ["", "upload", "cache", "Build", "run"]
+
+  # The actions a tag-verify job may use. Every other action, the cache and
+  # a script action included, runs code before the verify step.
+  - name: verify-action
+    members: [actions/checkout, actions/setup-go]
+    refused: ["", "actions/cache", "actions/github-script", "actions/download-artifact", "actions/setup-go@v5", "Actions/Checkout"]
+
+  # The inputs a tag-verify job's actions may take. token, ssh-key, clean,
+  # submodules and the setup-go cache path are refused.
+  - name: verify-input
+    members: [persist-credentials, fetch-depth, fetch-tags, repository, ref, path, sparse-checkout, go-version-file, cache]
+    refused: ["", "token", "ssh-key", "submodules", "clean", "cache-dependency-path", "go-version", "Ref"]
+
+  # The env names a tag-verify job may carry. PATH, BASH_ENV, GOFLAGS and
+  # GOTOOLCHAIN could change which binary runs or what the build compiles.
+  - name: verify-env
+    members: [DEFAULT_BRANCH, GOWORK]
+    refused: ["", "PATH", "BASH_ENV", "GOFLAGS", "GOTOOLCHAIN", "GOPROXY", "RUNNER_TEMP", "GITHUB_REF_NAME", "gowork"]
+
+  # The status check functions GitHub allows in an if conditional. A
+  # conditional that calls one drops GitHub's implicit success() check, so
+  # each has to be read, whatever the spelling.
+  - name: status-function
+    members: [success, failure, always, cancelled]
+    refused: ["", "skipped", "Success", "canceled"]

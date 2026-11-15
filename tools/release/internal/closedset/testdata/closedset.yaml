@@ -1,0 +1,88 @@
+# The closed-set rule over one sample set. The members are the sample set in
+# canonical order; the rule is generic, so the sample stands in for every
+# closed set in the module.
+#
+# Parse cases: a must-pass case names the member raw parses to. A must-fail
+# case names its accept sibling, differs from it only in raw, and names the
+# What and Fix the refusal must carry; Where, When and Means always come from
+# the context below, unchanged.
+#
+# Join cases: the members in the given order, joined by sep.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - parse-first-member
+  - parse-last-member
+  - parse-unknown
+  - parse-empty
+  - parse-wrong-case
+  - parse-padded
+  - join-comma
+  - join-alternatives
+  - join-one
+  - join-none
+members: [alpha, beta, gamma]
+context:
+  set: sample
+  where: closedset_test.parseSample
+  when: parsing a sample value
+  means: no sample decision can be made from this value
+parse:
+  - name: parse-first-member
+    classification: must-pass
+    raw: alpha
+    want: alpha
+
+  - name: parse-last-member
+    classification: must-pass
+    raw: gamma
+    want: gamma
+
+  - name: parse-unknown
+    classification: must-fail
+    sibling: parse-first-member
+    raw: delta
+    want_what: unknown sample "delta"
+    want_fix: use one of alpha, beta, gamma
+
+  - name: parse-empty
+    classification: must-fail
+    sibling: parse-first-member
+    raw: ""
+    want_what: unknown sample ""
+    want_fix: use one of alpha, beta, gamma
+
+  - name: parse-wrong-case
+    classification: must-fail
+    sibling: parse-first-member
+    raw: Alpha
+    want_what: unknown sample "Alpha"
+    want_fix: use one of alpha, beta, gamma
+
+  - name: parse-padded
+    classification: must-fail
+    sibling: parse-first-member
+    raw: " alpha"
+    want_what: unknown sample " alpha"
+    want_fix: use one of alpha, beta, gamma
+join:
+  - name: join-comma
+    members: [alpha, beta, gamma]
+    sep: ", "
+    want: alpha, beta, gamma
+
+  - name: join-alternatives
+    members: [gamma, alpha]
+    sep: " or "
+    want: gamma or alpha
+
+  - name: join-one
+    members: [beta]
+    sep: ", "
+    want: beta
+
+  - name: join-none
+    members: []
+    sep: ", "
+    want: ""

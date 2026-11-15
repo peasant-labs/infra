@@ -1,0 +1,121 @@
+# Type-class corpus: rows of intent.Type.Class. Every known type names its
+# class; a reject row carries a type outside the closed set, which must have
+# no class at all.
+required_names:
+  - feat-is-must-release
+  - fix-is-must-release
+  - release-is-must-release
+  - refactor-is-may-release
+  - perf-is-may-release
+  - build-is-may-release
+  - revert-is-may-release
+  - docs-is-never-release
+  - test-is-never-release
+  - ci-is-never-release
+  - chore-is-never-release
+  - style-is-never-release
+  - unclassed-unknown-word
+  - unclassed-empty
+  - unclassed-wrong-case
+  - unclassed-padded
+cases:
+  - name: feat-is-must-release
+    input: {type: "feat"}
+    expected: {class: "must-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the feat type"}
+  - name: fix-is-must-release
+    input: {type: "fix"}
+    expected: {class: "must-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the fix type"}
+  - name: release-is-must-release
+    input: {type: "release"}
+    expected: {class: "must-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the release type"}
+  - name: refactor-is-may-release
+    input: {type: "refactor"}
+    expected: {class: "may-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the refactor type"}
+  - name: perf-is-may-release
+    input: {type: "perf"}
+    expected: {class: "may-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the perf type"}
+  - name: build-is-may-release
+    input: {type: "build"}
+    expected: {class: "may-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the build type"}
+  - name: revert-is-may-release
+    input: {type: "revert"}
+    expected: {class: "may-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the revert type"}
+  - name: docs-is-never-release
+    input: {type: "docs"}
+    expected: {class: "never-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the docs type"}
+  - name: test-is-never-release
+    input: {type: "test"}
+    expected: {class: "never-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the test type"}
+  - name: ci-is-never-release
+    input: {type: "ci"}
+    expected: {class: "never-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the ci type"}
+  - name: chore-is-never-release
+    input: {type: "chore"}
+    expected: {class: "never-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the chore type"}
+  - name: style-is-never-release
+    input: {type: "style"}
+    expected: {class: "never-release"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllTypes"}
+    mutation: {description: "the style type"}
+  - name: unclassed-unknown-word
+    input: {type: "deploy"}
+    expected: {}
+    classification: must-fail
+    sibling: chore-is-never-release
+    provenance: {source: boundary, ref: "type class: a word outside the closed set has no class"}
+    mutation: {description: "used a type word no member holds"}
+  - name: unclassed-empty
+    input: {type: ""}
+    expected: {}
+    classification: must-fail
+    sibling: chore-is-never-release
+    provenance: {source: boundary, ref: "type class: the zero type has no class, never the never-release class"}
+    mutation: {description: "emptied the type"}
+  - name: unclassed-wrong-case
+    input: {type: "Docs"}
+    expected: {}
+    classification: must-fail
+    sibling: chore-is-never-release
+    provenance: {source: boundary, ref: "type class: spelling is exact, so a capitalised never-release type has no class"}
+    mutation: {description: "capitalised a never-release type"}
+  - name: unclassed-padded
+    input: {type: "chore "}
+    expected: {}
+    classification: must-fail
+    sibling: chore-is-never-release
+    provenance: {source: boundary, ref: "type class: surrounding space is not trimmed into a member"}
+    mutation: {description: "put a space after a never-release type"}

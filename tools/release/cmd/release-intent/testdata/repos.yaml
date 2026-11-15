@@ -1,0 +1,78 @@
+# Release configs the temp-repo builder builds test repositories from. Every
+# path, field, branch and tag prefix a test touches is read from the config
+# its repository was built with; no test spells one itself.
+#
+# trunk is the branch every test repository starts on. seed_version is the
+# version the first commit carries and its tag names.
+trunk: master
+seed_version: 0.1.0
+changelog_title: "# changelog\n"
+required_names:
+  - standard
+  - all-bots
+  - release-on-work-branch
+  - unprotected
+  - protected-file
+repos:
+  - name: standard
+    purpose: One version file, one release bot branch, no extra protected paths.
+    config: |
+      releases: true
+      tag_prefix: v
+      automation_author: peasant-labs-releaser[bot]
+      changelog: CHANGELOG.md
+      version_files:
+        - {path: package.json, field: version}
+      protected_paths: []
+      bot_branches:
+        release: automation/release
+  - name: all-bots
+    purpose: Every bot PR kind has its own head branch.
+    config: |
+      releases: true
+      tag_prefix: v
+      automation_author: peasant-labs-releaser[bot]
+      changelog: CHANGELOG.md
+      version_files:
+        - {path: package.json, field: version}
+      protected_paths: []
+      bot_branches:
+        release: automation/release
+        vendor-hash: automation/vendor-hash
+        cut-release: automation/cut-release
+  - name: release-on-work-branch
+    purpose: A head-side edit that maps the release kind onto another branch under the bot prefix.
+    config: |
+      releases: true
+      tag_prefix: v
+      automation_author: peasant-labs-releaser[bot]
+      changelog: CHANGELOG.md
+      version_files:
+        - {path: package.json, field: version}
+      protected_paths: []
+      bot_branches:
+        release: automation/work
+  - name: unprotected
+    purpose: A head-side edit that drops the version-file protection.
+    config: |
+      releases: true
+      tag_prefix: v
+      automation_author: peasant-labs-releaser[bot]
+      changelog: CHANGELOG.md
+      version_files: []
+      protected_paths: []
+      bot_branches:
+        release: automation/release
+  - name: protected-file
+    purpose: One whole-file protected path beside the version file.
+    config: |
+      releases: true
+      tag_prefix: v
+      automation_author: peasant-labs-releaser[bot]
+      changelog: CHANGELOG.md
+      version_files:
+        - {path: package.json, field: version}
+      protected_paths:
+        - docs/release-notes.md
+      bot_branches:
+        release: automation/release

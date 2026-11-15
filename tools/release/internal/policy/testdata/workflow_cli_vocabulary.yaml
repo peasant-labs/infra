@@ -1,0 +1,147 @@
+# Release tool invocations as workflows write them, checked by the
+# tool-calls-match-the-cli reader against the shared CLI vocabulary. problems
+# lists what the rule reports, in order; an empty list is an accepted call.
+# Every reject names an accepting sibling. Each command has an accepted call
+# with exactly its required flags, and each command with a required flag has
+# a reject that drops one.
+#
+# required_names is the manifest: every case must be listed and every listed
+# case must exist.
+required_names:
+  - accept-check-config
+  - accept-check-workflows
+  - accept-check-title
+  - accept-classify
+  - accept-group-pr
+  - accept-plan
+  - accept-release-pr
+  - accept-queue-gate
+  - accept-verify-tag
+  - accept-expression-value
+  - accept-separated-invocations
+  - accept-attached-separator
+  - accept-substitution
+  - accept-wrapped-path
+  - reject-check-config-foreign-flag
+  - reject-check-workflows-missing-dir
+  - reject-check-title-missing-head-branch
+  - reject-classify-missing-rev
+  - reject-group-pr-missing-ref
+  - reject-plan-missing-mode
+  - reject-release-pr-missing-branch
+  - reject-queue-gate-missing-release-pr
+  - reject-verify-tag-missing-branch
+  - reject-equals-form
+  - reject-substitution-missing-rev
+  - reject-command-typo
+  - reject-flag-typo
+  - reject-second-invocation-flag
+  - reject-attached-second-command
+  - reject-missing-command
+cases:
+  - name: accept-check-config
+    run: release-intent check-config
+    problems: []
+  - name: accept-check-workflows
+    run: release-intent check-workflows --dir .github/workflows
+    problems: []
+  - name: accept-check-title
+    run: release-intent check-title --base a --head b --author c --head-branch d
+    problems: []
+  - name: accept-classify
+    run: release-intent classify --author a --head-branch b --rev c
+    problems: []
+  - name: accept-group-pr
+    run: release-intent group-pr --ref ref
+    problems: []
+  - name: accept-plan
+    run: release-intent plan --branch main --mode tag
+    problems: []
+  - name: accept-release-pr
+    run: release-intent release-pr --branch main
+    problems: []
+  - name: accept-queue-gate
+    run: release-intent queue-gate --queue queue.json --release-pr 7
+    problems: []
+  - name: accept-verify-tag
+    run: release-intent verify-tag --tag "${GITHUB_REF_NAME}" --branch origin/main
+    problems: []
+  - name: accept-expression-value
+    run: release-intent plan --branch main --mode "${{ vars.RELEASE_BATCH_MODE }}" --verdict ${{ steps.verify.outcome == 'success' && 'taggable' || 'rejected' }}
+    problems: []
+  - name: accept-separated-invocations
+    run: release-intent group-pr --ref ref && release-intent check-config --config config.yaml
+    problems: []
+  - name: accept-attached-separator
+    run: release-intent group-pr --ref ref;release-intent check-config --config config.yaml
+    problems: []
+  - name: accept-substitution
+    run: classified="$(release-intent classify --author "${AUTHOR}" --head-branch "$(printf '%s' "${payload}" | jq -r .headRefName)" --rev "${BASE}")"
+    problems: []
+  - name: accept-wrapped-path
+    run: env MODE=tag "${RUNNER_TEMP}/release-intent" group-pr --ref ref | tee -a "${GITHUB_STEP_SUMMARY}"
+    problems: []
+  - name: reject-check-config-foreign-flag
+    run: release-intent check-config --dir .github/workflows
+    problems: ['flag "--dir" does not apply to check-config']
+    sibling: accept-check-config
+  - name: reject-check-workflows-missing-dir
+    run: release-intent check-workflows --print-required
+    problems: ['missing required flag "--dir"']
+    sibling: accept-check-workflows
+  - name: reject-check-title-missing-head-branch
+    run: release-intent check-title --base a --head b --author c
+    problems: ['missing required flag "--head-branch"']
+    sibling: accept-check-title
+  - name: reject-classify-missing-rev
+    run: release-intent classify --author a --head-branch b
+    problems: ['missing required flag "--rev"']
+    sibling: accept-classify
+  - name: reject-group-pr-missing-ref
+    run: release-intent group-pr
+    problems: ['missing required flag "--ref"']
+    sibling: accept-group-pr
+  - name: reject-plan-missing-mode
+    run: release-intent plan --branch main
+    problems: ['missing required flag "--mode"']
+    sibling: accept-plan
+  - name: reject-release-pr-missing-branch
+    run: release-intent release-pr --write
+    problems: ['missing required flag "--branch"']
+    sibling: accept-release-pr
+  - name: reject-queue-gate-missing-release-pr
+    run: release-intent queue-gate --queue queue.json
+    problems: ['missing required flag "--release-pr"']
+    sibling: accept-queue-gate
+  - name: reject-verify-tag-missing-branch
+    run: release-intent verify-tag --tag "${GITHUB_REF_NAME}"
+    problems: ['missing required flag "--branch"']
+    sibling: accept-verify-tag
+  - name: reject-equals-form
+    run: release-intent group-pr --ref=ref
+    problems: ['unknown flag "--ref=ref"', 'missing required flag "--ref"']
+    sibling: accept-group-pr
+  - name: reject-substitution-missing-rev
+    run: classified="$(release-intent classify --author "${AUTHOR}" --head-branch "$(printf '%s' "${payload}" | jq -r .headRefName)")"
+    problems: ['missing required flag "--rev"']
+    sibling: accept-substitution
+  - name: reject-command-typo
+    run: release-intent group-pull --ref ref
+    problems: ['unknown command "group-pull"']
+    sibling: accept-group-pr
+  - name: reject-flag-typo
+    run: release-intent group-pr --refs ref
+    problems: ['unknown flag "--refs"', 'missing required flag "--ref"']
+    sibling: accept-group-pr
+  - name: reject-second-invocation-flag
+    run: release-intent group-pr --ref ref && release-intent check-config --configs config.yaml
+    problems: ['unknown flag "--configs"']
+    sibling: accept-separated-invocations
+  - name: reject-attached-second-command
+    run: release-intent group-pr --ref ref;release-intent check-confg --config config.yaml
+    problems: ['unknown command "check-confg"']
+    sibling: accept-attached-separator
+  - name: reject-missing-command
+    run: release-intent
+    problems: ['missing command']
+    sibling: accept-group-pr
