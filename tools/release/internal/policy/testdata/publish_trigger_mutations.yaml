@@ -1,5 +1,6 @@
 # Original Fairtrade files are retained byte-for-byte; preparation adapts only the older
-# verifier and release guard to the current policy before the isolated mutation.
+# verifier, release guard and push authentication to the current policy before
+# the isolated mutation.
 repository: "https://github.com/peasant-labs/fairtrade-design-system"
 commit: "1da19970ce24a0ca5a993a8f3ee6a0a4879cbf4a"
 source:
@@ -46,6 +47,15 @@ preparation:
   - file: ".github/workflows/release-batch.yml"
     find: "      - name: Tag the fresh release candidate\n"
     replace: "      - name: Check the release tag is on the run commit\n        id: check-tag\n        if: needs.plan.outputs.tag-action == 'tag'\n        env:\n          TAG: ${{ needs.plan.outputs.tag }}\n        run: git merge-base --is-ancestor \"refs/tags/${TAG}\" \"${GITHUB_SHA}\"\n\n      - name: Tag the fresh release candidate\n"
+  - file: ".github/workflows/release-batch.yml"
+    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
+    replace: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push origin \"refs/tags/${TAG}:refs/tags/${TAG}\""
+  - file: ".github/workflows/release-batch.yml"
+    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    replace: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
+  - file: ".github/workflows/cut-release.yml"
+    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/cut-release"
+    replace: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/cut-release"
 required_names:
   - baseline-real-pilot-confined
   - explicit-tag-without-verifier
