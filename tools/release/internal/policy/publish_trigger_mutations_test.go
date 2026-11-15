@@ -97,7 +97,7 @@ func materializePilot(t *testing.T, preparation []pilotEdit) string {
 
 // TestPublishTriggerMutations tests the actual directory checker, not a
 // standalone trigger helper. Preparation adapts only the real pilot's older
-// verifier and release boundary to today's pre-existing confinement policy;
+// verifier, release boundary and push authentication to today's confinement policy;
 // each row then mutates that checked consumer copy.
 func TestPublishTriggerMutations(t *testing.T) {
 	data, err := publishTriggerFixtures.ReadFile("testdata/publish_trigger_mutations.yaml")

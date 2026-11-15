@@ -143,7 +143,7 @@ jobs:
           APP_TOKEN: ${{ steps.mint.outputs.token }}
           TAG: ${{ needs.plan.outputs.tag }}
         run: |
-          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          git -c credential.helper='!f() { echo "username=x-access-token"; echo "password=${APP_TOKEN}"; }; f' push origin "refs/tags/${TAG}:refs/tags/${TAG}"
       - id: fetch-branch
         if: "!cancelled() && needs.plan.outputs.action == 'open-pr' && needs.plan.outputs.push == 'true'"
         run: git fetch --no-tags bundles/release.bundle automation/release:automation/release
@@ -152,7 +152,7 @@ jobs:
         env:
           APP_TOKEN: ${{ steps.mint.outputs.token }}
         run: |
-          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push --force-with-lease origin automation/release
+          git -c credential.helper='!f() { echo "username=x-access-token"; echo "password=${APP_TOKEN}"; }; f' push --force-with-lease origin automation/release
       - id: open
         if: "!cancelled() && needs.plan.outputs.action == 'open-pr' && needs.plan.outputs.push && needs.plan.outputs.number == ''"
         env:

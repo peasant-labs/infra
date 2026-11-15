@@ -1,9 +1,14 @@
 package policy
 
 import (
+	"context"
 	_ "embed"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -29,6 +34,66 @@ type credentialCommandCase struct {
 	Template string            `yaml:"template"`
 	Fault    string            `yaml:"fault"`
 	Sibling  string            `yaml:"sibling"`
+}
+
+// TestPushHelperUsesGitCredentials exercises Git's credential protocol with
+// synthetic data and no network. The command prefix comes from the same
+// fixture checked by the production matcher; only push is replaced by
+// "credential fill" so Git invokes the actual helper without a remote.
+func TestPushHelperUsesGitCredentials(t *testing.T) {
+	var fx struct {
+		RequiredNames []string                `yaml:"required_names"`
+		Cases         []credentialCommandCase `yaml:"cases"`
+	}
+	if err := strictUnmarshal(credentialCommandsFixtureYAML, &fx); err != nil {
+		t.Fatal(err)
+	}
+	var command string
+	for _, tc := range fx.Cases {
+		if tc.Name == "accept-push-helper-branch" {
+			command = tc.Run
+			break
+		}
+	}
+	if command == "" {
+		t.Fatal("push helper fixture missing")
+	}
+	step := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+		{Kind: yaml.ScalarNode, Value: "run"},
+		{Kind: yaml.ScalarNode, Value: command},
+	}}
+	words, why := singleCommand(nil, nil, step)
+	if why != "" || len(words) != 7 || literalAt(words, 3) != gitPush {
+		t.Fatalf("push is not one seven-word command: %v, %s", words, why)
+	}
+	prefix, _, found := strings.Cut(command, " push ")
+	if !found {
+		t.Fatal("fixture has no push boundary")
+	}
+	const token = `dummy-$(printf injected)-"quoted";!`
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", prefix+" credential fill")
+	cmd.Dir = dir
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + dir,
+		"XDG_CONFIG_HOME=" + filepath.Join(dir, "config"),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_TERMINAL_PROMPT=0",
+		"APP_TOKEN=" + token,
+	}
+	cmd.Stdin = strings.NewReader("protocol=https\nhost=github.com\n\n")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git credential fill failed: %v: %s", err, output)
+	}
+	want := "protocol=https\nhost=github.com\nusername=x-access-token\npassword=" + token + "\n"
+	if string(output) != want {
+		t.Fatalf("git credential fill = %q; want %q", output, want)
+	}
 }
 
 // credentialCommandsDoc is the workflow every row's job sits in: a planning

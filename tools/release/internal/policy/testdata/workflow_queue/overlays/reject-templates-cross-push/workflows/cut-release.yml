@@ -56,7 +56,7 @@ jobs:
         env:
           APP_TOKEN: ${{ steps.mint.outputs.token }}
         run: |
-          git -c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}" push --force origin automation/release
+          git -c credential.helper='!f() { echo "username=x-access-token"; echo "password=${APP_TOKEN}"; }; f' push --force origin automation/release
       - id: open
         if: vars.RELEASE_BATCH_MODE == 'tag'
         env:

@@ -153,9 +153,9 @@ plan (no credential)                    release (credential), needs: [plan]
   release-pr --commit                     download-artifact name: release-bundles, path: bundles
   git tag -a <tag>                        create-github-app-token
   git bundle create bundles/*.bundle      git fetch bundles/tag.bundle "refs/tags/${TAG}:refs/tags/${TAG}"
-  read the merge queue, queue-gate        git -c http.extraheader=... push origin "refs/tags/${TAG}:refs/tags/${TAG}"
+  read the merge queue, queue-gate        git -c <fixed credential helper> push origin "refs/tags/${TAG}:refs/tags/${TAG}"
   upload-artifact release-bundles         git fetch bundles/release.bundle automation/release:automation/release
-  outputs: tag, action, push, gate, ...   git -c http.extraheader=... push --force origin automation/release
+  outputs: tag, action, push, gate, ...   git -c <fixed credential helper> push --force origin automation/release
                                           gh pr create | edit | merge | close  -- automation/release
 ```
 
@@ -329,8 +329,8 @@ operator step per repository; it does not replace any check above.
 
 | credential template | command |
 |---|---|
-| `push-own-branch` | `git [-c http.extraheader="AUTHORIZATION: bearer ${APP_TOKEN}"] push [--force-with-lease\|--force] [--no-verify] origin <own bot branch \| HEAD:<own bot branch>>` |
-| `push-release-tag` (release job) | `git [-c http.extraheader=...] push origin "refs/tags/${TAG}:refs/tags/${TAG}"` |
+| `push-own-branch` | `git [-c <fixed credential helper>] push [--force-with-lease\|--force] [--no-verify] origin <own bot branch \| HEAD:<own bot branch>>` |
+| `push-release-tag` (release job) | `git [-c <fixed credential helper>] push origin "refs/tags/${TAG}:refs/tags/${TAG}"` |
 | `pr-create` | `gh pr create --head <own bot branch> [--base <branch>] [--title <text>] [--body <text>]` |
 | `pr-edit`, `pr-close` | `gh pr edit\|close [--title\|--body\|--comment <text>] [--] <own bot branch>` |
 | `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) [--] <own bot branch>`; in the release job only in the arm and hold steps |
@@ -339,6 +339,13 @@ operator step per repository; it does not replace any check above.
 
 The variable parts are typed:
 
+- For GitHub App installation tokens, `<fixed credential helper>` is exactly
+  `credential.helper='!f() { echo "username=x-access-token"; echo "password=${APP_TOKEN}"; }; f'`,
+  with `APP_TOKEN` mapped to the minted token in the step env. The single
+  quotes keep the token out of Git's argument vector and persistent config;
+  Git invokes the helper for its HTTP Basic credentials. The `-c` option is
+  optional, but when present only this helper is accepted: a bearer
+  `http.extraheader` is not a Git push template.
 - `TAG` is mapped from the planner's `tag` output: `steps.<plan>.outputs.tag`,
   or a `needs.<job>.outputs.<name>` that job maps from it. In the publish
   workflow it is mapped from `${{ github.ref_name }}`, or the command reads
@@ -355,7 +362,8 @@ No run text in such a job holds a `${{ }}` expression: an expression is
 pasted into the script before the shell runs, so a value from the planning job
 could end a quote and add a command. A second line, a separator, a pipe, a
 substitution, a here-document, an interpreter or a repository script is
-refused.
+refused. The helper's fixed single-quoted literal is the sole permitted
+shell-valued Git config, not permission to run general shell code.
 
 Bot branches sit under `automation/`, which the release config enforces, so no
 bot branch can name the default branch.

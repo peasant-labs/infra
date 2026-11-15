@@ -61,6 +61,9 @@ required_names:
   - release-tag-to-branch
   - release-tag-single-sided
   - release-git-config-option
+  - release-helper-other-env
+  - release-helper-command-injection
+  - release-helper-bearer-header
   - release-git-directory-option
   - release-in-substitution
   - release-in-bash-c
@@ -338,98 +341,116 @@ cases:
     want_contains: ["is not \"refs/tags/${TAG}:refs/tags/${TAG}\""]
   - name: release-git-config-option
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "git -c remote.origin.url=https://example.invalid/fork push --force-with-lease origin automation/release"
     rules: [credential-steps-run-one-template]
-    want_contains: ["is not the authorization header"]
+    want_contains: ["is not the fixed credential helper"]
+  - name: release-helper-other-env
+    workflow: release-batch.yml
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
+    replace: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${GH_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
+    rules: [credential-steps-run-one-template]
+    want_contains: ["is not the fixed credential helper"]
+  - name: release-helper-command-injection
+    workflow: release-batch.yml
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
+    replace: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; cat /etc/passwd; }; f' push --force-with-lease origin automation/release"
+    rules: [credential-steps-run-one-template]
+    want_contains: ["is not the fixed credential helper"]
+  - name: release-helper-bearer-header
+    workflow: release-batch.yml
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
+    replace: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    rules: [credential-steps-run-one-template]
+    want_contains: ["is not the fixed credential helper"]
   - name: release-git-directory-option
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "git -C . push --force-with-lease origin main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the command is none of the credential templates"]
   - name: release-in-substitution
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "out=\"$(git push --force-with-lease origin main)\""
     rules: [credential-steps-run-one-template]
     want_contains: ["it uses a '$' form other than $NAME"]
   - name: release-in-bash-c
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "bash -c \"git push --force-with-lease origin main\""
     rules: [credential-steps-run-one-template]
     want_contains: ["the command is none of the credential templates"]
   - name: release-variable-command-word
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "G=git; $G push origin HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["it holds \";\" outside quotes"]
   - name: release-quoted-variable-command
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "\"${GITBIN}\" push origin HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["the command is none of the credential templates"]
   - name: release-braced-default-command
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "${GIT:-git} push origin HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["it uses '$' outside double quotes"]
   - name: release-substitution-command-word
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "$(echo git) push origin HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["it uses '$' outside double quotes"]
   - name: release-pipe-into-bash
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "echo \"git push origin HEAD:main\" | bash"
     rules: [credential-steps-run-one-template]
     want_contains: ["it holds \"|\" outside quotes"]
   - name: release-heredoc-into-bash
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "bash <<'SH'\n          git push origin HEAD:main\n          SH"
     rules: [credential-steps-run-one-template]
     want_contains: ["it holds \"<\" outside quotes"]
   - name: release-python
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "python3 -c \"import os; os.system('git push origin HEAD:main')\""
     rules: [credential-steps-run-one-template]
     want_contains: ["the command is none of the credential templates"]
   - name: release-node
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "node -e \"require('child_process').execSync('git push origin HEAD:main')\""
     rules: [credential-steps-run-one-template]
     want_contains: ["the command is none of the credential templates"]
   - name: release-perl
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "perl -e 'system(\"git push origin HEAD:main\")'"
     rules: [credential-steps-run-one-template]
     want_contains: ["the command is none of the credential templates"]
   - name: release-repo-script
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "./scripts/push.sh"
     rules: [credential-steps-run-one-template]
     want_contains: ["the command is none of the credential templates"]
   - name: release-bash-script
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     replace: "bash scripts/push.sh"
     rules: [credential-steps-run-one-template]
     want_contains: ["the command is none of the credential templates"]
   - name: release-chained-push
     workflow: release-batch.yml
-    find: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
-    replace: "git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release && git push origin HEAD:main"
+    find: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
+    replace: "git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release && git push origin HEAD:main"
     rules: [credential-steps-run-one-template]
     want_contains: ["it holds \"&\" outside quotes"]
   - name: release-github-script
@@ -440,14 +461,14 @@ cases:
     want_contains: ["uses \"actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea\", which is not an allowed action", "reads steps.mint (the minted App token) in with"]
   - name: release-env-bash-env
     workflow: release-batch.yml
-    find: "          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
-    replace: "          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          BASH_ENV: ./scripts/push.sh\n        run: |\n          git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
+    replace: "          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          BASH_ENV: ./scripts/push.sh\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     rules: [credential-steps-run-one-template]
     want_contains: ["its env sets BASH_ENV"]
   - name: release-shell-override
     workflow: release-batch.yml
-    find: "          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
-    replace: "          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        shell: python {0}\n        run: |\n          git -c http.extraheader=\"AUTHORIZATION: bearer ${APP_TOKEN}\" push --force-with-lease origin automation/release"
+    find: "          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
+    replace: "          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        shell: python {0}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease origin automation/release"
     rules: [credential-steps-run-one-template]
     want_contains: ["runs under shell \"python {0}\""]
   - name: release-merge-admin

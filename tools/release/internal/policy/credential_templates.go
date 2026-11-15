@@ -78,9 +78,9 @@ func ParseCredentialTemplate(raw string) (CredentialTemplate, error) {
 func (t CredentialTemplate) Shape() string {
 	switch t {
 	case TemplatePushOwnBranch:
-		return `git [-c http.extraheader="AUTHORIZATION: bearer ${` + TemplateEnvAppToken.String() + `}"] push [--force-with-lease|--force] [--no-verify] origin <own bot branch | HEAD:<own bot branch>>`
+		return `git [-c ` + gitCredentialHelper + `] push [--force-with-lease|--force] [--no-verify] origin <own bot branch | HEAD:<own bot branch>>`
 	case TemplatePushReleaseTag:
-		return `git [-c http.extraheader="AUTHORIZATION: bearer ${` + TemplateEnvAppToken.String() + `}"] push origin "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}:` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}"`
+		return `git [-c ` + gitCredentialHelper + `] push origin "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}:` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}"`
 	case TemplatePRCreate:
 		return `gh pr create --head <own bot branch> [--base <branch>] [--title <text>] [--body <text>]`
 	case TemplatePREdit:
@@ -197,8 +197,6 @@ const (
 	gitIsAncestor     = "--is-ancestor"
 	gitRemote         = "origin"
 	headRef           = "HEAD"
-	authHeaderKey     = "http.extraheader="
-	authHeaderValue   = "authorization: bearer "
 	ghPR              = "pr"
 	ghAPI             = "api"
 	ghGraphQL         = "graphql"
@@ -222,6 +220,14 @@ const (
 	bundleSuffix      = ".bundle"
 	triggeringRefName = "github.ref_name"
 )
+
+// gitCredentialHelper is the only accepted git -c value. The outer shell
+// passes this single-quoted script literally to Git; Git's credential
+// protocol invokes it later and it reads the App token from the environment.
+// Exact spelling matters: treating a shell-valued config as general text
+// would let it execute arbitrary commands in a credential-bearing job.
+const gitCredentialHelper = `credential.helper='!f() { echo "username=x-access-token"; echo "password=${` +
+	string(TemplateEnvAppToken) + `}"; }; f'`
 
 // literalAt returns the literal text of word i, or "".
 func literalAt(words []templateWord, i int) string {
@@ -406,12 +412,12 @@ func (s templateStep) matchCheckTag(words []templateWord) string {
 	return s.plannerOutput(TemplateEnvTag, intent.OutputTag)
 }
 
-// matchPush checks a git push: the optional authorization header, the
+// matchPush checks a git push: the optional fixed credential helper, the
 // switches, the remote, and the one refspec.
 func (s templateStep) matchPush(words []templateWord, tmpl CredentialTemplate) string {
 	i := 1
 	if literalAt(words, 1) == gitConfigOption {
-		if why := s.authHeader(words[2]); why != "" {
+		if why := s.credentialHelper(words[2]); why != "" {
 			return why
 		}
 		i = 3
@@ -460,22 +466,15 @@ func (s templateStep) matchPush(words []templateWord, tmpl CredentialTemplate) s
 	return "the refspec " + quote(spec) + " is not the job's own bot branch " + quote(s.branch)
 }
 
-// authHeader checks the -c value of a push: the authorization header with
-// the credential carried in one env name, double-quoted.
-func (s templateStep) authHeader(w templateWord) string {
-	bad := "the git -c value " + quote(w.raw) + " is not the authorization header " + `http.extraheader="AUTHORIZATION: bearer ${` + TemplateEnvAppToken.String() + `}"`
-	if len(w.parts) != 2 || w.parts[0].kind != partLiteral || w.parts[1].kind != partParam {
+// credentialHelper checks the complete raw -c word, including the single
+// quotes. The fixed helper is the only shell-valued config the policy accepts.
+func (s templateStep) credentialHelper(w templateWord) string {
+	bad := "the git -c value " + quote(w.raw) + " is not the fixed credential helper " + gitCredentialHelper
+	if w.redirect || w.raw != gitCredentialHelper {
 		return bad
 	}
-	if !strings.EqualFold(w.parts[0].text, authHeaderKey+authHeaderValue) {
-		return bad
-	}
-	env, err := ParseTemplateEnv(w.parts[1].text)
-	if err != nil || !env.carriesCredential() {
-		return bad + ": the header reads " + quote(w.parts[1].text) + ", which is not a credential carrier"
-	}
-	if _, set := s.env[env.String()]; !set {
-		return bad + ": " + env.String() + " is not set in the step env"
+	if _, set := s.env[TemplateEnvAppToken.String()]; !set {
+		return bad + ": " + TemplateEnvAppToken.String() + " is not set in the step env"
 	}
 	return ""
 }

@@ -158,6 +158,11 @@ func (t *commandTokenizer) run() string {
 				return "it opens a single quote it never closes"
 			}
 			end += t.i + 1
+			// Actions substitutes expressions before the shell parses even
+			// single quotes, so a quoted expression is not shell-literal.
+			if strings.Contains(src[t.i+1:end], "${{") {
+				return expressionRefused
+			}
 			t.add(src[t.i:end+1], wordPart{partLiteral, src[t.i+1 : end]})
 			t.i = end + 1
 		case c == '"':
