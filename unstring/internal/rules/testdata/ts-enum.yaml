@@ -1,0 +1,19 @@
+rule: ts-enum
+cases:
+  - name: flags-enum
+    files:
+      src/a.ts: |
+        export enum Status {
+          Open = "open",
+        }
+    hits: {src/a.ts: [1]}
+  - name: flags-const-enum
+    files:
+      src/a.ts: |
+        const enum Mode { List, Graph }
+    hits: {src/a.ts: [1]}
+  - name: passes-closed-set
+    files:
+      src/a.ts: |
+        export const Status = Object.freeze({ Open: closed("open", "open") } as const);
+        export type Status = (typeof Status)[keyof typeof Status];

@@ -1,0 +1,38 @@
+rule: boundary-cast
+cases:
+  - name: flags-json-parse-cast
+    files:
+      src/a.ts: |
+        const body = JSON.parse(text) as ShareRequest;
+    hits: {src/a.ts: [1]}
+  - name: flags-awaited-response-json-cast
+    files:
+      src/a.ts: |
+        const body = (await res.json()) as ShareResponse;
+    hits: {src/a.ts: [1]}
+  - name: flags-search-params-get-cast
+    files:
+      src/a.ts: |
+        const tab = url.searchParams.get('tab') as Tab;
+    hits: {src/a.ts: [1]}
+  - name: flags-storage-and-route-params
+    files:
+      src/a.tsx: |
+        const theme = localStorage.getItem("theme") as Theme;
+        const params = useParams() as { owner: string };
+        const form = (await request.formData()) as FormData;
+    hits: {src/a.tsx: [1, 2, 3]}
+  - name: passes-as-const
+    files:
+      src/a.ts: |
+        const parsed = JSON.parse(text) as const;
+  - name: passes-as-unknown
+    files:
+      src/a.ts: |
+        const parsed = JSON.parse(text) as unknown;
+        const narrowed = (await res.json()) as unknown as Body;
+  - name: passes-cast-after-a-variable
+    files:
+      src/a.ts: |
+        const raw = JSON.parse(text);
+        const body = raw as ShareRequest;

@@ -1,0 +1,233 @@
+# The pinned schema module: its Go typed constants outside internal/ and cmd/,
+# and the string-literal unions of its generated TS. The version comes from
+# go.mod for Go and from the exact @peasant-labs/schema version in package.json
+# for TS. The fixture resolver serves only the pinned version, so a case passes
+# only when the version was read from the right file.
+cases:
+  - name: go-pin-from-go-mod
+    lang: go
+    roots: [backend]
+    files:
+      backend/go.mod: |
+        module example.test/backend
+
+        go 1.24
+
+        require (
+        	example.test/other v1.2.3
+        	example.test/schema v0.0.1 // indirect
+        )
+    schema: &fixture-module { module: example.test/schema, version: v0.0.1, tree: schema-module }
+    members: &schema-members
+      - { value: public, source: schema-module, set: schema.TranscriptVisibility, name: VisibilityPublic, module: example.test/schema@v0.0.1, file: visibility.go, line: 10 }
+      - { value: private, source: schema-module, set: schema.TranscriptVisibility, name: VisibilityPrivate, module: example.test/schema@v0.0.1, file: visibility.go, line: 11 }
+      - { value: owner, source: schema-module, set: schema.RepositoryRole, name: RoleOwner, module: example.test/schema@v0.0.1, file: visibility.go, line: 18 }
+      - { value: reader, source: schema-module, set: schema.RepositoryRole, name: RoleReader, module: example.test/schema@v0.0.1, file: visibility.go, line: 19 }
+      - { value: GET, source: schema-module, set: route.Method, name: MethodGet, module: example.test/schema@v0.0.1, file: route/method.go, line: 8 }
+      - { value: POST, source: schema-module, set: route.Method, name: MethodPost, module: example.test/schema@v0.0.1, file: route/method.go, line: 9 }
+      - { value: queued, source: schema-module, set: ShareState, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 2 }
+      - { value: shared, source: schema-module, set: ShareState, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 2 }
+      - { value: alpha, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 5 }
+      - { value: beta, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 5 }
+
+  - name: go-pin-single-line-require-at-the-config-root
+    lang: go
+    roots: [cmd]
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.1
+      cmd/app/main.go: |
+        package main
+
+        func main() {}
+    schema: *fixture-module
+    members: *schema-members
+
+  - name: go-pin-from-versioned-replace
+    # go.mod requires v0.0.9 but replaces the module with v0.0.1, which is what
+    # the build compiles against; the fixture resolver holds only v0.0.1.
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.9
+
+        replace example.test/schema => example.test/schema v0.0.1
+    schema: *fixture-module
+    members: *schema-members
+
+  - name: go-pin-from-replace-to-a-fork
+    # Only the fork at v0.0.1 is available from the fixture resolver.
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.9
+
+        replace example.test/schema => example.test/fork v0.0.1
+    schema:
+      module: example.test/schema
+      resolve-module: example.test/fork
+      version: v0.0.1
+      files:
+        go.mod: |
+          module example.test/fork
+        state.go: |
+          package fork
+
+          type State string
+
+          const (
+            StateOpen State = "fork-open"
+            StateClosed State = "fork-closed"
+          )
+        typescript/src/internal/generated/types.gen.ts: |
+          export type ForkEvent = 'fork-queued' | 'fork-shared';
+    members:
+      - { value: fork-open, source: schema-module, set: fork.State, name: StateOpen, module: example.test/fork@v0.0.1, file: state.go, line: 6 }
+      - { value: fork-closed, source: schema-module, set: fork.State, name: StateClosed, module: example.test/fork@v0.0.1, file: state.go, line: 7 }
+      - { value: fork-queued, source: schema-module, set: ForkEvent, module: example.test/fork@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 1 }
+      - { value: fork-shared, source: schema-module, set: ForkEvent, module: example.test/fork@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 1 }
+
+  - name: go-replace-of-the-required-version-wins
+    # The go command applies a replace of the required version before a
+    # replace of every version.
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.9
+
+        replace (
+        	example.test/schema => example.test/schema v0.0.7
+        	example.test/schema v0.0.9 => example.test/schema v0.0.1
+        	example.test/schema v0.0.8 => example.test/schema v0.0.6
+        )
+    schema: *fixture-module
+    members: *schema-members
+
+  - name: go-directory-replace-is-refused
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.1
+
+        replace example.test/schema => ../schema
+    schema: *fixture-module
+    error: "replaces example.test/schema with the directory ../schema"
+
+  - name: ts-pin-from-package-json
+    lang: ts
+    roots: [frontend]
+    files:
+      frontend/package.json: |
+        { "name": "app", "dependencies": { "@peasant-labs/schema": "0.0.1" } }
+      frontend/src/a.ts: |
+        export type Local = 'here' | 'there';
+    schema: *fixture-module
+    members:
+      - { value: here, source: ts-union, set: Local, file: frontend/src/a.ts, line: 1 }
+      - { value: there, source: ts-union, set: Local, file: frontend/src/a.ts, line: 1 }
+      - { value: public, source: schema-module, set: schema.TranscriptVisibility, name: VisibilityPublic, module: example.test/schema@v0.0.1, file: visibility.go, line: 10 }
+      - { value: private, source: schema-module, set: schema.TranscriptVisibility, name: VisibilityPrivate, module: example.test/schema@v0.0.1, file: visibility.go, line: 11 }
+      - { value: owner, source: schema-module, set: schema.RepositoryRole, name: RoleOwner, module: example.test/schema@v0.0.1, file: visibility.go, line: 18 }
+      - { value: reader, source: schema-module, set: schema.RepositoryRole, name: RoleReader, module: example.test/schema@v0.0.1, file: visibility.go, line: 19 }
+      - { value: GET, source: schema-module, set: route.Method, name: MethodGet, module: example.test/schema@v0.0.1, file: route/method.go, line: 8 }
+      - { value: POST, source: schema-module, set: route.Method, name: MethodPost, module: example.test/schema@v0.0.1, file: route/method.go, line: 9 }
+      - { value: queued, source: schema-module, set: ShareState, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 2 }
+      - { value: shared, source: schema-module, set: ShareState, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 2 }
+      - { value: alpha, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 5 }
+      - { value: beta, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 5 }
+
+  - name: ts-range-version-is-refused
+    lang: ts
+    files:
+      package.json: |
+        { "devDependencies": { "@peasant-labs/schema": "^0.0.1" } }
+    schema: *fixture-module
+    error: "which is not an exact version"
+
+  - name: ts-workspace-specifier-is-refused
+    lang: ts
+    files:
+      package.json: |
+        { "dependencies": { "@peasant-labs/schema": "workspace:*" } }
+    schema: *fixture-module
+    error: "which is not an exact version"
+
+  - name: ts-missing-pin
+    lang: ts
+    files:
+      package.json: |
+        { "dependencies": { "react": "19.0.0" } }
+    schema: *fixture-module
+    error: "no pinned version of @peasant-labs/schema"
+
+  - name: go-missing-pin
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+      a.go: |
+        package a
+    schema: *fixture-module
+    error: "no pinned version of example.test/schema"
+
+  - name: roots-pin-different-versions
+    lang: ts
+    roots: [one, two]
+    files:
+      one/package.json: |
+        { "dependencies": { "@peasant-labs/schema": "0.0.1" } }
+      two/package.json: |
+        { "dependencies": { "@peasant-labs/schema": "0.0.2" } }
+    schema: *fixture-module
+    error: "the roots pin different versions"
+
+  - name: missing-module-version
+    # The repository pins a version the resolver does not hold.
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/schema v0.0.9
+    schema: *fixture-module
+    error: "the fixture resolver holds"
+
+  - name: zero-sets-in-the-schema-module
+    lang: go
+    files:
+      go.mod: |
+        module example.test/app
+
+        require example.test/empty v0.1.0
+    schema:
+      module: example.test/empty
+      version: v0.1.0
+      files:
+        go.mod: |
+          module example.test/empty
+        lone.go: |
+          package empty
+
+          type Lone string
+
+          const OnlyLone Lone = "lonely"
+        internal/x/x.go: |
+          package x
+
+          type Hidden string
+
+          const (
+          	A Hidden = "a"
+          	B Hidden = "b"
+          )
+    error: "declares no closed set"

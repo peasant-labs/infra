@@ -1,0 +1,21 @@
+# Rule 11: decoded JSON read by string key, m["key"].(T).
+id: go-json-key-assert
+language: go
+severity: warning
+message: decoded JSON is read by a string key and a type assertion.
+metadata:
+  why: >-
+    the key and the asserted type restate a JSON shape by hand; a renamed field or a changed
+    type makes the read return the zero value or panic, and no build step notices.
+  fix: >-
+    decode into a struct with `json` tags (the contract type from
+    github.com/peasant-labs/schema where one exists) and read its fields. A deliberate walk
+    of untrusted raw JSON may take an unstring-allow marker with a reason.
+rule:
+  kind: type_assertion_expression
+  has:
+    field: operand
+    kind: index_expression
+    has:
+      field: index
+      any: [{ kind: interpreted_string_literal }, { kind: raw_string_literal }]

@@ -1,0 +1,74 @@
+# A key of a module-level frozen record table: `const X = Object.freeze({…})`
+# typed Record<K, …> or Readonly<Record<K, …>> with K a set type, by a TS
+# annotation, by a JSDoc @type comment directly above the declaration, or by a
+# JSDoc cast inside freeze(…). SET is the constant's name. K is open, and the
+# table is not a source, when K is string, number, symbol or PropertyKey or a
+# union with one of them as a member (Record<string | Kind, …>).
+id: unstring-discover-record-table
+language: tsx
+severity: hint
+message: frozen record table key
+utils:
+  set-record-annotation:
+    all:
+      - regex: '^:\s*(Readonly<\s*)?Record<'
+      - not: { regex: '^:\s*(Readonly<\s*)?Record<\s*([^,<>|]*\|\s*)*(string|number|symbol|PropertyKey)\s*(\|[^,<>]*)?,' }
+  set-record-comment:
+    kind: comment
+    all:
+      - regex: '@type\s*\{\s*(Readonly<\s*)?Record<'
+      - not: { regex: '@type\s*\{\s*(Readonly<\s*)?Record<\s*([^,<>|]*\|\s*)*(string|number|symbol|PropertyKey)\s*(\|[^,<>]*)?,' }
+  module-const-declarator:
+    kind: variable_declarator
+    has: { field: name, kind: identifier, pattern: $SET }
+    inside:
+      kind: lexical_declaration
+      has: { field: kind, regex: '^const$' }
+      inside:
+        any:
+          - kind: program
+          - kind: export_statement
+            inside: { kind: program }
+  freeze-in-module-const:
+    kind: call_expression
+    has: { field: function, regex: '^Object\.freeze$' }
+    inside:
+      field: value
+      matches: module-const-declarator
+  annotated-declarator:
+    kind: variable_declarator
+    has: { field: type, matches: set-record-annotation }
+  declaration-after-type-comment:
+    inside:
+      kind: variable_declarator
+      inside:
+        kind: lexical_declaration
+        any:
+          - follows: { matches: set-record-comment }
+          - inside:
+              kind: export_statement
+              follows: { matches: set-record-comment }
+  table-object:
+    kind: object
+    any:
+      - inside:
+          kind: arguments
+          inside:
+            matches: freeze-in-module-const
+            any:
+              - inside: { matches: annotated-declarator }
+              - matches: declaration-after-type-comment
+      - inside:
+          kind: parenthesized_expression
+          follows: { matches: set-record-comment }
+          inside:
+            kind: arguments
+            inside: { matches: freeze-in-module-const }
+rule:
+  any:
+    - kind: property_identifier
+    - kind: string
+  inside:
+    kind: pair
+    field: key
+    inside: { matches: table-object }

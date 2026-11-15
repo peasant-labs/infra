@@ -1,0 +1,58 @@
+rule: go-data-path-literal
+cases:
+  - name: flags-path-through-a-data-directory
+    files:
+      internal/reads/reads_test.go: |
+        package reads
+
+        func TestReads(t *testing.T) {
+        	raw, err := os.ReadFile(filepath.Join("testdata", "reads.yaml"))
+        	if err != nil {
+        		t.Fatalf("read testdata/reads.yaml: %v", err)
+        	}
+        	_ = raw
+        }
+    hits: {internal/reads/reads_test.go: [4, 6]}
+  - name: flags-data-file-passed-to-read
+    files:
+      internal/load/load.go: |
+        package load
+
+        func load() ([]byte, error) { return os.ReadFile("baseline.json") }
+    hits: {internal/load/load.go: [3]}
+  - name: flags-raw-string-path
+    files:
+      internal/load/load.go: |
+        package load
+
+        var golden = filepath.Join(dir, `fixtures/turns.golden`)
+    hits: {internal/load/load.go: [3]}
+  - name: passes-const
+    files:
+      internal/reads/reads_test.go: |
+        package reads
+
+        const readsFixture = "testdata/reads.yaml"
+
+        const (
+        	turnsFixture = "testdata/turns.yaml"
+        )
+  - name: passes-go-embed
+    files:
+      internal/reads/reads_test.go: |
+        package reads
+
+        //go:embed testdata/reads.yaml
+        var readsYAML []byte
+  - name: passes-absolute-path
+    files:
+      internal/routes/routes.go: |
+        package routes
+
+        var tool = "/fixtures/tool"
+  - name: passes-word-captures-in-prose
+    files:
+      internal/visual/visual.go: |
+        package visual
+
+        var note = "the visual run captures both themes"

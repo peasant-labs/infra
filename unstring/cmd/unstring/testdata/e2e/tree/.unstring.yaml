@@ -1,0 +1,7 @@
+version: 1
+ts:
+  roots: [web]
+go:
+  roots: [server]
+schema:
+  module: example.test/schema

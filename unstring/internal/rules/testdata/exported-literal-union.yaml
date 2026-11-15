@@ -1,0 +1,44 @@
+rule: exported-literal-union
+cases:
+  - name: flags-exported-union
+    files:
+      src/lib/tone.ts: |
+        export type Tone = "wait" | "ok";
+    hits: {src/lib/tone.ts: [1]}
+  - name: flags-multi-line-leading-bar
+    files:
+      src/lib/status.ts: |
+        // the share status
+        export type ShareStatus =
+          | 'pending'
+          | 'shared'
+          | 'failed';
+    hits: {src/lib/status.ts: [2]}
+  - name: flags-member-holding-the-other-quote
+    files:
+      src/lib/phrase.ts: |
+        export type Phrase = "don't" | 'say "hi"';
+    hits: {src/lib/phrase.ts: [1]}
+  - name: passes-non-exported-alias
+    files:
+      src/lib/tone.ts: |
+        type Tone = "wait" | "ok";
+  - name: passes-inline-union
+    files:
+      src/lib/tone.ts: |
+        export function tone(t: "wait" | "ok"): void {}
+        export interface Props { tone: "wait" | "ok" }
+  - name: passes-derived-type
+    files:
+      src/lib/tone.ts: |
+        export const Tone = Object.freeze({ Wait: closed("wait", "wait"), Ok: closed("ok", "ok") } as const);
+        export type Tone = (typeof Tone)[keyof typeof Tone];
+  - name: passes-union-with-non-literal-member
+    files:
+      src/lib/tone.ts: |
+        export type Tone = "wait" | "ok" | null;
+        export type Size = "s" | Width;
+  - name: passes-single-literal
+    files:
+      src/lib/tone.ts: |
+        export type Wait = "wait";

@@ -1,0 +1,40 @@
+rule: testid-query-literal
+cases:
+  - name: flags-each-query-name
+    files:
+      src/row.test.tsx: |
+        screen.getByTestId("a");
+        screen.getAllByTestId("a");
+        await screen.findByTestId("a");
+        await screen.findAllByTestId("a");
+        screen.queryByTestId("a");
+        screen.queryAllByTestId("a");
+    hits: {src/row.test.tsx: [1, 2, 3, 4, 5, 6]}
+  - name: flags-playwright-page-query
+    files:
+      e2e/home.spec.ts: |
+        await page.getByTestId('home-row').click();
+    hits: {e2e/home.spec.ts: [1]}
+  - name: flags-template-without-substitution
+    files:
+      src/row.test.mjs: |
+        getByTestId(`home-row`);
+    hits: {src/row.test.mjs: [1]}
+  - name: flags-two-calls-on-one-line-count-once
+    files:
+      src/row.test.tsx: |
+        expect(getByTestId("a")).toBe(getByTestId("b"));
+    hits: {src/row.test.tsx: [1]}
+  - name: passes-member
+    files:
+      src/row.test.tsx: |
+        screen.getByTestId(HomeTestId.Row.wire);
+  - name: passes-variable
+    files:
+      src/row.test.tsx: |
+        const id = rowId();
+        screen.getByTestId(id);
+  - name: passes-template-with-substitution
+    files:
+      src/row.test.tsx: |
+        screen.getByTestId(`row-${id}`);

@@ -1,0 +1,21 @@
+# A string member of a union type that is the whole value of a type alias
+# (through parentheses). SET is the alias's name.
+id: unstring-discover-union-alias
+language: tsx
+severity: hint
+message: string member of a named literal union
+utils:
+  union-chain:
+    any: [{ kind: union_type }, { kind: parenthesized_type }]
+rule:
+  kind: string
+  inside:
+    kind: literal_type
+    all:
+      - inside:
+          stopBy: { not: { matches: union-chain } }
+          kind: union_type
+      - inside:
+          stopBy: { not: { matches: union-chain } }
+          kind: type_alias_declaration
+          has: { field: name, pattern: $SET }

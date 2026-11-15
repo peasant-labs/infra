@@ -1,0 +1,44 @@
+rule: go-json-key-assert
+cases:
+  - name: flags-string-key-assertion
+    files:
+      internal/decode.go: |
+        package decode
+
+        func kind(m map[string]any) string {
+        	s, _ := m["kind"].(string)
+        	return s
+        }
+    hits: {internal/decode.go: [4]}
+  - name: flags-raw-string-key-assertion
+    files:
+      internal/decode.go: |
+        package decode
+
+        func kind(m map[string]any) any { return m[`kind`].(map[string]any) }
+    hits: {internal/decode.go: [3]}
+  - name: passes-variable-key
+    files:
+      internal/decode.go: |
+        package decode
+
+        func read(m map[string]any, key string) string {
+        	s, _ := m[key].(string)
+        	return s
+        }
+  - name: passes-typed-struct-read
+    files:
+      internal/decode.go: |
+        package decode
+
+        type record struct {
+        	Kind string `json:"kind"`
+        }
+
+        func kind(r record) string { return r.Kind }
+  - name: passes-index-without-assertion
+    files:
+      internal/decode.go: |
+        package decode
+
+        func kind(m map[string]string) string { return m["kind"] }

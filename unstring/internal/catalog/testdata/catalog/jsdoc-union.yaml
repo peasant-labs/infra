@@ -1,0 +1,48 @@
+# JSDoc unions: inside one {…} of a tag, two or more quoted strings joined by |.
+# A @typedef names its union.
+cases:
+  - name: typedef-param-type-and-property
+    lang: ts
+    files:
+      view.js: |
+        /**
+         * @typedef {'list' | 'graph'} ViewMode
+         */
+
+        /**
+         * @param {"left" | "right" | null} side
+         * @returns {'done'|'failed'}
+         */
+        export function f(side) {}
+
+        /** @type {Map<string, 'k1' | 'k2'>} */
+        const cache = new Map();
+
+        /**
+         * @typedef {Object} Row
+         * @property {'p1' |
+         *   'p2'} state
+         */
+    members:
+      - { value: list, source: jsdoc-union, set: ViewMode, file: view.js, line: 2 }
+      - { value: graph, source: jsdoc-union, set: ViewMode, file: view.js, line: 2 }
+      - { value: left, source: jsdoc-union, file: view.js, line: 6 }
+      - { value: right, source: jsdoc-union, file: view.js, line: 6 }
+      - { value: done, source: jsdoc-union, file: view.js, line: 7 }
+      - { value: failed, source: jsdoc-union, file: view.js, line: 7 }
+      - { value: k1, source: jsdoc-union, file: view.js, line: 11 }
+      - { value: k2, source: jsdoc-union, file: view.js, line: 11 }
+      - { value: p1, source: jsdoc-union, file: view.js, line: 16 }
+      - { value: p2, source: jsdoc-union, file: view.js, line: 17 }
+
+  - name: not-sources
+    # One quoted string is not a union; a plain comment is not JSDoc; prose
+    # outside braces is not a type.
+    lang: ts
+    files:
+      notes.js: |
+        /** @type {'only' | Other} */
+        // @type {'line' | 'comment'}
+        /* @type {'block' | 'comment'} */
+        /** Say 'yes' | 'no' in prose. */
+    members: []

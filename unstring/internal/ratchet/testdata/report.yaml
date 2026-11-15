@@ -1,0 +1,70 @@
+# Report writer cases: findings in, the exact output out.
+cases:
+  - name: text-hit-finding
+    format: text
+    command: check
+    findings:
+      - kind: new-file
+        rule: jsx-literal-testid
+        file: web/a.tsx
+        line: 3
+        text: '"row"'
+        what: a test id is set from a string literal.
+        why: "a renamed id fails silently.\nThe query matches nothing."
+        where: "unstring check, comparing with .unstring-baseline.yaml: this file has no entry for this rule (allowed 0, found 1)."
+        fix: use the owner's typed test id.
+    want: |
+      jsx-literal-testid  web/a.tsx:3  "row"  [new-file]
+        what   a test id is set from a string literal.
+        why    a renamed id fails silently.
+               The query matches nothing.
+        where  unstring check, comparing with .unstring-baseline.yaml: this file has no entry for this rule (allowed 0, found 1).
+        fix    use the owner's typed test id.
+
+      unstring check: 1 finding.
+
+  - name: text-finding-without-rule
+    format: text
+    command: check
+    findings:
+      - kind: baseline-header
+        file: .unstring-baseline.yaml
+        what: the header differs.
+        why: counts must be verified by the pinned tool.
+        where: unstring check, reading .unstring-baseline.yaml.
+        fix: run unstring update.
+    want: |
+      baseline-header  .unstring-baseline.yaml  [baseline-header]
+        what   the header differs.
+        why    counts must be verified by the pinned tool.
+        where  unstring check, reading .unstring-baseline.yaml.
+        fix    run unstring update.
+
+      unstring check: 1 finding.
+
+  - name: text-no-findings
+    format: text
+    command: check
+    findings: []
+    want: |
+      unstring check: no findings.
+
+  - name: github-annotation-escapes
+    format: github
+    command: check
+    findings:
+      - kind: raised
+        rule: go-json-key-assert
+        file: srv/a,b.go
+        line: 7
+        text: 'm["k"].(string)'
+        what: "decoded JSON is read by string key: 100% wrong."
+        why: a renamed key reads nothing.
+        where: "allowed 1, found 2."
+        fix: decode into a struct.
+    want: |
+      ::error file=srv/a%2Cb.go,line=7,title=go-json-key-assert (raised)::m["k"].(string): decoded JSON is read by string key: 100%25 wrong.%0Awhy: a renamed key reads nothing.%0Awhere: allowed 1, found 2.%0Afix: decode into a struct.
+      unstring check: 1 finding.
+
+# --format values ParseFormat must refuse.
+invalidFormats: ["", json, GitHub, sarif]

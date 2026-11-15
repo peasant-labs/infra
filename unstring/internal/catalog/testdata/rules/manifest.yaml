@@ -1,0 +1,76 @@
+# Required case names for the two generated rules. The test also derives the
+# three exclusion cases of every excluded operand from the tool's own list,
+# so an exclusion cannot exist without its cases. No count is asserted.
+
+closed-set-literal:
+  - flags-member-in-comparison
+  - flags-case-label
+  - flags-two-matches-on-one-line-count-once
+  - flags-member-from-closed-call
+  - flags-member-from-record-table
+  - flags-member-from-ts-alias-union
+  - flags-member-from-inline-property-union
+  - flags-member-from-jsdoc-typedef
+  - flags-member-from-schema-go-constant
+  - flags-member-from-schema-generated-ts
+  - flags-comparison-in-the-union-file
+  - passes-in-closed-definition-file
+  - passes-in-record-table-definition-file
+  - flags-other-value-in-a-definition-file
+  - passes-word-no-set-declares
+  - passes-empty-member
+  - passes-as-const-array-is-not-a-source
+  - passes-lone-literal-type-is-not-a-source
+  - passes-member-outside-comparison
+  - passes-excluded-typeof-comparison
+  - passes-excluded-typeof-switch
+  - flags-neighbour-of-typeof
+  - passes-excluded-key-comparison
+  - passes-excluded-key-switch
+  - flags-neighbour-of-key
+  - passes-excluded-code-comparison
+  - passes-excluded-code-switch
+  - flags-neighbour-of-code
+  - passes-excluded-tag-name-comparison
+  - passes-excluded-tag-name-switch
+  - flags-neighbour-of-tag-name
+  - passes-excluded-node-name-comparison
+  - passes-excluded-node-name-switch
+  - flags-neighbour-of-node-name
+  - passes-excluded-local-name-comparison
+  - passes-excluded-local-name-switch
+  - flags-neighbour-of-local-name
+  - passes-excluded-aria-property-comparison
+  - passes-excluded-aria-property-switch
+  - flags-neighbour-of-aria-property
+  - passes-excluded-get-attribute-aria-comparison
+  - passes-excluded-get-attribute-aria-switch
+  - flags-neighbour-of-get-attribute-aria
+  - passes-excluded-get-attribute-role-comparison
+  - passes-excluded-get-attribute-role-switch
+  - flags-neighbour-of-get-attribute-role
+  - passes-excluded-await-get-attribute-comparison
+  - passes-excluded-await-get-attribute-switch
+  - flags-neighbour-of-await-get-attribute
+  - passes-excluded-event-type-comparison
+  - passes-excluded-event-type-switch
+  - flags-neighbour-of-event-type
+
+go-closed-set-literal:
+  - flags-member-in-comparison
+  - flags-switch-case
+  - flags-map-literal-keyed-by-the-set-type
+  - flags-member-from-schema-module
+  - flags-map-literal-keyed-by-a-schema-type
+  - flags-comparison-in-a-test-file-of-the-declaring-package
+  - passes-in-the-declaring-file
+  - passes-test-file-constants-are-not-a-set
+  - passes-single-constant-type-is-not-a-set
+  - passes-key-in-a-string-keyed-map
+  - passes-member-outside-comparison
+  - passes-excluded-go-runtime-goos-comparison
+  - passes-excluded-go-runtime-goos-switch
+  - flags-neighbour-of-go-runtime-goos
+  - passes-excluded-go-runtime-goarch-comparison
+  - passes-excluded-go-runtime-goarch-switch
+  - flags-neighbour-of-go-runtime-goarch

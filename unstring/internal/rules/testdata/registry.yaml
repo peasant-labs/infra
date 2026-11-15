@@ -1,0 +1,93 @@
+# Cases for rules.NewRegistry and rules.ParseDocumentID.
+
+# Params the registry accepts. Each renders every static rule.
+valid:
+  - name: defaults
+    params:
+      endpointPrefixes: [/api/v1]
+      dataDirs: [testdata, fixtures, __fixtures__, captures]
+  - name: every-parameter-set
+    params:
+      endpointPrefixes: [/api/v1, /internal/v2.1]
+      endpointCallees: [api, client.get, $fetch]
+      mountFiles: [backend/internal/router/router.go, internal/server/mux.go]
+      dataDirs: [testdata, golden, "@fixtures"]
+
+# Params that render byte-identical rules: order and duplicates do not matter.
+equivalent:
+  - name: order-and-duplicates
+    a:
+      endpointPrefixes: [/api/v1, /internal]
+      endpointCallees: [api, http]
+      mountFiles: [b/router.go, a/router.go]
+      dataDirs: [testdata, fixtures]
+    b:
+      endpointPrefixes: [/internal, /api/v1, /api/v1]
+      endpointCallees: [http, api]
+      mountFiles: [a/router.go, b/router.go, a/router.go]
+      dataDirs: [fixtures, testdata, fixtures]
+
+# Params the registry refuses, with the config key the error must name.
+invalid:
+  - name: prefix-without-leading-slash
+    params: {endpointPrefixes: [api/v1], dataDirs: [testdata]}
+    names: endpoints.prefixes
+  - name: prefix-with-trailing-slash
+    params: {endpointPrefixes: [/api/v1/], dataDirs: [testdata]}
+    names: endpoints.prefixes
+  - name: prefix-root-only
+    params: {endpointPrefixes: [/], dataDirs: [testdata]}
+    names: endpoints.prefixes
+  - name: prefix-with-quote
+    params: {endpointPrefixes: ["/api'v1"], dataDirs: [testdata]}
+    names: endpoints.prefixes
+  - name: prefix-with-regex-group
+    params: {endpointPrefixes: ["/api/(v1|v2)"], dataDirs: [testdata]}
+    names: endpoints.prefixes
+  - name: no-prefix
+    params: {endpointPrefixes: [], dataDirs: [testdata]}
+    names: endpoints.prefixes
+  - name: callee-with-call
+    params: {endpointPrefixes: [/api/v1], endpointCallees: ["api()"], dataDirs: [testdata]}
+    names: endpoints.callees
+  - name: callee-with-space
+    params: {endpointPrefixes: [/api/v1], endpointCallees: ["api client"], dataDirs: [testdata]}
+    names: endpoints.callees
+  - name: mount-file-absolute
+    params: {endpointPrefixes: [/api/v1], mountFiles: [/srv/router.go], dataDirs: [testdata]}
+    names: endpoints.mountFiles
+  - name: mount-file-parent-segment
+    params: {endpointPrefixes: [/api/v1], mountFiles: [../router.go], dataDirs: [testdata]}
+    names: endpoints.mountFiles
+  - name: mount-file-dot-segment
+    params: {endpointPrefixes: [/api/v1], mountFiles: [./router.go], dataDirs: [testdata]}
+    names: endpoints.mountFiles
+  - name: mount-file-with-quote
+    params: {endpointPrefixes: [/api/v1], mountFiles: ["it's/router.go"], dataDirs: [testdata]}
+    names: endpoints.mountFiles
+  - name: data-dir-with-slash
+    params: {endpointPrefixes: [/api/v1], dataDirs: [test/data]}
+    names: dataDirs
+  - name: data-dir-parent
+    params: {endpointPrefixes: [/api/v1], dataDirs: [".."]}
+    names: dataDirs
+  - name: no-data-dir
+    params: {endpointPrefixes: [/api/v1], dataDirs: []}
+    names: dataDirs
+
+# ast-grep document ids and the rule each belongs to.
+documentIds:
+  - {id: jsx-literal-testid, rule: jsx-literal-testid}
+  - {id: go-endpoint-literal, rule: go-endpoint-literal}
+  - {id: go-endpoint-literal.mount-file, rule: go-endpoint-literal}
+  - {id: closed-set-literal, rule: closed-set-literal}
+
+# ast-grep document ids that are not the tool's.
+foreignDocumentIds:
+  - unused-suppression
+  - no-crammed-conditions
+  - go-endpoint-literal.
+  - go-endpoint-literal.Mount
+  - go-endpoint-literal.mount file
+  - no-such-rule.mount-file
+  - ""

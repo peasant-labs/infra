@@ -1,0 +1,39 @@
+# The catalog fixture cases every change to the catalog must keep, by fixture
+# file under testdata/catalog. A deleted or renamed case fails the build.
+required:
+  closed-call:
+    - members-of-a-frozen-closed-set
+    - javascript-and-loose-calls
+    - only-the-roots-are-read
+  go-typed-constant:
+    - sets-across-files-of-one-package
+    - not-sets
+    - same-type-name-in-two-packages-is-two-sets
+  jsdoc-union:
+    - typedef-param-type-and-property
+    - not-sources
+  record-table:
+    - ts-annotation
+    - jsdoc-type-above-the-declaration
+    - jsdoc-cast-inside-freeze
+    - not-sources
+    - not-sources-key-union-with-an-open-member
+  schema-module:
+    - go-pin-from-go-mod
+    - go-pin-single-line-require-at-the-config-root
+    - go-pin-from-versioned-replace
+    - go-pin-from-replace-to-a-fork
+    - go-replace-of-the-required-version-wins
+    - go-directory-replace-is-refused
+    - ts-pin-from-package-json
+    - ts-range-version-is-refused
+    - ts-workspace-specifier-is-refused
+    - ts-missing-pin
+    - go-missing-pin
+    - roots-pin-different-versions
+    - missing-module-version
+    - zero-sets-in-the-schema-module
+  ts-union:
+    - alias-property-parameter-and-nested
+    - multi-line-leading-pipe
+    - not-sources

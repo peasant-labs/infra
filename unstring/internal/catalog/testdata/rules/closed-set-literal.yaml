@@ -1,0 +1,534 @@
+# closed-set-literal: a catalog member written as a literal operand of a
+# comparison or as a case label, in TS and JS. Flat: the other operand's name
+# is never read. Each case is a tree and the exact hit lines the generated
+# rule reports after the definition-site exemption and the per-line dedupe.
+# Every exclusion case uses a literal that is a catalog member, so it fails if
+# the exclusion is removed or widened.
+rule: closed-set-literal
+
+cases:
+  - name: flags-member-in-comparison
+    files:
+      src/view.ts: |
+        export const GroupBy = { Project: closed("project", "project") } as const;
+      src/page.tsx: |
+        export const a = (groupBy: string) => groupBy === "project";
+        export const b = (x: string) => "project" !== x;
+        export const c = (r: { kind: string }) => r.kind == 'project';
+        export const d = (x: string) => x != `project`;
+    hits:
+      src/page.tsx: [1, 2, 3, 4]
+
+  - name: flags-case-label
+    files:
+      src/view.ts: |
+        export const GroupBy = { Project: closed("project", "project") } as const;
+      src/page.ts: |
+        export function label(v: string) {
+          switch (v) {
+            case "project":
+              return 1;
+            case 'other':
+              return 2;
+          }
+        }
+    hits:
+      src/page.ts: [3]
+
+  - name: flags-two-matches-on-one-line-count-once
+    files:
+      src/view.ts: |
+        export const GroupBy = { Project: closed("project", "p"), Agent: closed("agent", "a") } as const;
+      src/page.ts: |
+        export const both = (x: string) => x === "project" || x === "agent";
+    hits:
+      src/page.ts: [1]
+
+  - name: flags-member-from-closed-call
+    files:
+      lib/size.mjs: |
+        export const Small = closed("small", "small");
+      lib/use.js: |
+        export const isSmall = (s) => s === "small";
+    hits:
+      lib/use.js: [1]
+
+  - name: flags-member-from-record-table
+    files:
+      src/labels.ts: |
+        export const ToneLabel: Readonly<Record<Tone, string>> = Object.freeze({ wait: "waiting" });
+      src/use.ts: |
+        export const waiting = (t: string) => t === "wait";
+    hits:
+      src/use.ts: [1]
+
+  - name: flags-member-from-ts-alias-union
+    files:
+      src/types.ts: |
+        export type ReadState = 'ready' | 'failed';
+      src/use.ts: |
+        export const ready = (status: string) => status === "ready";
+    hits:
+      src/use.ts: [1]
+
+  - name: flags-member-from-inline-property-union
+    files:
+      src/types.ts: |
+        export interface Row { phase: 'draft' | 'final' }
+      src/use.ts: |
+        export const isDraft = (row: { phase: string }) => row.phase === 'draft';
+    hits:
+      src/use.ts: [1]
+
+  - name: flags-member-from-jsdoc-typedef
+    files:
+      src/view.js: |
+        /** @typedef {'list' | 'graph'} ViewMode */
+      src/use.js: |
+        export const isGraph = (viewMode) => viewMode !== 'list';
+    hits:
+      src/use.js: [1]
+
+  - name: flags-member-from-schema-go-constant
+    schema: { module: example.test/schema, version: v0.0.1, tree: schema-module }
+    files:
+      package.json: |
+        { "dependencies": { "@peasant-labs/schema": "0.0.1" } }
+      src/use.ts: |
+        export const isPublic = (want: string) => want === "public";
+    hits:
+      src/use.ts: [1]
+
+  - name: flags-member-from-schema-generated-ts
+    schema: { module: example.test/schema, version: v0.0.1, tree: schema-module }
+    files:
+      package.json: |
+        { "dependencies": { "@peasant-labs/schema": "0.0.1" } }
+      src/use.ts: |
+        export const queued = (s: string) => s === "queued";
+    hits:
+      src/use.ts: [1]
+
+  - name: flags-comparison-in-the-union-file
+    files:
+      src/state.ts: |
+        type ReadState = 'ready' | 'error';
+        export const failed = (status: ReadState) => status === "error";
+    hits:
+      src/state.ts: [2]
+
+  - name: passes-in-closed-definition-file
+    files:
+      src/view.ts: |
+        export const GroupBy = { Project: closed("project", "project") } as const;
+        export const parse = (raw: string) => raw === "project" ? GroupBy.Project : null;
+    hits: {}
+
+  - name: passes-in-record-table-definition-file
+    files:
+      src/labels.ts: |
+        export const ToneLabel: Record<Tone, string> = Object.freeze({ wait: "waiting" });
+        export const isWait = (raw: string) => raw === "wait";
+    hits: {}
+
+  - name: flags-other-value-in-a-definition-file
+    files:
+      src/view.ts: |
+        export const GroupBy = { Project: closed("project", "project") } as const;
+        export const isOpen = (raw: string) => raw === "open";
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+    hits:
+      src/view.ts: [2]
+
+  - name: passes-word-no-set-declares
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/use.ts: |
+        export const unknown = (x: string) => x === "elsewhere";
+    hits: {}
+
+  - name: passes-empty-member
+    files:
+      src/view.ts: |
+        export const Empty = { None: closed("", "none") } as const;
+      src/use.ts: |
+        export const blank = (x: string) => x === "";
+    hits: {}
+
+  - name: passes-as-const-array-is-not-a-source
+    files:
+      src/names.ts: |
+        export const NAMES = ['first', 'second'] as const;
+      src/use.ts: |
+        export const first = (x: string) => x === 'first';
+    hits: {}
+
+  - name: passes-lone-literal-type-is-not-a-source
+    files:
+      src/types.ts: |
+        export type Profile = { kind: 'profile' };
+      src/use.ts: |
+        export const isProfile = (x: { kind: string }) => x.kind === 'profile';
+    hits: {}
+
+  - name: passes-member-outside-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/use.ts: |
+        export const v = "open";
+        send("open");
+        export const t = `${v}open`;
+        export const lt = (x: string) => x < "open";
+    hits: {}
+
+  - name: passes-excluded-typeof-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          typeof v === 'error';
+        }
+    hits: {}
+
+  - name: passes-excluded-typeof-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (typeof v) { case 'error': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-typeof
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          kind(v) === 'error';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-key-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          e.key === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-key-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (e.key) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-key
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          row.keyName === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-code-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          e.code === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-code-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (e.code) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-code
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          row.codeName === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-tag-name-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.tagName === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-tag-name-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (el.tagName) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-tag-name
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.tag === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-node-name-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.nodeName === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-node-name-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (el.nodeName) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-node-name
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.name === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-local-name-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.localName === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-local-name-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (el.localName) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-local-name
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.local === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-aria-property-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.ariaExpanded === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-aria-property-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (el.ariaExpanded) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-aria-property
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.area === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-get-attribute-aria-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.getAttribute('aria-expanded') === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-get-attribute-aria-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (el.getAttribute('aria-expanded')) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-get-attribute-aria
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.getAttribute('data-state') === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-get-attribute-role-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.getAttribute('role') === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-get-attribute-role-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (el.getAttribute('role')) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-get-attribute-role
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          el.getAttribute('data-role') === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-await-get-attribute-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          (await loc.getAttribute('aria-expanded')) === 'open';
+          (await loc.getAttribute('role')) === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-await-get-attribute-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (await loc.getAttribute('role')) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-await-get-attribute
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          (await loc.getAttribute('data-state')) === 'open';
+        }
+    hits:
+      src/case.ts: [2]
+
+  - name: passes-excluded-event-type-comparison
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          event.type === 'open';
+          e.type === 'open';
+          ev.type === 'open';
+          evt.type === 'open';
+        }
+    hits: {}
+
+  - name: passes-excluded-event-type-switch
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          switch (event.type) { case 'open': break; }
+          switch (e.type) { case 'open': break; }
+          switch (ev.type) { case 'open': break; }
+          switch (evt.type) { case 'open': break; }
+        }
+    hits: {}
+
+  - name: flags-neighbour-of-event-type
+    files:
+      src/defs.ts: |
+        export type S = 'open' | 'error';
+      src/case.ts: |
+        export async function f(v: unknown, e: any, el: any, loc: any, event: any, ev: any, evt: any, row: any, message: any) {
+          row.type === 'open';
+          message.type === 'open';
+        }
+    hits:
+      src/case.ts: [2, 3]
