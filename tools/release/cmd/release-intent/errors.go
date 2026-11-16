@@ -18,7 +18,11 @@ type RejectError struct {
 	// Lines are machine lines the command decided before the rejection; they
 	// print ahead of the error line.
 	Lines []outputLine
-	Err   *intent.Error
+	// NoMachineLines keeps stdout bare for a command whose machine channel is
+	// a list, not key=value lines: the rejection still exits 2 and prints its
+	// human message on stderr.
+	NoMachineLines bool
+	Err            *intent.Error
 }
 
 // invocation names what the user ran: the command, plus the mode flag when
@@ -39,6 +43,9 @@ func (e *RejectError) Error() string { return e.Err.Error() }
 func (e *RejectError) Unwrap() error { return e.Err }
 
 func (e *RejectError) machineLines() []outputLine {
+	if e.NoMachineLines {
+		return append([]outputLine{}, e.Lines...)
+	}
 	return append(append([]outputLine{}, e.Lines...), out(intent.OutputError, e.Err.Code.String()))
 }
 
