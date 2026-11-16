@@ -16,8 +16,8 @@ import (
 // structure, never by a pattern over the text; its variable parts are named
 // and typed: the job's own bot branch from the release config, the
 // planner's tag output, the triggering tag, and quoted title or body text.
-// A PR is always named by the job's own bot branch. Every value that is not
-// literal comes from the step's env. The zero value is unknown.
+// A bot PR is named by its branch; a comment names the triggering PR. Every
+// value that is not literal comes from the step's env. The zero value is unknown.
 type CredentialTemplate string
 
 const (
@@ -45,6 +45,10 @@ const (
 	// TemplateReleaseCreate creates the Release of the triggering tag, which
 	// must already exist.
 	TemplateReleaseCreate CredentialTemplate = "release-create"
+	// TemplatePRComment comments on the PR that triggered the run.
+	TemplatePRComment CredentialTemplate = "pr-comment"
+	// TemplateReviewedScript runs the policy's default-branch evidence script.
+	TemplateReviewedScript CredentialTemplate = "run-reviewed-script"
 )
 
 // AllCredentialTemplates is the canonical closed set of templates.
@@ -59,6 +63,8 @@ var AllCredentialTemplates = []CredentialTemplate{
 	TemplateReleaseView,
 	TemplateReleaseEdit,
 	TemplateReleaseCreate,
+	TemplatePRComment,
+	TemplateReviewedScript,
 }
 
 func (t CredentialTemplate) String() string { return string(t) }
@@ -97,6 +103,10 @@ func (t CredentialTemplate) Shape() string {
 		return `gh release edit <triggering tag> [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--prerelease[=<v>]] [--latest[=<v>]]`
 	case TemplateReleaseCreate:
 		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--prerelease[=<v>]] [--latest[=<v>]]`
+	case TemplatePRComment:
+		return `gh pr comment [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] "${PR_NUMBER}" (--body-file|-F) <file>`
+	case TemplateReviewedScript:
+		return `node reviewed/<policy reviewed_script>`
 	}
 	return "<unknown template>"
 }
@@ -110,6 +120,8 @@ func templatesFor(class credentialJobClass) []CredentialTemplate {
 		return []CredentialTemplate{TemplatePushOwnBranch, TemplatePRCreate, TemplatePREdit, TemplatePRClose, TemplatePRMerge, TemplateQueueRead}
 	case credentialJobPublish:
 		return []CredentialTemplate{TemplateReleaseView, TemplateReleaseEdit, TemplateReleaseCreate}
+	case credentialJobComment:
+		return []CredentialTemplate{TemplatePRComment, TemplateReviewedScript}
 	}
 	return nil
 }
@@ -178,47 +190,51 @@ func plumbingFor(class credentialJobClass) []PlumbingTemplate {
 // the job's class and bot branch, the step's effective env, and the
 // workflow and job, to resolve where an env value comes from.
 type templateStep struct {
-	class  credentialJobClass
-	branch string
-	env    map[string]string
-	doc    *yaml.Node
-	job    *yaml.Node
+	class          credentialJobClass
+	branch         string
+	env            map[string]string
+	doc            *yaml.Node
+	job            *yaml.Node
+	reviewedScript string
 }
 
 // The fixed words the templates are built from. These are git's and gh's,
 // not the release tool's.
 const (
-	cmdGit            = "git"
-	cmdGH             = "gh"
-	gitConfigOption   = "-c"
-	gitPush           = "push"
-	gitFetch          = "fetch"
-	gitMergeBase      = "merge-base"
-	gitIsAncestor     = "--is-ancestor"
-	gitRemote         = "origin"
-	headRef           = "HEAD"
-	ghPR              = "pr"
-	ghAPI             = "api"
-	ghGraphQL         = "graphql"
-	ghRelease         = "release"
-	graphQLQueryField = "query"
-	graphQLMergeQueue = "mergeQueue"
-	ghVerbCreate      = "create"
-	ghVerbEdit        = "edit"
-	ghVerbClose       = "close"
-	ghVerbMerge       = "merge"
-	ghVerbView        = "view"
-	ghFlagHead        = "--head"
-	ghFlagVerifyTag   = "--verify-tag"
-	ghFlagAuto        = "--auto"
-	ghFlagDisableAuto = "--disable-auto"
-	gitFlagForceLease = "--force-with-lease"
-	gitFlagForce      = "--force"
-	gitFlagNoVerify   = "--no-verify"
-	gitFlagNoTags     = "--no-tags"
-	endOfOptions      = "--"
-	bundleSuffix      = ".bundle"
-	triggeringRefName = "github.ref_name"
+	cmdGit             = "git"
+	cmdGH              = "gh"
+	gitConfigOption    = "-c"
+	gitPush            = "push"
+	gitFetch           = "fetch"
+	gitMergeBase       = "merge-base"
+	gitIsAncestor      = "--is-ancestor"
+	gitRemote          = "origin"
+	headRef            = "HEAD"
+	ghPR               = "pr"
+	ghAPI              = "api"
+	ghGraphQL          = "graphql"
+	ghRelease          = "release"
+	graphQLQueryField  = "query"
+	graphQLMergeQueue  = "mergeQueue"
+	ghVerbCreate       = "create"
+	ghVerbEdit         = "edit"
+	ghVerbClose        = "close"
+	ghVerbMerge        = "merge"
+	ghVerbView         = "view"
+	ghVerbComment      = "comment"
+	cmdNode            = "node"
+	ghFlagHead         = "--head"
+	ghFlagVerifyTag    = "--verify-tag"
+	ghFlagAuto         = "--auto"
+	ghFlagDisableAuto  = "--disable-auto"
+	gitFlagForceLease  = "--force-with-lease"
+	gitFlagForce       = "--force"
+	gitFlagNoVerify    = "--no-verify"
+	gitFlagNoTags      = "--no-tags"
+	endOfOptions       = "--"
+	bundleSuffix       = ".bundle"
+	triggeringRefName  = "github.ref_name"
+	triggeringPRNumber = "github.event.pull_request.number"
 )
 
 // gitCredentialHelper is the only accepted git -c value. The outer shell
@@ -268,6 +284,8 @@ func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
 				return TemplatePRClose, true
 			case ghVerbMerge:
 				return TemplatePRMerge, true
+			case ghVerbComment:
+				return TemplatePRComment, true
 			}
 		case ghAPI:
 			if literalAt(words, 2) == ghGraphQL {
@@ -283,6 +301,8 @@ func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
 				return TemplateReleaseCreate, true
 			}
 		}
+	case cmdNode:
+		return TemplateReviewedScript, true
 	}
 	return "", false
 }
@@ -307,9 +327,12 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 		return "", "the command is none of the credential templates"
 	}
 	if !slices.Contains(templatesFor(s.class), tmpl) {
+		if tmpl == TemplateReviewedScript {
+			return "", "the command is none of the credential templates"
+		}
 		return tmpl, "a " + s.class.String() + " may not run the " + tmpl.String() + " template"
 	}
-	if s.class != credentialJobPublish && s.branch == "" {
+	if needsOwnBranch(s.class) && s.branch == "" {
 		return tmpl, "the release config names no bot branch for the job's kind, so the job owns no branch and no PR"
 	}
 	var why string
@@ -334,8 +357,58 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 		spec := releaseFlags()
 		spec[ghFlagVerifyTag] = flagSwitch
 		why = s.matchRelease(words[3:], spec, true)
+	case TemplatePRComment:
+		why = s.matchPRComment(words[3:])
+	case TemplateReviewedScript:
+		if len(words) != 2 || s.reviewedScript == "" || literalAt(words, 1) != reviewedCheckoutDir+"/"+s.reviewedScript {
+			why = "the reviewed script command must be node followed by exactly the policy's literal reviewed_script path"
+		} else if soleExpression(s.env[TemplateEnvPRNumber.String()]) != triggeringPRNumber {
+			why = "PR_NUMBER must be mapped from this run's pull request number"
+		}
 	}
 	return tmpl, why
+}
+
+// needsOwnBranch distinguishes ref-writing jobs from comment and publish jobs.
+func needsOwnBranch(class credentialJobClass) bool {
+	return class == credentialJobRelease || class == credentialJobBot
+}
+
+func (s templateStep) matchPRComment(words []templateWord) string {
+	f, why := s.parseFlags(words, flagSpec{
+		"--edit-last": flagSwitch, "--create-if-none": flagSwitch,
+		"--body-file": flagPath, "-F": flagPath,
+		"--repo": flagRepo, "-R": flagRepo,
+	})
+	if why != "" {
+		return why
+	}
+	_, long := f.flags["--body-file"]
+	_, short := f.flags["-F"]
+	if long == short {
+		return "gh pr comment must pass exactly one of --body-file and -F"
+	}
+	repo, longRepo := f.flags["--repo"]
+	shortRepo, hasShortRepo := f.flags["-R"]
+	if longRepo && hasShortRepo {
+		return "gh pr comment must not name two repositories"
+	}
+	if hasShortRepo {
+		repo = shortRepo
+	}
+	if longRepo || hasShortRepo {
+		_, overridden := s.env[runnerEnvRepository]
+		if !repo.params("", runnerEnvRepository, "") || overridden {
+			return "gh pr comment --repo must name the runner's current repository"
+		}
+	}
+	if len(f.positional) != 1 || !f.positional[0].params("", TemplateEnvPRNumber.String(), "") {
+		return "gh pr comment must name this run's pull request as \"${PR_NUMBER}\""
+	}
+	if soleExpression(s.env[TemplateEnvPRNumber.String()]) != triggeringPRNumber {
+		return "PR_NUMBER must be mapped from this run's pull request number"
+	}
+	return ""
 }
 
 // matchPlumbing checks one no-credential command of a credential job
@@ -730,6 +803,9 @@ func (s templateStep) textParam(param, name string) string {
 	env, err := ParseTemplateEnv(param)
 	if err != nil {
 		return name + " reads " + quote(param) + ", which is not one of the credential step env names (" + closedset.Join(AllTemplateEnvs, ", ") + ")"
+	}
+	if !env.allowedFor(s.class) {
+		return name + " reads " + env.String() + ", which is not allowed for a " + s.class.String()
 	}
 	if env.carriesCredential() {
 		return name + " reads the credential carrier " + env.String() + ", which would publish the credential"

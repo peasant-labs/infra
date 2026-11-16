@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -30,6 +31,7 @@ func TestCheckWorkflows_Cases(t *testing.T) {
 		t.Run(row.Name, func(t *testing.T) {
 			t.Parallel()
 			dir := materializeQueueFixture(t, row.Input.Overlay)
+			applyQueueFixtureEdits(t, dir, row.Input.Edits)
 			policy, err := LoadQueuePolicy(filepath.Join(dir, DefaultPath))
 			if err != nil {
 				t.Fatalf("case %q policy does not load: %v", row.Name, err)
@@ -41,6 +43,27 @@ func TestCheckWorkflows_Cases(t *testing.T) {
 			diags, required := CheckWorkflows(policy, cfg, filepath.Join(dir, fixtureWorkflowsDir))
 			assertQueueRule(t, row, policy, diags, required)
 		})
+	}
+}
+
+func applyQueueFixtureEdits(t *testing.T, dir string, edits []queueFixtureEdit) {
+	t.Helper()
+	for _, edit := range edits {
+		if edit.File == "" || filepath.IsAbs(edit.File) || strings.Contains(edit.File, "..") || edit.Old == "" {
+			t.Fatalf("invalid fixture edit for %q", edit.File)
+		}
+		name := filepath.Join(dir, edit.File)
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read fixture edit %s: %v", edit.File, err)
+		}
+		if n := strings.Count(string(data), edit.Old); n != 1 {
+			t.Fatalf("fixture edit %s matched %d times, want exactly one", edit.File, n)
+		}
+		updated := strings.Replace(string(data), edit.Old, edit.New, 1)
+		if err := os.WriteFile(name, []byte(updated), 0o644); err != nil {
+			t.Fatalf("write fixture edit %s: %v", edit.File, err)
+		}
 	}
 }
 

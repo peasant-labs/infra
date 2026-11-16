@@ -179,19 +179,29 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
 - **The workflow checker confines credentials; it does not read shell.** A
   job that may hold a credential runs only `policy.AllAllowedActions`, the
   plumbing templates (`policy.AllPlumbingTemplates`) and the credential
-  templates (`policy.AllCredentialTemplates`); all other work runs in an
-  earlier job without a credential and hands over through job outputs and an
-  artifact. Never widen it by teaching a reader another spelling of a write,
-  or by letting a general step back into the credential job: add a typed
+  templates (`policy.AllCredentialTemplates`); apart from the reviewed-script
+  exception below, all other work runs in an earlier job without a credential
+  and hands over through job outputs and an artifact. Never widen it by
+  teaching a reader another spelling of a write, or by letting a general step
+  back into the credential job: add a typed
   template, and say in the PR why the existing ones do not fit. The README's
   "What a consumer workflow may do with a credential" is the consumer-facing
   summary; keep it in step. A credential job runs on a literal
-  `policy.AllRunnerLabels` label and names its PR by its bot branch. A
+  `policy.AllRunnerLabels` label and names its bot PR by its bot branch. A
   tag-triggered publish job needs a tag-verify job, confined the same way: only
   the `policy.AllVerifySteps` shapes, `policy.AllVerifyActions` with
   `policy.AllVerifyInputs`, and `policy.AllVerifyEnvs` at their fixed values.
   A tag-triggered publish job's `if` calls no status function and reads no
   `needs.<job>.result`, and the tag-verify job carries no job-level `if`.
+  A listed comment job instead targets the triggering PR, mints with explicit
+  contents-read, issues-write and pull-requests-write on one literal
+  repository, and may run only the comment templates. A reviewed script uses
+  the isolated default-branch checkout and a disjoint evidence directory; its
+  policy-named user PAT is a credential confined to the comment step env.
+  This is an accepted trust exception, not proof that the script or
+  PR-controlled evidence is safe. The release-assets action takes only the
+  build job's `release-dist` handoff and the triggering tag. The
+  `--print-required` mode prints the contexts but retains the policy verdict.
 - **A release tag is checked before it leaves the release job.** The release
   workflow triggers only on push, schedule and workflow_dispatch, and the
   release job's `if` proves the run is on the default branch with
@@ -209,7 +219,9 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
 - **A no-`continue-on-error` clause refuses the key, not a value.** The
   title-guard job and its steps, every step `release-actions-gated` gates, the
   tag-verify job, and the tag path (the ancestry check, the tag push and the
-  release job) refuse the `continue-on-error` key whatever its value. GitHub
+  release job), plus a comment job and its comment steps, the release-assets
+  action and its publish job, refuse the `continue-on-error` key whatever its
+  value. GitHub
   evaluates the key as a value, and the documented
   `continue-on-error: ${{ fromJSON('true') }}` form makes a failed check or
   job report success, so a literal comparison would be a bypass.

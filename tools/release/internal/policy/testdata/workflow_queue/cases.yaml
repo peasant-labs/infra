@@ -9,6 +9,66 @@
 # required_names is the manifest: every case must be listed and every listed
 # case must exist, so a dropped or stray sample fails loudly.
 required_names:
+  - accept-comment-job
+  - accept-comment-job-no-checkout
+  - accept-comment-pat
+  - accept-reviewed-script
+  - accept-release-assets
+  - accept-tag-publish-no-tap
+  - accept-vendor-hash-split
+  - reject-comment-job-unlisted
+  - reject-comment-job-contents-mint
+  - reject-comment-job-no-contents
+  - reject-comment-job-duplicate-permission
+  - reject-comment-job-no-issues
+  - reject-comment-job-no-pull-requests
+  - reject-comment-job-no-repositories
+  - reject-comment-job-multiple-repositories
+  - reject-comment-job-newline-repositories
+  - reject-comment-job-no-pr-gate
+  - reject-comment-script-no-pr-gate
+  - reject-comment-job-body-text
+  - reject-comment-job-pr-number-output
+  - reject-comment-job-general-step
+  - reject-comment-job-continue-on-error
+  - reject-comment-job-continue-on-error-job
+  - reject-comment-job-runner-expression
+  - reject-comment-job-double-listing
+  - reject-comment-job-publish-overlap
+  - reject-comment-job-duplicate
+  - reject-comment-job-missing-workflow
+  - reject-comment-job-missing-job
+  - reject-reviewed-script-pr-checkout
+  - reject-reviewed-script-checkout-root
+  - reject-reviewed-script-artifact-overwrite
+  - reject-reviewed-script-evidence-mismatch
+  - reject-reviewed-script-altered-command
+  - reject-reviewed-script-conditional-checkout
+  - reject-pat-workflow-env
+  - reject-pat-duplicate-workflow-env
+  - reject-pat-yaml-alias
+  - reject-pat-job-env
+  - reject-pat-job-output
+  - reject-pat-action-input
+  - reject-pat-run-text
+  - reject-pat-unlisted-job
+  - reject-release-assets-glob-expression
+  - reject-release-assets-no-fail-fast
+  - reject-release-assets-continue-on-error
+  - reject-release-assets-in-release-job
+  - reject-release-assets-unpinned
+  - reject-release-assets-wrong-artifact
+  - reject-release-assets-wrong-path
+  - reject-release-assets-unneeded-build
+  - reject-release-assets-wrong-tag
+  - reject-release-assets-other-repository-gate
+  - reject-release-assets-wrong-build-path
+  - reject-release-assets-duplicate-upload
+  - reject-release-assets-conditional-download
+  - reject-release-assets-fake-gate
+  - reject-tag-publish-assets-no-verify
+  - reject-vendor-hash-nix-in-update
+  - reject-vendor-hash-push-develop
   - accept-required-contexts
   - accept-merge-group
   - accept-concurrency
@@ -127,6 +187,706 @@ required_names:
   - accept-release-tag-guarded
   - reject-release-tag-no-guard
 cases:
+  - name: accept-comment-job
+    input: { overlay: accept-comment-job }
+    expected: { rule: credential-steps-run-one-template }
+    classification: must-pass
+    provenance: { source: requirement, ref: "listed pull request comment" }
+    mutation: { description: "Comment only on the triggering pull request." }
+  - name: accept-comment-job-no-checkout
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\n        with:\n          ref: ${{ github.event.repository.default_branch }}\n          persist-credentials: false\n"
+          new: ""
+    expected: { rule: credential-steps-run-one-template }
+    classification: must-pass
+    provenance: { source: requirement, ref: "comment without checkout" }
+    mutation: { description: "Name the current repository explicitly without a checkout." }
+  - name: accept-reviewed-script
+    input: { overlay: accept-reviewed-script }
+    expected: { rule: credential-steps-run-one-template }
+    classification: must-pass
+    provenance: { source: requirement, ref: "reviewed inline evidence" }
+    mutation: { description: "Run the default-branch script with separately downloaded evidence." }
+  - name: accept-comment-pat
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "GH_TOKEN: ${{ steps.bot.outputs.token }}"
+          new: "GH_TOKEN: ${{ secrets.JOURNEY_GITHUB_USER_PAT }}"
+    expected: { rule: credentials-stay-in-listed-jobs }
+    classification: must-pass
+    provenance: { source: requirement, ref: "policy-named personal token" }
+    mutation: { description: "Use the named personal token only in the comment step environment." }
+  - name: accept-release-assets
+    input: { overlay: accept-tag-publish-assets }
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "release assets handoff" }
+    mutation: { description: "Publish the verified build artifact through the pinned action." }
+  - name: accept-tag-publish-no-tap
+    input: { overlay: accept-tag-publish-assets }
+    expected: { rule: tag-publish-verifies-the-tag }
+    classification: must-pass
+    provenance: { source: requirement, ref: "tag publication without tap credential" }
+    mutation: { description: "Publish using only the default repository token." }
+  - name: accept-vendor-hash-split
+    input: { overlay: "" }
+    expected: { rule: credential-steps-run-one-template }
+    classification: must-pass
+    provenance: { source: requirement, ref: "vendor hash split" }
+    mutation: { description: "Compute and bundle before the credential job pushes its bot branch." }
+  - name: reject-comment-job-unlisted
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: .github/release-queue.policy.yml
+          old: "  comment_jobs:\n    - workflow: journey.yml\n      job: evidence\n      pat_secret: JOURNEY_GITHUB_USER_PAT\n"
+          new: ""
+    expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["mints the App token outside"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment listing" }
+    mutation: { description: "Remove the comment job listing." }
+  - name: reject-comment-job-contents-mint
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "permission-contents: read"
+          new: "permission-contents: write"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["permission-contents"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment token scope" }
+    mutation: { description: "Request contents write." }
+  - name: reject-comment-job-no-contents
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "permission-contents: read"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["permission-contents"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment token scope" }
+    mutation: { description: "Omit the explicit contents read restriction." }
+  - name: reject-comment-job-duplicate-permission
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "permission-contents: read"
+          new: "permission-contents: read\n          permission-contents: write"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credentials-stay-in-listed-jobs], want_contains: ["more than once"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment token scope" }
+    mutation: { description: "Give the mint two different contents permissions." }
+  - name: reject-comment-job-no-issues
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "permission-issues: write"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["permission-issues"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment token scope" }
+    mutation: { description: "Omit the explicit issues grant." }
+  - name: reject-comment-job-no-pull-requests
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "permission-pull-requests: write"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["permission-pull-requests"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment token scope" }
+    mutation: { description: "Omit the explicit pull request grant." }
+  - name: reject-comment-job-no-repositories
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "repositories: village"
+          new: "repositories: ''"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["exactly one literal repository"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment repository scope" }
+    mutation: { description: "Give the action no repository." }
+  - name: reject-comment-job-multiple-repositories
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "repositories: village"
+          new: "repositories: village,other"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["exactly one literal repository"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment repository scope" }
+    mutation: { description: "Request two repositories." }
+  - name: reject-comment-job-newline-repositories
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "repositories: village"
+          new: 'repositories: "village\nother"'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["exactly one literal repository"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment repository scope" }
+    mutation: { description: "Request two newline-separated repositories." }
+  - name: reject-comment-job-no-pr-gate
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "always() && github.event_name == 'pull_request'"
+          new: "always()"
+    expected: { rule: token-mint-ref-check, also: [credential-steps-run-one-template], want_contains: ["pull_request event gate"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment event gate" }
+    mutation: { description: "Mint without a pull request event gate." }
+  - name: reject-comment-script-no-pr-gate
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "always() && github.event_name == 'pull_request'"
+          new: "always()"
+        - file: workflows/journey.yml
+          old: "      - id: bot"
+          new: "      - if: github.event_name == 'pull_request'\n        id: bot"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["personal token may be available"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment event gate" }
+    mutation: { description: "Gate only minting while leaving the personal-token script ungated." }
+  - name: reject-comment-job-body-text
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "--body-file notes/comment.md"
+          new: "--body text"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["template does not take"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment body file" }
+    mutation: { description: "Put the comment body in the command." }
+  - name: reject-comment-job-pr-number-output
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "PR_NUMBER: ${{ github.event.pull_request.number }}"
+          new: "PR_NUMBER: ${{ needs.journey.outputs.pr }}"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["this run"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment target" }
+    mutation: { description: "Use a job output for the pull request number." }
+  - name: reject-comment-job-general-step
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: '        run: gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body-file notes/comment.md'
+          new: "        run: gh pr comment \"$PR_NUMBER\" --repo \"$GITHUB_REPOSITORY\" --edit-last --create-if-none --body-file notes/comment.md\n      - run: exit 1"
+    expected: { rule: credential-jobs-run-no-general-steps, want_contains: ["general step"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment job confinement" }
+    mutation: { description: "Add a general fail step." }
+  - name: reject-comment-job-continue-on-error
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "- name: Post evidence"
+          new: "- name: Post evidence\n        continue-on-error: true"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["continue-on-error"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment failure" }
+    mutation: { description: "Mask the comment failure." }
+  - name: reject-comment-job-continue-on-error-job
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "    needs: [journey]"
+          new: "    continue-on-error: true\n    needs: [journey]"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["continue-on-error"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment failure" }
+    mutation: { description: "Mask comment job failure." }
+  - name: reject-comment-job-runner-expression
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: workflows/journey.yml
+          old: "runs-on: ubuntu-24.04"
+          new: "runs-on: ${{ needs.journey.outputs.runner }}"
+    expected: { rule: credential-jobs-run-no-general-steps, want_contains: ["expression"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "hosted comment runner" }
+    mutation: { description: "Let another job select the credential runner." }
+  - name: reject-comment-job-double-listing
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: .github/release-queue.policy.yml
+          old: "  comment_jobs:"
+          new: "    - { workflow: journey.yml, job: evidence, kind: vendor-hash }\n  comment_jobs:"
+    expected: { rule: credential-steps-run-one-template, also: [token-mint-ref-check, credential-jobs-use-pinned-actions], want_contains: ["also belongs"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "disjoint job classes" }
+    mutation: { description: "List the same job as bot and comment." }
+  - name: reject-comment-job-duplicate
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: .github/release-queue.policy.yml
+          old: "      pat_secret: JOURNEY_GITHUB_USER_PAT"
+          new: "      pat_secret: JOURNEY_GITHUB_USER_PAT\n    - workflow: journey.yml\n      job: evidence\n      pat_secret: JOURNEY_GITHUB_USER_PAT"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["listed twice"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "unique comment jobs" }
+    mutation: { description: "List the same comment job twice." }
+  - name: reject-comment-job-publish-overlap
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: .github/release-queue.policy.yml
+          old: "    - { workflow: nix-vendor-hash.yml, job: update, kind: vendor-hash }"
+          new: "    - { workflow: nix-vendor-hash.yml, job: update, kind: vendor-hash }\n  comment_jobs:\n    - { workflow: release.yml, job: comment_oidc }"
+        - file: workflows/release.yml
+          old: "  publish:\n"
+          new: "  comment_oidc:\n    needs: [verify]\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n      id-token: write\n    steps: []\n  publish:\n"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["also belongs"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "disjoint job classes" }
+    mutation: { description: "A listed comment job can also publish using OIDC." }
+  - name: reject-comment-job-missing-workflow
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: .github/release-queue.policy.yml
+          old: "workflow: journey.yml"
+          new: "workflow: missing.yml"
+    expected: { rule: credential-steps-run-one-template, also: [credentials-stay-in-listed-jobs], want_contains: ["missing"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment job resolution" }
+    mutation: { description: "Name a missing workflow." }
+  - name: reject-comment-job-missing-job
+    input:
+      overlay: accept-comment-job
+      edits:
+        - file: .github/release-queue.policy.yml
+          old: "job: evidence"
+          new: "job: absent"
+    expected: { rule: credential-steps-run-one-template, also: [credentials-stay-in-listed-jobs], want_contains: ["listed comment job is missing"] }
+    sibling: accept-comment-job
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment job resolution" }
+    mutation: { description: "Name a missing job." }
+  - name: reject-reviewed-script-pr-checkout
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "ref: ${{ github.event.repository.default_branch }}"
+          new: "ref: ${{ github.sha }}"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["default branch"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "reviewed script source" }
+    mutation: { description: "Check out the pull request commit instead of the default branch." }
+  - name: reject-reviewed-script-checkout-root
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "          path: reviewed\n"
+          new: ""
+    expected: { rule: credential-steps-run-one-template, want_contains: ["default-branch checkout"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "reviewed checkout isolation" }
+    mutation: { description: "Check out the script without isolating its imports." }
+  - name: reject-reviewed-script-artifact-overwrite
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "path: notes"
+          new: "path: reviewed/frontend/scripts/journey"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["overwrite"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "reviewed script source" }
+    mutation: { description: "Let the downloaded artifact overwrite the script and imports." }
+  - name: reject-reviewed-script-evidence-mismatch
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "EVIDENCE_DIR: notes"
+          new: "EVIDENCE_DIR: elsewhere"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["EVIDENCE_DIR"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "reviewed evidence handoff" }
+    mutation: { description: "Point the script at a directory that was not downloaded." }
+  - name: reject-reviewed-script-altered-command
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "run: node reviewed/frontend/scripts/journey/ci-post-evidence.mjs"
+          new: "run: node reviewed/frontend/scripts/journey/other.mjs"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["reviewed_script"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "reviewed script path" }
+    mutation: { description: "Execute a different script with the token." }
+  - name: reject-reviewed-script-conditional-checkout
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "- uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
+          new: "- if: false\n        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["unconditional default-branch checkout"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "reviewed script source" }
+    mutation: { description: "Skip the default-branch checkout." }
+  - name: reject-pat-workflow-env
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "jobs:"
+          new: |-
+            env:
+              GH_TOKEN: ${{ secrets.JOURNEY_GITHUB_USER_PAT }}
+            jobs:
+    expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["workflow env"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "personal token confinement" }
+    mutation: { description: "Expose the personal token to every workflow job." }
+  - name: reject-pat-job-env
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "    needs: [journey]"
+          new: "    env:\n      GH_TOKEN: ${{ secrets.JOURNEY_GITHUB_USER_PAT }}\n    needs: [journey]"
+    expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["jobs.evidence.env"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "personal token confinement" }
+    mutation: { description: "Expose the personal token to every step of the job." }
+  - name: reject-pat-duplicate-workflow-env
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "jobs:"
+          new: "env:\n  GH_TOKEN: literal\nenv:\n  GH_TOKEN: ${{ secrets.JOURNEY_GITHUB_USER_PAT }}\njobs:"
+    expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["repeats YAML mapping key"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "personal token confinement" }
+    mutation: { description: "Hide the personal token behind a duplicate workflow env key." }
+  - name: reject-pat-yaml-alias
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "GH_TOKEN: ${{ secrets.JOURNEY_GITHUB_USER_PAT || steps.bot.outputs.token }}"
+          new: "GH_TOKEN: &pat ${{ secrets.JOURNEY_GITHUB_USER_PAT || steps.bot.outputs.token }}"
+        - file: workflows/journey.yml
+          old: "JOURNEY_APP_TOKEN: ${{ steps.bot.outputs.token }}"
+          new: "JOURNEY_APP_TOKEN: *pat"
+    expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["YAML alias"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "personal token confinement" }
+    mutation: { description: "Use a YAML alias for the personal token." }
+  - name: reject-pat-job-output
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "    needs: [journey]"
+          new: "    outputs:\n      leak: ${{ secrets.JOURNEY_GITHUB_USER_PAT }}\n    needs: [journey]"
+    expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["outputs"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "personal token confinement" }
+    mutation: { description: "Expose the personal token as a job output." }
+  - name: reject-pat-action-input
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "owner: peasant-labs"
+          new: "owner: ${{ secrets.JOURNEY_GITHUB_USER_PAT }}"
+    expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["policy PAT"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "personal token confinement" }
+    mutation: { description: "Pass the personal token to an action input." }
+  - name: reject-pat-run-text
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "run: node reviewed/frontend/scripts/journey/ci-post-evidence.mjs"
+          new: "run: node reviewed/frontend/scripts/journey/ci-post-evidence.mjs ${{ secrets.JOURNEY_GITHUB_USER_PAT }}"
+    expected: { rule: credentials-stay-in-listed-jobs, also: [credential-steps-run-one-template], want_contains: ["policy PAT"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "personal token confinement" }
+    mutation: { description: "Interpolate the personal token into the command." }
+  - name: reject-pat-unlisted-job
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "  journey:\n"
+          new: "  leak:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n      - env:\n          GH_TOKEN: ${{ secrets.JOURNEY_GITHUB_USER_PAT }}\n        run: echo unsafe\n  journey:\n"
+    expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["policy PAT"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "personal token confinement" }
+    mutation: { description: "Read the listed PAT in a different job." }
+  - name: reject-release-assets-glob-expression
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "files: dist/*"
+          new: "files: ${{ needs.build.outputs.files }}"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["literal dist/*"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release asset data" }
+    mutation: { description: "Let a build output choose the file glob." }
+  - name: reject-release-assets-no-fail-fast
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "fail_on_unmatched_files: true"
+          new: "fail_on_unmatched_files: false"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["fail_on_unmatched_files"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release asset data" }
+    mutation: { description: "Permit an empty asset upload." }
+  - name: reject-release-assets-continue-on-error
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "- name: Upload assets"
+          new: "- name: Upload assets\n        continue-on-error: true"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["continue-on-error"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release asset failure" }
+    mutation: { description: "Mask an incomplete asset upload." }
+  - name: reject-release-assets-in-release-job
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/release-batch.yml
+          old: "      - id: mint"
+          new: "      - uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n      - id: mint"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["not an allowed action"] }
+    sibling: accept-vendor-hash-split
+    classification: must-fail
+    provenance: { source: requirement, ref: "release action class" }
+    mutation: { description: "Use the release action in the release job." }
+  - name: reject-release-assets-unpinned
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567"
+          new: "softprops/action-gh-release@v2"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["40-hex"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release action pin" }
+    mutation: { description: "Use a mutable action tag." }
+  - name: reject-release-assets-wrong-artifact
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: release-dist\n          path: dist\n"
+          new: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: other\n          path: dist\n"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-jobs-run-no-general-steps], want_contains: ["release-dist"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Download a different artifact." }
+  - name: reject-release-assets-wrong-path
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          name: release-dist\n          path: dist\n      - id: view"
+          new: "          name: release-dist\n          path: other\n      - id: view"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["into dist"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Download the artifact somewhere else." }
+  - name: reject-release-assets-unneeded-build
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "needs: [verify, build]"
+          new: "needs: [verify]"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-jobs-run-no-general-steps], want_contains: ["build"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Remove the needed build job." }
+  - name: reject-release-assets-wrong-tag
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "tag_name: ${{ github.ref_name }}"
+          new: "tag_name: other"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["triggering tag"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release target" }
+    mutation: { description: "Publish to a different tag." }
+  - name: reject-release-assets-other-repository-gate
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: 'gh release view "$TAG" --repo "$GITHUB_REPOSITORY"'
+          new: 'gh release view "$TAG" --repo other/repository'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["current repository"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release creation gate" }
+    mutation: { description: "Check a different repository before the upload." }
+  - name: reject-release-assets-wrong-build-path
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          name: release-dist\n          path: dist\n  publish:"
+          new: "          name: release-dist\n          path: other\n  publish:"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["build's dist"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Build uploads a different directory." }
+  - name: reject-release-assets-duplicate-upload
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "  publish:\n"
+          new: "  other:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n        with:\n          name: release-dist\n          path: dist\n  publish:\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["build's dist"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Another job can upload the same artifact name." }
+  - name: reject-release-assets-conditional-download
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "- uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+          new: "- if: false\n        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["unconditionally download"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Skip the release artifact download." }
+  - name: reject-release-assets-fake-gate
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "steps.view.outcome == 'success' || steps.create.outcome == 'success'"
+          new: "steps.view.outcome == 'success' || steps.download.outcome == 'success'"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["missing or non-credential"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release creation gate" }
+    mutation: { description: "Gate the action on an unrelated step." }
+  - name: reject-tag-publish-assets-no-verify
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "needs: [verify, build]"
+          new: "needs: [build]"
+    expected: { rule: tag-publish-verifies-the-tag, want_contains: ["confined tag-verify"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "tag verifier" }
+    mutation: { description: "Remove the verifier from the publish job." }
+  - name: reject-vendor-hash-nix-in-update
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - id: mint"
+          new: "      - run: nix run .#update-vendor-hash\n      - id: mint"
+    expected: { rule: credential-jobs-run-no-general-steps, want_contains: ["general step"] }
+    sibling: accept-vendor-hash-split
+    classification: must-fail
+    provenance: { source: requirement, ref: "vendor hash split" }
+    mutation: { description: "Run Nix in the credential job." }
+  - name: reject-vendor-hash-push-develop
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "push --force origin automation/vendor-hash"
+          new: "push --force origin HEAD:develop"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["not the job's own bot branch"] }
+    sibling: accept-vendor-hash-split
+    classification: must-fail
+    provenance: { source: requirement, ref: "vendor hash split" }
+    mutation: { description: "Push directly to the default branch." }
   - name: accept-required-contexts
     input: { overlay: "" }
     expected: { rule: "required-contexts", want_contains: [] }

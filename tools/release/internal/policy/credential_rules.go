@@ -11,8 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// This file holds the four rules that confine every credential that can
-// write a ref. They replace reading every spelling of a write with an
+// This file holds the rules that confine write credentials and policy-named
+// personal tokens. They replace reading every spelling of a write with an
 // allowlist, so anything they do not list is rejected:
 //
 //   - default-token-read-only: every workflow and every job declares its
@@ -141,6 +141,14 @@ func (c *queueChecker) checkPermissions(file, job, scope string, perms *yaml.Nod
 // block's text.
 func (c *queueChecker) checkCredentialScope() {
 	c.eachDoc(QueueRuleCredentialScope, func(name string, doc *yaml.Node) {
+		if c.hasCommentPAT() {
+			if why := ambiguousCredentialYAML(doc); why != "" {
+				c.emit(QueueRuleCredentialScope, name, "", violation(
+					"the workflow "+why,
+					"duplicate keys or YAML aliases can hide a personal token from the credential reader",
+					rejected, "write unique mapping keys and expand aliases explicitly"))
+			}
+		}
 		workflowReader := credentialReader{secrets: c.secrets, job: credentialJob{tokenWrites: tokenMayWrite(mappingValue(doc, "permissions"))}}
 		for _, kv := range envEntries(doc) {
 			if cred := workflowReader.inText(kv[1]); cred != "" {
@@ -188,10 +196,10 @@ func (c *queueChecker) checkJobCredentialScope(file, jobName string, job *yaml.N
 	for i, step := range stepsOf(job) {
 		label := stepLabel(jobName, i, step)
 		mint := isMintStep(step)
-		if mint && cj.class != credentialJobRelease && cj.class != credentialJobBot {
-			emit(label+" mints the App token outside the release job and the listed bot jobs",
+		if mint && cj.class != credentialJobRelease && cj.class != credentialJobBot && cj.class != credentialJobComment {
+			emit(label+" mints the App token outside the release job and the listed bot jobs or comment jobs",
 				"a job the policy does not list runs commands no template holds, so it can push the default branch with the token",
-				"mint the token only in the release job or a bot job the policy lists")
+				"mint the token only in the release job or a bot or comment job the policy lists")
 			continue
 		}
 		c.checkStepCredentialScope(r, cj, label, step, mint, emit)
@@ -210,6 +218,15 @@ func (c *queueChecker) checkStepCredentialScope(r credentialReader, cj credentia
 		if cred == "" {
 			continue
 		}
+		for _, pat := range c.patReads(val) {
+			tmpl, ok := stepTemplate(step)
+			if cj.class != credentialJobComment || !strings.EqualFold(pat, cj.patSecret) || key != "env" || !isRun ||
+				!ok || (tmpl != TemplatePRComment && tmpl != TemplateReviewedScript) {
+				emit(label+" reads the policy PAT "+pat+" in "+key,
+					"the personal token is allowed only in the env of its listed comment job's comment step",
+					"move it into the env of the listed comment step")
+			}
+		}
 		switch {
 		case cj.class == "":
 			emit(label+" reads "+cred+" in a job that may hold no credential",
@@ -222,7 +239,7 @@ func (c *queueChecker) checkStepCredentialScope(r credentialReader, cj credentia
 				if r.inText(kv[1]) == "" {
 					continue
 				}
-				if env, err := ParseTemplateEnv(kv[0]); err != nil || !env.carriesCredential() {
+				if env, err := ParseTemplateEnv(kv[0]); err != nil || !env.carriesCredential() || !env.allowedFor(cj.class) {
 					emit(label+" env "+kv[0]+" reads "+cred,
 						"only a carrier name ("+TemplateEnvGHToken.String()+", "+TemplateEnvGitHubToken.String()+", "+TemplateEnvAppToken.String()+") may hold a credential, so a template can never print it or write it to a file",
 						"carry the credential in "+TemplateEnvGHToken.String()+" for gh or "+TemplateEnvAppToken.String()+" for the git authorization header")
@@ -253,7 +270,7 @@ func (c *queueChecker) checkCredentialActions() {
 					"the "+cj.class.String()+" may hold a credential, and an action, a reusable workflow or a container runs code the checker cannot read with that credential in reach",
 					rejected, fix))
 			}
-			allowed := "use only " + closedset.Join(AllAllowedActions, ", ") + ", each pinned to a 40-hex commit"
+			allowed := "use only " + closedset.Join(actionsFor(cj.class), ", ") + ", each pinned to a 40-hex commit"
 			if uses := mappingValue(job, "uses"); uses != nil {
 				emit("jobs."+jobName+" calls the reusable workflow "+strconv.Quote(uses.Value), "run the job's steps inline and "+allowed)
 			}
@@ -266,15 +283,21 @@ func (c *queueChecker) checkCredentialActions() {
 					continue
 				}
 				action, ref, ok := usesAction(uses)
-				if _, err := ParseAllowedAction(action); !ok || err != nil {
+				member, err := ParseAllowedAction(action)
+				if !ok || err != nil || !slices.Contains(actionsFor(cj.class), member) {
 					emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", which is not an allowed action", allowed)
 					continue
 				}
 				if !actionPinSHA.MatchString(ref) {
 					emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", pinned to "+strconv.Quote(ref)+" instead of a 40-hex commit", "pin the action to the reviewed commit SHA")
 				}
-				if why := actionInputFault(step); why != "" {
+				if why := actionInputFault(step, job, cj.class); why != "" {
 					emit(stepLabel(jobName, i, step)+" "+why, "pass "+uses+" only the inputs it may take there")
+				}
+				if member == ActionReleaseAssets {
+					if why := c.releaseAssetsFault(name, jobName, doc, job, step); why != "" {
+						emit(stepLabel(jobName, i, step)+" "+why, "download the build's release-dist into dist and gate the upload on the verified Release")
+					}
 				}
 			}
 		}
@@ -283,27 +306,53 @@ func (c *queueChecker) checkCredentialActions() {
 
 // actionInputFault says why an allowed action's with: inputs are not ones
 // it may take in a job that may hold a credential, or "" when they are.
-// Checkout and download inputs are literal: a value from an expression could
-// point them at another ref or directory. A download lands in a literal
-// subdirectory of the workspace, so an artifact can never write into .git
-// (its config or hooks) or beside the repository's files.
-func actionInputFault(step *yaml.Node) string {
+// Checkout and download inputs are literal except for the comment checkout's
+// fixed default-branch expression. A download lands in a literal subdirectory;
+// the reviewed-script rule additionally isolates the complete checkout.
+func actionInputFault(step, job *yaml.Node, class credentialJobClass) string {
 	name, _, _ := usesAction(stepUsesText(step))
 	action, err := ParseAllowedAction(name)
 	if err != nil {
 		return ""
 	}
 	allowed := inputsOf(action)
+	if action == ActionCheckout && class == credentialJobComment {
+		allowed = append(allowed, InputRef, InputArtifactPath)
+	}
+	if action == ActionCreateAppToken {
+		allowed = mintInputsFor(class)
+	}
 	with := mappingValue(step, "with")
+	seen := map[ActionInput]bool{}
 	for i := 0; with != nil && i+1 < len(with.Content); i += 2 {
 		key, value := with.Content[i].Value, with.Content[i+1].Value
 		input, err := ParseActionInput(key)
 		if err != nil || !containsInput(allowed, input) {
 			return "passes input " + key + ", which " + action.String() + " may not take in a job that may hold a credential (it takes " + closedset.Join(allowed, ", ") + ")"
 		}
-		if action != ActionCreateAppToken && strings.Contains(value, "${{") {
+		if seen[input] {
+			return "passes input " + key + " more than once; the checker cannot prove which value the action receives"
+		}
+		seen[input] = true
+		if action != ActionCreateAppToken && action != ActionReleaseAssets && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && strings.Contains(value, "${{") {
 			return "passes input " + key + " from an expression; " + action.String() + " takes literal inputs there"
 		}
+	}
+	if action == ActionCreateAppToken && class == credentialJobComment {
+		if why := commentMintInputFault(with); why != "" {
+			return why
+		}
+	}
+	if action == ActionCheckout && class == credentialJobComment {
+		if ref := mappingValue(with, InputRef.String()); ref != nil && soleExpression(ref.Value) != defaultBranchExpression {
+			return "passes ref " + quote(ref.Value) + "; a comment job checkout may name only the repository's default branch"
+		}
+		if target := mappingValue(with, InputArtifactPath.String()); target != nil && target.Value != reviewedCheckoutDir {
+			return "passes checkout path " + quote(target.Value) + "; a comment job may check out only into " + reviewedCheckoutDir
+		}
+	}
+	if action == ActionReleaseAssets {
+		return releaseAssetsInputFault(with, job)
 	}
 	if action == ActionDownloadArtifact {
 		path := mappingValue(with, InputArtifactPath.String())
@@ -393,8 +442,8 @@ func (c *queueChecker) checkJobShape(file, jobName string, doc, job *yaml.Node, 
 					emit(label+" downloads artifact "+strconv.Quote(artifact)+", which no job it needs uploads", "name the artifact an earlier job uploads, and list that job in needs")
 				}
 			}
-			if bad := badEnvName(effectiveEnv(doc, job, step)); bad != "" {
-				emit(label+" runs with env "+bad+", which is not one of "+closedset.Join(AllTemplateEnvs, ", "), "drop it from the step, job and workflow env; an action reads its environment too (NODE_OPTIONS, a proxy)")
+			if bad := badEnvName(effectiveEnv(doc, job, step), cj.class); bad != "" {
+				emit(label+" runs with env "+bad+", which is not allowed for a "+cj.class.String()+" (known names: "+closedset.Join(AllTemplateEnvs, ", ")+")", "drop it from the step, job and workflow env; an action reads its environment too (NODE_OPTIONS, a proxy)")
 			}
 			continue
 		}
@@ -430,8 +479,8 @@ func runnerFault(runsOn *yaml.Node) string {
 // not exactly one plumbing template its class may run, or "" when it is.
 func (c *queueChecker) plumbingFault(doc, job, step *yaml.Node, cj credentialJob) string {
 	env := effectiveEnv(doc, job, step)
-	if bad := badEnvName(env); bad != "" {
-		return "runs with env " + bad + ", which is not one of " + closedset.Join(AllTemplateEnvs, ", ") + " and can change what the command does"
+	if bad := badEnvName(env, cj.class); bad != "" {
+		return "runs with env " + bad + ", which is not allowed for a " + cj.class.String() + " (known names: " + closedset.Join(AllTemplateEnvs, ", ") + ")"
 	}
 	words, why := singleCommand(doc, job, step)
 	if why != "" {
@@ -445,9 +494,10 @@ func (c *queueChecker) plumbingFault(doc, job, step *yaml.Node, cj credentialJob
 
 // badEnvName returns the first env name that is not a template env name, or
 // "".
-func badEnvName(env map[string]string) string {
+func badEnvName(env map[string]string, class credentialJobClass) string {
 	for _, name := range sortedKeys(env) {
-		if _, err := ParseTemplateEnv(name); err != nil {
+		member, err := ParseTemplateEnv(name)
+		if err != nil || !member.allowedFor(class) {
 			return name
 		}
 	}
@@ -523,9 +573,25 @@ func (c *queueChecker) checkCredentialTemplates() {
 				continue
 			}
 			job := jobNode(doc, jobName)
+			if cj.class == credentialJobComment && hasContinueOnError(job) {
+				c.emit(QueueRuleCredentialTemplates, name, jobName, violation(
+					"jobs."+jobName+" sets continue-on-error on the comment job",
+					"a failed evidence post must not report success", rejected, "remove continue-on-error"))
+			}
 			for i, step := range stepsOf(job) {
 				if stepRunText(step) == "" || !c.receivesCredential(name, jobName, step) {
 					continue
+				}
+				if cj.class == credentialJobComment && !hasPRRunGate(valueOf(mappingValue(job, "if"))) && !hasPRRunGate(stepIfText(step)) {
+					c.emit(QueueRuleCredentialTemplates, name, jobName, violation(
+						stepLabel(jobName, i, step)+" runs without a pull_request event gate",
+						"a personal token may be available even when the mint is skipped", rejected,
+						"gate the job or comment step on github.event_name == 'pull_request'"))
+				}
+				if cj.class == credentialJobComment && hasContinueOnError(step) {
+					c.emit(QueueRuleCredentialTemplates, name, jobName, violation(
+						stepLabel(jobName, i, step)+" sets continue-on-error on a comment step",
+						"a failed evidence post must not report success", rejected, "remove continue-on-error"))
 				}
 				if why := c.templateFault(doc, job, step, cj); why != "" {
 					c.emit(QueueRuleCredentialTemplates, name, jobName, violation(
@@ -553,20 +619,24 @@ func templateShapes(class credentialJobClass) string {
 func (c *queueChecker) templateFault(doc, job, step *yaml.Node, cj credentialJob) string {
 	env := effectiveEnv(doc, job, step)
 	for _, name := range sortedKeys(env) {
-		if _, err := ParseTemplateEnv(name); err != nil {
-			return "its env sets " + name + ", which is not one of " + closedset.Join(AllTemplateEnvs, ", ") + " and can change what the command does"
+		member, err := ParseTemplateEnv(name)
+		if err != nil || !member.allowedFor(cj.class) {
+			return "its env sets " + name + ", which is not allowed for a " + cj.class.String() + " (known names: " + closedset.Join(AllTemplateEnvs, ", ") + ")"
 		}
 	}
 	words, why := singleCommand(doc, job, step)
 	if why != "" {
 		return "its run block is not one command: " + why
 	}
-	tmpl, why := matchTemplate(words, templateStep{class: cj.class, branch: cj.branch, env: env, doc: doc, job: job})
+	tmpl, why := matchTemplate(words, templateStep{class: cj.class, branch: cj.branch, env: env, doc: doc, job: job, reviewedScript: cj.reviewedScript})
 	if why != "" {
 		return why
 	}
 	if tmpl == TemplatePRMerge && cj.class == credentialJobRelease && !isArmHoldStep(doc, job, step) {
 		return "merges a PR outside an arm or hold step; only the steps gated on the " + intent.CommandQueueGate.String() + " output arm or hold the release PR"
+	}
+	if tmpl == TemplateReviewedScript {
+		return c.reviewedScriptFault(doc, job, step, cj)
 	}
 	return ""
 }
@@ -683,4 +753,34 @@ func (c *queueChecker) resolvePushes(rule QueueRule) []allowedPush {
 		allowed = append(allowed, allowedPush{bot.Workflow, bot.Job, branch, credentialJobBot})
 	}
 	return allowed
+}
+
+// resolveCommentJobs checks that a listing identifies exactly one existing
+// job and cannot give the same job two credential classes.
+func (c *queueChecker) resolveCommentJobs(rule QueueRule) []CommentJobRule {
+	seen := map[string]bool{}
+	for _, comment := range c.policy.Queue.CommentJobs {
+		key := comment.Workflow + "\x00" + comment.Job
+		if seen[key] {
+			c.emit(rule, comment.Workflow, comment.Job, "comment job is listed twice; list each job once")
+		}
+		seen[key] = true
+		doc := c.needFile(rule, comment.Workflow)
+		if doc == nil {
+			continue
+		}
+		job := jobNode(doc, comment.Job)
+		if job == nil {
+			c.emit(rule, comment.Workflow, comment.Job, "the listed comment job is missing; add the job or remove its listing")
+			continue
+		}
+		overlap := c.isTagPublishWorkflow(doc) && publishes(doc, job)
+		for _, push := range c.pushes {
+			overlap = overlap || (push.workflow == comment.Workflow && push.job == comment.Job)
+		}
+		if overlap {
+			c.emit(rule, comment.Workflow, comment.Job, "the listed comment job also belongs to a release, bot or publish class; give each job only one credential class")
+		}
+	}
+	return c.policy.Queue.CommentJobs
 }

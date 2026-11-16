@@ -13,9 +13,9 @@ import (
 // closed sets they compare against, which jobs may hold a credential, and
 // which expressions read one.
 //
-// A credential is anything that can write a ref: the App token a
+// A credential includes the App token a
 // create-github-app-token step mints and every output of that step, the
-// secrets a mint step reads, and the default workflow token
+// secrets a mint step reads, each policy-named personal token, and the default workflow token
 // (github.token, secrets.GITHUB_TOKEN) in a job whose permissions let it
 // write. The default token is read-only everywhere else, because the
 // default-token-read-only rule holds every other job to read scopes.
@@ -120,11 +120,8 @@ func (s WritableScope) writeAllowed(publish bool) bool {
 }
 
 // AllowedAction is an action a job that may hold a credential may use,
-// pinned to a 40-hex commit. Such a job only checks out the repository,
-// downloads what an earlier job prepared, mints the App token and runs
-// templates, so it needs nothing else: a setup action, an upload, or any
-// other action would run code the checker cannot read before or beside the
-// credential. The zero value is unknown.
+// pinned to a 40-hex commit. The job class further restricts this set: only
+// tag publishers can upload prepared assets. The zero value is unknown.
 type AllowedAction string
 
 const (
@@ -135,10 +132,12 @@ const (
 	ActionDownloadArtifact AllowedAction = "actions/download-artifact"
 	// ActionCreateAppToken mints the releaser App token.
 	ActionCreateAppToken AllowedAction = "actions/create-github-app-token"
+	// ActionReleaseAssets uploads prepared assets for the triggering tag.
+	ActionReleaseAssets AllowedAction = "softprops/action-gh-release"
 )
 
 // AllAllowedActions is the canonical closed set of allowed actions.
-var AllAllowedActions = []AllowedAction{ActionCheckout, ActionDownloadArtifact, ActionCreateAppToken}
+var AllAllowedActions = []AllowedAction{ActionCheckout, ActionDownloadArtifact, ActionCreateAppToken, ActionReleaseAssets}
 
 func (a AllowedAction) String() string { return string(a) }
 
@@ -154,8 +153,9 @@ func ParseAllowedAction(raw string) (AllowedAction, error) {
 }
 
 // ActionInput is one with: input an allowed action may take in a job that
-// may hold a credential. Every other input is refused: checkout's ref, path
-// or token would change which repository the templates push from, a
+// may hold a credential. Every other input is refused: checkout's ref and path
+// are accepted only for an isolated comment checkout, checkout's token
+// would change which repository the templates push from, a
 // download's repository, run-id or github-token would fetch another run's
 // files, and the mint's API URL would send its signed request elsewhere. The
 // zero value is unknown.
@@ -169,6 +169,8 @@ const (
 	InputFetchDepth ActionInput = "fetch-depth"
 	// InputFetchTags is checkout's fetch-tags.
 	InputFetchTags ActionInput = "fetch-tags"
+	// InputRef selects the default branch for a reviewed-script checkout.
+	InputRef ActionInput = "ref"
 	// InputArtifactName is the download's artifact name.
 	InputArtifactName ActionInput = "name"
 	// InputArtifactPath is the download's destination directory.
@@ -188,6 +190,22 @@ const (
 	// InputPermissionPullRequests narrows the token's pull-requests
 	// permission.
 	InputPermissionPullRequests ActionInput = "permission-pull-requests"
+	// InputPermissionIssues narrows the token's issues permission.
+	InputPermissionIssues ActionInput = "permission-issues"
+	// InputTagName names the triggering tag.
+	InputTagName ActionInput = "tag_name"
+	// InputFiles names the prepared release asset glob.
+	InputFiles ActionInput = "files"
+	// InputFailOnUnmatched prevents publishing an empty asset set.
+	InputFailOnUnmatched ActionInput = "fail_on_unmatched_files"
+	// InputOverwriteFiles permits recovery from a partial upload.
+	InputOverwriteFiles ActionInput = "overwrite_files"
+	// InputPrerelease marks a prerelease.
+	InputPrerelease ActionInput = "prerelease"
+	// InputMakeLatest controls the latest release marker.
+	InputMakeLatest ActionInput = "make_latest"
+	// InputRepository names the current repository for the release action.
+	InputRepository ActionInput = "repository"
 )
 
 // AllActionInputs is the canonical closed set of action inputs.
@@ -195,6 +213,7 @@ var AllActionInputs = []ActionInput{
 	InputPersistCredentials,
 	InputFetchDepth,
 	InputFetchTags,
+	InputRef,
 	InputArtifactName,
 	InputArtifactPath,
 	InputAppID,
@@ -204,6 +223,14 @@ var AllActionInputs = []ActionInput{
 	InputRepositories,
 	InputPermissionContents,
 	InputPermissionPullRequests,
+	InputPermissionIssues,
+	InputTagName,
+	InputFiles,
+	InputFailOnUnmatched,
+	InputOverwriteFiles,
+	InputPrerelease,
+	InputMakeLatest,
+	InputRepository,
 }
 
 func (i ActionInput) String() string { return string(i) }
@@ -227,7 +254,9 @@ func inputsOf(action AllowedAction) []ActionInput {
 	case ActionDownloadArtifact:
 		return []ActionInput{InputArtifactName, InputArtifactPath}
 	case ActionCreateAppToken:
-		return []ActionInput{InputAppID, InputClientID, InputPrivateKey, InputOwner, InputRepositories, InputPermissionContents, InputPermissionPullRequests}
+		return []ActionInput{InputAppID, InputClientID, InputPrivateKey, InputOwner, InputRepositories, InputPermissionContents, InputPermissionPullRequests, InputPermissionIssues}
+	case ActionReleaseAssets:
+		return []ActionInput{InputTagName, InputFiles, InputFailOnUnmatched, InputOverwriteFiles, InputPrerelease, InputMakeLatest, InputRepository}
 	}
 	return nil
 }
@@ -275,6 +304,12 @@ const (
 	TemplateEnvPrerelease TemplateEnv = "PRERELEASE"
 	// TemplateEnvLatest carries the Release latest flag value.
 	TemplateEnvLatest TemplateEnv = "LATEST"
+	// TemplateEnvPRNumber is the triggering pull request's number.
+	TemplateEnvPRNumber TemplateEnv = "PR_NUMBER"
+	// TemplateEnvJourneyAppToken is the fallback token used by the reviewed script.
+	TemplateEnvJourneyAppToken TemplateEnv = "JOURNEY_APP_TOKEN"
+	// TemplateEnvEvidenceDir names the downloaded evidence directory.
+	TemplateEnvEvidenceDir TemplateEnv = "EVIDENCE_DIR"
 )
 
 // AllTemplateEnvs is the canonical closed set of credential-step env names.
@@ -287,6 +322,9 @@ var AllTemplateEnvs = []TemplateEnv{
 	TemplateEnvBody,
 	TemplateEnvPrerelease,
 	TemplateEnvLatest,
+	TemplateEnvPRNumber,
+	TemplateEnvJourneyAppToken,
+	TemplateEnvEvidenceDir,
 }
 
 func (e TemplateEnv) String() string { return string(e) }
@@ -304,7 +342,17 @@ func ParseTemplateEnv(raw string) (TemplateEnv, error) {
 
 // carriesCredential reports whether the name may carry a credential.
 func (e TemplateEnv) carriesCredential() bool {
-	return e == TemplateEnvGHToken || e == TemplateEnvGitHubToken || e == TemplateEnvAppToken
+	return e == TemplateEnvGHToken || e == TemplateEnvGitHubToken || e == TemplateEnvAppToken || e == TemplateEnvJourneyAppToken
+}
+
+// allowedFor keeps comment-only env names out of the other credential classes.
+func (e TemplateEnv) allowedFor(class credentialJobClass) bool {
+	switch e {
+	case TemplateEnvPRNumber, TemplateEnvJourneyAppToken, TemplateEnvEvidenceDir:
+		return class == credentialJobComment
+	default:
+		return true
+	}
 }
 
 // RunnerLabel is a GitHub-hosted runner label a job that may hold a
@@ -361,10 +409,12 @@ const (
 	// credentialJobPublish is a job of the tag-triggered publish workflow
 	// whose default token may write contents.
 	credentialJobPublish credentialJobClass = "tag-triggered publish job"
+	// credentialJobComment is a listed PR evidence job with no bot branch.
+	credentialJobComment credentialJobClass = "comment job"
 )
 
 // allCredentialJobClasses is the canonical closed set of job classes.
-var allCredentialJobClasses = []credentialJobClass{credentialJobRelease, credentialJobBot, credentialJobPublish}
+var allCredentialJobClasses = []credentialJobClass{credentialJobRelease, credentialJobBot, credentialJobPublish, credentialJobComment}
 
 func (k credentialJobClass) String() string { return string(k) }
 
@@ -374,6 +424,9 @@ type credentialJob struct {
 	// branch is the bot branch a release or bot job owns, from the release
 	// config.
 	branch string
+	// reviewedScript and patSecret are the policy's explicit evidence boundary.
+	reviewedScript string
+	patSecret      string
 	// tokenWrites tells whether the job's default token may write, so that
 	// github.token and secrets.GITHUB_TOKEN are credentials in it.
 	tokenWrites bool
@@ -381,11 +434,15 @@ type credentialJob struct {
 	mints []string
 }
 
-// mintSecrets returns the secret names every mint step in the directory
-// reads, upper-cased. Such a secret mints a token, so it is a credential
-// wherever it is read.
+// mintSecrets returns the names of policy-listed PATs and every secret a mint
+// step reads, upper-cased. Each is a credential wherever it is read.
 func (c *queueChecker) mintSecrets() map[string]bool {
 	out := map[string]bool{}
+	for _, comment := range c.policy.Queue.CommentJobs {
+		if comment.PATSecret != "" {
+			out[strings.ToUpper(comment.PATSecret)] = true
+		}
+	}
 	for _, name := range c.sortedNames() {
 		f := c.files[name]
 		if f.doc == nil {
@@ -462,13 +519,20 @@ func tokenMayWrite(perms *yaml.Node) bool {
 // credentialJobs places every job of every workflow in the credential model,
 // keyed by file then job. Branches come from resolvePushes; a job the policy
 // lists in a file that does not exist places nothing.
-func (c *queueChecker) credentialJobs(branches []allowedPush) map[string]map[string]credentialJob {
+func (c *queueChecker) credentialJobs(branches []allowedPush, comments []CommentJobRule) map[string]map[string]credentialJob {
 	listed := map[string]map[string]allowedPush{}
 	for _, a := range branches {
 		if listed[a.workflow] == nil {
 			listed[a.workflow] = map[string]allowedPush{}
 		}
 		listed[a.workflow][a.job] = a
+	}
+	commentListed := map[string]map[string]CommentJobRule{}
+	for _, comment := range comments {
+		if commentListed[comment.Workflow] == nil {
+			commentListed[comment.Workflow] = map[string]CommentJobRule{}
+		}
+		commentListed[comment.Workflow][comment.Job] = comment
 	}
 	out := map[string]map[string]credentialJob{}
 	for _, name := range c.sortedNames() {
@@ -488,6 +552,8 @@ func (c *queueChecker) credentialJobs(branches []allowedPush) map[string]map[str
 			}
 			if a, ok := listed[name][jobName]; ok {
 				cj.class, cj.branch = a.class, a.branch
+			} else if comment, ok := commentListed[name][jobName]; ok {
+				cj.class, cj.reviewedScript, cj.patSecret = credentialJobComment, comment.ReviewedScript, comment.PATSecret
 			} else if publish && cj.tokenWrites {
 				cj.class = credentialJobPublish
 			}

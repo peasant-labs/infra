@@ -426,6 +426,23 @@ func (c *queueChecker) checkTokenMint() {
 				"job "+strconv.Quote(target.job)+" mints the App token without a tag-mode gate during merge-queue policy validation. Mint only when tag mode is on, with "+tagModeComparison+" in the mint step's if or the job if, so a tag-mode-off run mints no token")
 		}
 	}
+	for _, comment := range c.policy.Queue.CommentJobs {
+		doc := c.needFile(QueueRuleTokenMint, comment.Workflow)
+		if doc == nil {
+			continue
+		}
+		job := jobNode(doc, comment.Job)
+		if job == nil {
+			continue
+		}
+		jobCond := valueOf(mappingValue(job, "if"))
+		for _, step := range stepsOf(job) {
+			if isMintStep(step) && !hasPRRunGate(jobCond) && !hasPRRunGate(stepIfText(step)) {
+				c.emit(QueueRuleTokenMint, comment.Workflow, comment.Job,
+					"the comment job mints without a pull_request event gate during merge-queue policy validation. Compare github.event_name == 'pull_request' in the job or mint step if")
+			}
+		}
+	}
 }
 
 // refComparison matches the canonical default-branch comparison: the

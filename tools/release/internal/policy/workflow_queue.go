@@ -234,6 +234,17 @@ type BotJobRule struct {
 	Kind     intent.PRKind `yaml:"kind"`
 }
 
+// CommentJobRule locates a job that may post evidence on the triggering PR.
+// ReviewedScript and PATSecret are optional for a job using pr-comment. A job
+// running a reviewed script names its literal repository path and the secret
+// carrying the user token; the checker confines both.
+type CommentJobRule struct {
+	Workflow       string `yaml:"workflow"`
+	Job            string `yaml:"job"`
+	ReviewedScript string `yaml:"reviewed_script"`
+	PATSecret      string `yaml:"pat_secret"`
+}
+
 // botKinds lists the bot PR kinds a bot job may claim: every closed kind
 // except ordinary, which is not a bot PR, and release, which belongs to the
 // release job. It is derived from the intent set, so a new kind is admitted
@@ -255,11 +266,13 @@ func botKindValid(kind intent.PRKind) bool {
 
 // QueueSection is the body of a repo's merge-queue policy. Required must be
 // non-empty; ReleaseJob is absent only in a repo with no release job, and
-// BotJobs lists every other job that may push a branch.
+// BotJobs lists every other job that may push a branch. CommentJobs lists the
+// jobs that may comment without owning a branch.
 type QueueSection struct {
-	Required   []RequiredContext `yaml:"required"`
-	ReleaseJob *ReleaseJobRule   `yaml:"release_job"`
-	BotJobs    []BotJobRule      `yaml:"bot_jobs"`
+	Required    []RequiredContext `yaml:"required"`
+	ReleaseJob  *ReleaseJobRule   `yaml:"release_job"`
+	BotJobs     []BotJobRule      `yaml:"bot_jobs"`
+	CommentJobs []CommentJobRule  `yaml:"comment_jobs"`
 }
 
 // validateQueueSection rejects a malformed queue section with an actionable
@@ -313,6 +326,21 @@ func validateQueueSection(path string, queue QueueSection) error {
 		}
 		if !botKindValid(bot.Kind) {
 			return fmt.Errorf("%s names kind %q during merge-queue policy validation. A bot job claims one of the bot PR kinds (%s), so the checker can resolve its branch from the release config; the %s kind belongs to the release job", where, bot.Kind.String(), closedset.Join(botKinds(), ", "), intent.PRKindRelease.String())
+		}
+	}
+	for i, comment := range queue.CommentJobs {
+		where := fmt.Sprintf("%s comment_jobs[%d]", prefix, i)
+		if comment.Workflow == "" {
+			return fmt.Errorf("%s has an empty workflow during merge-queue policy validation. Set 'workflow:' to the file holding the comment job", where)
+		}
+		if comment.Job == "" {
+			return fmt.Errorf("%s has an empty job during merge-queue policy validation. Set 'job:' to the job that posts the evidence comment", where)
+		}
+		if comment.ReviewedScript != "" && !safeRelativePath(comment.ReviewedScript) {
+			return fmt.Errorf("%s has an invalid reviewed_script during merge-queue policy validation. Name one literal relative script path", where)
+		}
+		if comment.PATSecret != "" && !secretName.MatchString(comment.PATSecret) {
+			return fmt.Errorf("%s has an invalid pat_secret during merge-queue policy validation. Name one literal secret", where)
 		}
 	}
 	return nil

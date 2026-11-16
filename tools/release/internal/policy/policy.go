@@ -17,7 +17,7 @@ import (
 const DefaultPath = ".github/release-queue.policy.yml"
 
 // QueuePolicy is a repo's merge-queue policy: the required contexts, the
-// release job, and the bot jobs the checker holds the workflows directory to.
+// release job, and the bot and comment jobs the checker holds the workflows directory to.
 // It is the whole content of the policy file, whose only top-level key is
 // 'queue:'.
 type QueuePolicy struct {
@@ -44,7 +44,7 @@ func LoadQueuePolicy(path string) (QueuePolicy, error) {
 	dec.KnownFields(true)
 	var file queuePolicyFile
 	if err := dec.Decode(&file); err != nil && !errors.Is(err, io.EOF) {
-		return QueuePolicy{}, fmt.Errorf("load queue policy: cannot parse %s as a merge-queue policy: %w. Expected one top-level 'queue:' mapping of {required, release_job, bot_jobs} and no other key", path, err)
+		return QueuePolicy{}, fmt.Errorf("load queue policy: cannot parse %s as a merge-queue policy: %w. Expected one top-level 'queue:' mapping of {required, release_job, bot_jobs, comment_jobs} and no other key", path, err)
 	}
 	if file.Queue == nil {
 		return QueuePolicy{}, fmt.Errorf("load queue policy: %s has no 'queue:' section during merge-queue policy validation, so no rule could be checked. Add a top-level 'queue:' mapping that lists at least the title-guard context under 'required:'", path)

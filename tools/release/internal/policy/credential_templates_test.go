@@ -25,15 +25,16 @@ var credentialCommandsFixtureYAML []byte
 // fragment of the reason it is refused (a reject row, which names its
 // accept sibling).
 type credentialCommandCase struct {
-	Name     string            `yaml:"name"`
-	Class    string            `yaml:"class"`
-	Branch   string            `yaml:"branch"`
-	Env      map[string]string `yaml:"env"`
-	Plumbing bool              `yaml:"plumbing"`
-	Run      string            `yaml:"run"`
-	Template string            `yaml:"template"`
-	Fault    string            `yaml:"fault"`
-	Sibling  string            `yaml:"sibling"`
+	Name           string            `yaml:"name"`
+	Class          string            `yaml:"class"`
+	Branch         string            `yaml:"branch"`
+	Env            map[string]string `yaml:"env"`
+	Plumbing       bool              `yaml:"plumbing"`
+	Run            string            `yaml:"run"`
+	Template       string            `yaml:"template"`
+	Fault          string            `yaml:"fault"`
+	Sibling        string            `yaml:"sibling"`
+	ReviewedScript string            `yaml:"reviewed_script"`
 }
 
 // TestPushHelperUsesGitCredentials exercises Git's credential protocol with
@@ -179,7 +180,7 @@ func TestCredentialCommands(t *testing.T) {
 		}
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
-			step := templateStep{class: class, branch: tc.Branch, env: tc.Env, doc: doc, job: jobNode(doc, "cred")}
+			step := templateStep{class: class, branch: tc.Branch, env: tc.Env, doc: doc, job: jobNode(doc, "cred"), reviewedScript: tc.ReviewedScript}
 			got := ""
 			words, why := tokenizeCommand(tc.Run)
 			if why == "" {
