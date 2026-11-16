@@ -30,7 +30,16 @@ const fixtureWorkflowsDir = "workflows"
 // queueCaseInput names the case overlay directory under
 // testdata/workflow_queue/overlays. Empty means the base tree as-is.
 type queueCaseInput struct {
-	Overlay string `yaml:"overlay"`
+	Overlay string             `yaml:"overlay"`
+	Edits   []queueFixtureEdit `yaml:"edits"`
+}
+
+// queueFixtureEdit changes one uniquely occurring fragment in the materialized
+// workflow or policy. The accepted overlay stays the sibling of each mutation.
+type queueFixtureEdit struct {
+	File string `yaml:"file"`
+	Old  string `yaml:"old"`
+	New  string `yaml:"new"`
 }
 
 // siblingCased is any corpus row the accept-sibling rule applies to: every

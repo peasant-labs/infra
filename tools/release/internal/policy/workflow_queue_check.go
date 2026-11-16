@@ -42,7 +42,8 @@ func CheckWorkflows(policy QueuePolicy, cfg intent.Config, dir string) ([]Diagno
 		}}, append([]RequiredContext(nil), policy.Queue.Required...)
 	}
 	c.pushes = c.resolvePushes(QueueRuleCredentialTemplates)
-	c.creds = c.credentialJobs(c.pushes)
+	comments := c.resolveCommentJobs(QueueRuleCredentialTemplates)
+	c.creds = c.credentialJobs(c.pushes, comments)
 	c.secrets = c.mintSecrets()
 	c.checkRequiredContexts()
 	c.checkMergeGroup()

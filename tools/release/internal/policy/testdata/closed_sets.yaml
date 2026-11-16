@@ -89,6 +89,7 @@ sets:
       - actions/checkout
       - actions/download-artifact
       - actions/create-github-app-token
+      - softprops/action-gh-release
     refused: ["", "actions/github-script", "actions/setup-go", "actions/upload-artifact", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
 
   # The with: inputs those actions may take in such a job.
@@ -97,6 +98,7 @@ sets:
       - persist-credentials
       - fetch-depth
       - fetch-tags
+      - ref
       - name
       - path
       - app-id
@@ -106,13 +108,21 @@ sets:
       - repositories
       - permission-contents
       - permission-pull-requests
-    refused: ["", "ref", "token", "repository", "run-id", "github-token", "github-api-url", "Path"]
+      - permission-issues
+      - tag_name
+      - files
+      - fail_on_unmatched_files
+      - overwrite_files
+      - prerelease
+      - make_latest
+      - repository
+    refused: ["", "token", "run-id", "github-token", "github-api-url", "Path"]
 
   # The env names a credential step may carry: three credential carriers and
   # the values the templates' typed parts read.
   - name: template-env
-    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, TITLE, BODY, PRERELEASE, LATEST]
-    refused: ["", "PR_NUMBER", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "NODE_OPTIONS", "CANDIDATE", "gh_token"]
+    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, TITLE, BODY, PRERELEASE, LATEST, PR_NUMBER, JOURNEY_APP_TOKEN, EVIDENCE_DIR]
+    refused: ["", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "NODE_OPTIONS", "CANDIDATE", "gh_token"]
 
   - name: credential-template
     members:
@@ -126,6 +136,8 @@ sets:
       - release-view
       - release-edit
       - release-create
+      - pr-comment
+      - run-reviewed-script
     refused: ["", "push", "gh-api", "Push-Own-Branch"]
 
   # The commands a job that may hold a credential may run without one: move
@@ -136,7 +148,7 @@ sets:
 
   # Why a job may hold a credential; it has no parser of its own.
   - name: credential-job-class
-    members: [release job, bot job, tag-triggered publish job]
+    members: [release job, bot job, tag-triggered publish job, comment job]
     refused: []
 
   # The GitHub-hosted labels a job that may hold a credential may run on:

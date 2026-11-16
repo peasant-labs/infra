@@ -138,11 +138,13 @@ policy and workflow integration before it can use the commit mode.
 
 `release-intent check-workflows` does not try to read every way a shell can
 write a ref. It confines the credentials instead, and rejects anything it does
-not list.
+not list. `--print-required` prints the sorted context names even on a rejected
+tree, but still exits with the policy verdict.
 
-**Every release, bot and publish job is two jobs.** A job without a
-credential does the work. A job with the credential only pushes or calls
-`gh`, and takes everything it pushes from the first job:
+**Release, bot and publish work is split between jobs.** A job without a
+credential does the work. A job with the credential moves prepared bytes or
+calls `gh`, and takes everything it pushes from the first job. A listed comment
+job has the explicit reviewed-script exception described below.
 
 The following diagram illustrates credential confinement, not a complete
 safe tag-push job graph: the independent pre-push verifier is still required.
@@ -174,30 +176,40 @@ one artifact holding git bundles.
   `persist-credentials: false`.
 - **`credentials-stay-in-listed-jobs`.** A credential is the App token that
   `actions/create-github-app-token` mints (and every output of that step), the
-  secrets a mint step reads, and the default token where it may write. Only the
-  policy's release job, its bot jobs and the tag-triggered publish jobs may
+  secrets a mint step reads, the policy-named comment PAT, and the default token
+  where it may write. Only the policy's release job, its bot and comment jobs,
+  and the tag-triggered publish jobs may
   mint or read one, and there only in the mint step's inputs and in the
   step-level `env:` of a run step, under `GH_TOKEN`, `GITHUB_TOKEN` or
-  `APP_TOKEN`.
+  `APP_TOKEN` or `JOURNEY_APP_TOKEN`. A policy-named PAT is accepted only in
+  the listed comment step's own env, not in a mint input. When a PAT is
+  listed, workflow YAML must use unique mapping keys and no aliases: those
+  forms could otherwise hide a secret from the reader.
 - **`credential-jobs-use-pinned-actions`.** A job that may hold a credential
   uses only `actions/checkout` (`persist-credentials`, `fetch-depth`,
   `fetch-tags`), `actions/download-artifact` (`name`, and `path` set to a
   literal subdirectory) and `actions/create-github-app-token` (`app-id`,
   `client-id`, `private-key`, `owner`, `repositories`, `permission-contents`,
-  `permission-pull-requests`), each pinned to a 40-hex commit. No setup action,
-  no upload, no reusable workflow, no container.
+  `permission-issues`, `permission-pull-requests`), each pinned to a 40-hex
+  commit. A comment checkout may also set `ref` to the default-branch
+  expression and `path: reviewed`. A tag-publish job may additionally use the
+  pinned `softprops/action-gh-release` action under the asset constraints
+  below. No setup action, no upload, no reusable workflow, no container.
 - **`credential-jobs-run-no-general-steps`.** Every run step of that job is one
   plumbing template or one credential template. The job runs on one literal
   GitHub-hosted label (`ubuntu-latest`, `ubuntu-24.04`, `ubuntu-22.04`), never
   an expression (a runner-router output included), `self-hosted`, a label list
   or a group: a hosted runner is a fresh machine per job. No service container,
   no `working-directory`, and every step's env (workflow, job and step) holds
-  only `GH_TOKEN`, `GITHUB_TOKEN`, `APP_TOKEN`, `TAG`, `TITLE`, `BODY`,
-  `PRERELEASE` and `LATEST`. Every `needs.<job>` it reads is in its `needs:`,
+  only `GH_TOKEN`, `GITHUB_TOKEN`, `APP_TOKEN`, `JOURNEY_APP_TOKEN`, `TAG`,
+  `TITLE`, `BODY`, `PRERELEASE`, `LATEST`, `PR_NUMBER` and `EVIDENCE_DIR`.
+  `PR_NUMBER`, `EVIDENCE_DIR` and `JOURNEY_APP_TOKEN` are comment-job-only.
+  Every `needs.<job>` it reads is in its `needs:`,
   and every artifact it downloads is uploaded by a job in its `needs:`.
 - **`credential-steps-run-one-template`.** A step that receives a credential
   runs exactly one credential template, on the job's own bot branch from the
-  release config.
+  release config, the triggering tag, or the triggering PR as appropriate.
+  A comment job and its comment steps must not set `continue-on-error`.
 - **`tag-publish-verifies-the-tag`.** In every workflow that runs on pushed
   tags, every job that can publish (`contents: write` or `id-token: write`)
   needs a **tag-verify job**, and its `if` calls no status function
@@ -336,6 +348,8 @@ operator step per repository; it does not replace any check above.
 | `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) [--] <own bot branch>`; in the release job only in the arm and hold steps |
 | `merge-queue-read` | `gh api graphql [-F name=literal]... -f query='<a mergeQueue query>' [> file]` |
 | `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`, and `create` passes `--verify-tag` |
+| `pr-comment` (comment job) | `gh pr comment "$PR_NUMBER" [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] (--body-file\|-F) <file>` |
+| `run-reviewed-script` (comment job) | `node reviewed/<policy reviewed_script>` |
 
 The variable parts are typed:
 
@@ -352,18 +366,72 @@ The variable parts are typed:
   `"$GITHUB_REF_NAME"`. The tag refspec is written on both sides: git splits a
   refspec at its last `:`, so a `:` in `TAG` leaves a source that names no ref
   and the push fails, instead of retargeting it.
-- A PR is named by the job's own bot branch, never by a number: a number from
+- A bot PR is named by the job's own bot branch, never by a number: a number from
   the planning job's outputs could name any PR, and the App token would then
-  retitle, arm, disarm or close it.
+  retitle, arm, disarm or close it. A comment job instead maps `PR_NUMBER`
+  exactly from `${{ github.event.pull_request.number }}`.
 - `<text>` is literal, or double-quoted env names that carry no credential,
   such as `"${TITLE}"`.
 
 No run text in such a job holds a `${{ }}` expression: an expression is
 pasted into the script before the shell runs, so a value from the planning job
 could end a quote and add a command. A second line, a separator, a pipe, a
-substitution, a here-document, an interpreter or a repository script is
-refused. The helper's fixed single-quoted literal is the sole permitted
-shell-valued Git config, not permission to run general shell code.
+substitution or a here-document is refused. An interpreter or a repository
+script is refused except for the reviewed-script template below. The helper's
+fixed single-quoted literal is the sole permitted shell-valued Git config, not
+permission to run general shell code.
+
+**Comment jobs and inline evidence.** A policy can list a comment job without
+a bot branch:
+
+```yaml
+comment_jobs:
+  - workflow: journey.yml
+    job: evidence
+    reviewed_script: frontend/scripts/journey/ci-post-evidence.mjs
+    pat_secret: JOURNEY_GITHUB_USER_PAT
+```
+
+`reviewed_script` and `pat_secret` are required for `run-reviewed-script`;
+omit them for a job using only `pr-comment`. The mint is gated on the
+`pull_request` event, as is the comment step, and explicitly passes one literal repository,
+`permission-contents: read`, `permission-issues: write` and
+`permission-pull-requests: write`. The default token remains read-only. The
+script job checks out the current repository with `ref: ${{
+github.event.repository.default_branch }}`, `path: reviewed` and
+`persist-credentials: false`. It downloads an artifact from a needed job into
+a literal directory disjoint from the entire checkout, passes that directory
+as `EVIDENCE_DIR`, and runs exactly the listed script with the PAT and App token
+only in its step env. Checkout and the matching download are unconditional,
+precede the script and cannot mask errors. No general step is allowed.
+
+This exception accepts a **personal user PAT** to preserve inline media. The
+checker cannot bound the PAT's grants or inspect what the reviewed script
+does. A same-repository PR can change its own workflow, and the script reads
+PR-controlled evidence and paths. The default-branch checkout and separate
+artifact directory protect the script and its imports from artifact overwrite;
+they do not make hostile evidence safe. Protect the default branch, review
+the script and its dependencies and constrain file paths in the script. Fork
+PRs normally receive no secrets. Operators accept this residual trust; it is
+not equivalent to a single `gh` command.
+
+**Prepared Release assets.** A tag-only publish job may use the pinned
+release-assets action with `tag_name: ${{ github.ref_name }}`,
+`repository: ${{ github.repository }}`, `files: dist/*`,
+`fail_on_unmatched_files: true` and `overwrite_files: true`. `prerelease` and
+`make_latest` read outputs of needed jobs. The job needs the credential-free
+`build` and tag verifier, and downloads the sole `release-dist` upload from
+`build`'s `dist` into `dist`. Earlier typed `release-view` and
+`release-create --verify-tag` steps for this repository gate the action on
+either step's success. The glob is action input data, not shell syntax.
+The publisher has one unconditional download; every upload-artifact name in
+the workflow is literal so a different job cannot alias `release-dist`.
+Neither the publish job nor the assets action may mask a failed upload with
+`continue-on-error`.
+The build verifies `checksums.txt` before uploading it with the assets; this
+is a consumer workflow obligation, not a cryptographic signature. A compromised
+build can still provide malicious bytes: this split confines credentials, not
+the trustworthiness of the build.
 
 Bot branches sit under `automation/`, which the release config enforces, so no
 bot branch can name the default branch.

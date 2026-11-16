@@ -4,6 +4,12 @@
 # strict fields and value checks, plus the one accepted shape: a file whose
 # only top-level key is 'queue:'.
 required_names:
+  - comment-policy
+  - comment-without-workflow
+  - comment-without-job
+  - comment-invalid-pat-secret
+  - comment-invalid-script
+  - comment-unknown-field
   - strict-unknown-queue-key
   - strict-unknown-required-key
   - strict-unknown-release-key
@@ -23,6 +29,86 @@ required_names:
   - empty-document
   - queue-only
 cases:
+  - name: comment-policy
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          comment_jobs:
+            - workflow: journey.yml
+              job: evidence
+              reviewed_script: frontend/scripts/journey/ci-post-evidence.mjs
+              pat_secret: JOURNEY_GITHUB_USER_PAT
+    expected: {}
+    classification: must-pass
+    provenance: { source: requirement, ref: "comment policy schema" }
+    mutation: { description: "A listed reviewed evidence job has a literal script and secret." }
+  - name: comment-without-workflow
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          comment_jobs:
+            - job: evidence
+    expected: { want_contains: ["has an empty workflow"] }
+    sibling: comment-policy
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment policy schema" }
+    mutation: { description: "Omit the workflow." }
+  - name: comment-without-job
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          comment_jobs:
+            - workflow: journey.yml
+    expected: { want_contains: ["has an empty job"] }
+    sibling: comment-policy
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment policy schema" }
+    mutation: { description: "Omit the job." }
+  - name: comment-invalid-pat-secret
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          comment_jobs:
+            - { workflow: journey.yml, job: evidence, pat_secret: "secrets.PAT" }
+    expected: { want_contains: ["invalid pat_secret"] }
+    sibling: comment-policy
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment policy schema" }
+    mutation: { description: "Use an expression instead of a secret name." }
+  - name: comment-invalid-script
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          comment_jobs:
+            - { workflow: journey.yml, job: evidence, reviewed_script: "../script.mjs" }
+    expected: { want_contains: ["invalid reviewed_script"] }
+    sibling: comment-policy
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment policy schema" }
+    mutation: { description: "Name a script outside the checkout." }
+  - name: comment-unknown-field
+    input:
+      policy: |
+        queue:
+          required:
+            - { context: title-guard, workflow: title-guard.yml, job: title-guard }
+          comment_jobs:
+            - { workflow: journey.yml, job: evidence, pat: EXAMPLE }
+    expected: { want_contains: ["cannot parse"] }
+    sibling: comment-policy
+    classification: must-fail
+    provenance: { source: requirement, ref: "comment policy schema" }
+    mutation: { description: "Use an unknown comment job key." }
   - name: strict-unknown-queue-key
     input:
       policy: |
