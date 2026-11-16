@@ -38,6 +38,7 @@ required_names:
   - check-workflows-default-policy
   - check-workflows-violation
   - check-workflows-print-required
+  - check-workflows-print-required-accept
   - check-workflows-missing-dir
   - plan-missing-mode
   - plan-unreadable-branch
@@ -318,10 +319,17 @@ cases:
       mutation: {description: "Runs the built binary on workflows missing a required context."}
     - name: check-workflows-print-required
       input: {argv: ["check-workflows", "--policy", "SETUP_POLICY", "--dir", "SETUP_WORKFLOWS", "--print-required"], stdin: "", setup: "workflows-violation", githubOutput: true}
-      expected: {exit: 0, bare_stdout: ["lib", "title-guard"]}
+      expected: {exit: 2, bare_stdout: ["lib", "title-guard"], stderr_rule: required-contexts}
+      classification: must-fail
+      sibling: check-workflows-print-required-accept
+      provenance: {source: requirement, ref: "print-required prints the contexts and still carries the policy verdict"}
+      mutation: {description: "Adds --print-required to the rejecting tree: the contexts still print on stdout, the diagnostics reach stderr, and the exit status is the full run's."}
+    - name: check-workflows-print-required-accept
+      input: {argv: ["check-workflows", "--policy", "SETUP_POLICY", "--dir", "SETUP_WORKFLOWS", "--print-required"], stdin: "", setup: "workflows-accept", githubOutput: true}
+      expected: {exit: 0, bare_stdout: ["merge-gate", "title-guard"]}
       classification: must-pass
-      provenance: {source: requirement, ref: "print-required prints bare sorted contexts without step outputs"}
-      mutation: {description: "Prints the required contexts one per line, sorted, with no GITHUB_OUTPUT append."}
+      provenance: {source: requirement, ref: "print-required on an accepting tree exits 0 with bare sorted contexts"}
+      mutation: {description: "Runs --print-required on the accepted tree and asserts no GITHUB_OUTPUT append."}
     - name: check-workflows-missing-dir
       input: {argv: ["check-workflows", "--policy", "SETUP_POLICY", "--dir", "SETUP/nowhere"], stdin: "", setup: "workflows-policy-only"}
       expected: {exit: 1, stdout: []}
