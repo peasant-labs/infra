@@ -51,9 +51,43 @@ func isUnreleased(text string) bool {
 	return strings.EqualFold(strings.Trim(strings.TrimSpace(text), headingOpen+headingClose), unreleasedName)
 }
 
+// collapseReleaseCuts folds repeated requests for the same release into one.
+//
+// A release title is a request to cut a release, not content: the forced cut
+// is an empty commit, and a second identical request can land before the
+// first release does (a repeated dispatch, or a cut rebuilt after the release
+// PR). Rendering every request would put the same sentence in the section
+// twice. The titles ride newest-first, as the planner returns them, so the
+// newest request names the line; the level and the breaking mark fold to the
+// strongest request, because the version must honour every request in the
+// window. Different release subjects each keep their own line: a release PR
+// that publishes real work is a separate note from a forced cut.
+func collapseReleaseCuts(titles []Title) []Title {
+	out := make([]Title, 0, len(titles))
+	at := make(map[string]int, len(titles))
+	for _, title := range titles {
+		if title.Type == TypeRelease {
+			if i, seen := at[title.Subject]; seen {
+				if title.Level > out[i].Level {
+					out[i].Level = title.Level
+				}
+				if title.Breaking {
+					out[i].Breaking = true
+				}
+				continue
+			}
+			at[title.Subject] = len(out)
+		}
+		out = append(out, title)
+	}
+	return out
+}
+
 // Generate renders the release content for a pending set. The pending titles
 // are the planner's, oldest commit first in the section lines. A release
-// commit adds no line because the planner leaves it out of pending.
+// commit adds no line because the planner leaves it out of pending. Repeated
+// requests for one release collapse to one line, so a pending set that still
+// carries two forced cuts renders one entry.
 func Generate(cfg Config, in ContentInput) (Content, error) {
 	if len(in.Pending) == 0 {
 		return Content{}, inputError(
@@ -87,7 +121,7 @@ func Generate(cfg Config, in ContentInput) (Content, error) {
 		)
 	}
 
-	ordered := append([]Title(nil), in.Pending...)
+	ordered := collapseReleaseCuts(in.Pending)
 	for i, j := 0, len(ordered)-1; i < j; i, j = i+1, j-1 {
 		ordered[i], ordered[j] = ordered[j], ordered[i]
 	}

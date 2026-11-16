@@ -19,6 +19,8 @@ required_names:
   - floor-at-base-ignored
   - floor-drops-bad-subject
   - single-empty-release-line
+  - two-cut-subjects-one-line
+  - distinct-release-subjects-kept
   - two-patches-one-batch
   - breaking-below-1
   - release-commit-excluded
@@ -613,6 +615,85 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "planner: one empty release subject plans one patch"}
     mutation: {description: "a forced release with no other change"}
+  - name: two-cut-subjects-one-line
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      facts:
+        commits:
+          - {sha: "r33", subject: "release[patch]: v0.2.0 (#33)", changes_changelog: true}
+          - {sha: "e22", subject: "release[patch]: cut a release (#22)", changes_changelog: false}
+          - {sha: "e11", subject: "release[minor]: cut a release (#11)", changes_changelog: false}
+          - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
+        tags: {"v0.1.0": "b00"}
+        epoch: "b00"
+        floor: ""
+        mode: "tag"
+        verdict: ""
+        fresh: {"r33": true}
+    expected:
+      action: "verify"
+      range_base: "v0.1.0"
+      version_base: "v0.1.0"
+      candidate: "r33"
+      candidate_fresh: "fresh"
+      before:
+        pending:
+          - {type: "release", scopes: [], breaking: false, level: "minor", subject: "cut a release", pr: 22}
+        version: "0.2.0"
+        tag: "v0.2.0"
+        date: ""
+      pending:
+        - {type: "release", scopes: [], breaking: false, level: "minor", subject: "cut a release", pr: 22}
+      level: "minor"
+      breaking: false
+      version: "0.2.0"
+      tag: "v0.2.0"
+      full:
+        pending:
+          - {type: "release", scopes: [], breaking: false, level: "minor", subject: "cut a release", pr: 22}
+        version: "0.2.0"
+        tag: "v0.2.0"
+        date: ""
+    classification: must-pass
+    provenance: {source: requirement, ref: "planner: two forced cuts in one window are one pending subject"}
+    mutation: {description: "a repeated cut request landing before the release PR"}
+  - name: distinct-release-subjects-kept
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      facts:
+        commits:
+          - {sha: "e22", subject: "release[patch]: publish the pending deps bumps (#22)", changes_changelog: false}
+          - {sha: "e11", subject: "release[patch]: cut a release (#11)", changes_changelog: false}
+          - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
+        tags: {"v0.1.0": "b00"}
+        epoch: "b00"
+        floor: ""
+        mode: "tag"
+        verdict: ""
+        fresh: {}
+    expected:
+      action: "open-pr"
+      range_base: "v0.1.0"
+      version_base: "v0.1.0"
+      candidate: ""
+      candidate_fresh: "unknown"
+      pending:
+        - {type: "release", scopes: [], breaking: false, level: "patch", subject: "publish the pending deps bumps", pr: 22}
+        - {type: "release", scopes: [], breaking: false, level: "patch", subject: "cut a release", pr: 11}
+      level: "patch"
+      breaking: false
+      version: "0.1.1"
+      tag: "v0.1.1"
+      full:
+        pending:
+          - {type: "release", scopes: [], breaking: false, level: "patch", subject: "publish the pending deps bumps", pr: 22}
+          - {type: "release", scopes: [], breaking: false, level: "patch", subject: "cut a release", pr: 11}
+        version: "0.1.1"
+        tag: "v0.1.1"
+        date: ""
+    classification: must-pass
+    provenance: {source: requirement, ref: "planner: different release requests each keep their own line"}
+    mutation: {description: "a content-carrying release PR beside a forced cut"}
   - name: two-patches-one-batch
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}

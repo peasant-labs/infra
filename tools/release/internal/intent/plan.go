@@ -204,7 +204,10 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 	}
 
 	// accumulate reduces parsed commits to a pending set, its high level,
-	// whether it breaks, and the committer date of its newest commit.
+	// whether it breaks, and the committer date of its newest commit. A
+	// repeated request for one release folds to the newest request, so two
+	// forced cuts in one window stay one pending subject and one line while
+	// the version still honours the strongest level either requested.
 	accumulate := func(list []parsedCommit) (pending []Title, level Level, breaking bool, date string) {
 		pending = []Title{}
 		for _, p := range list {
@@ -222,7 +225,7 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 				breaking = true
 			}
 		}
-		return pending, level, breaking, date
+		return collapseReleaseCuts(pending), level, breaking, date
 	}
 
 	versionOf := func(level Level, breaking bool, some bool) (SemVer, string, error) {
