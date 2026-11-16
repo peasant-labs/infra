@@ -1,4 +1,13 @@
 # Cases for rules.NewRegistry and rules.ParseDocumentID.
+#
+# required names the cases a change must keep. The test asserts membership,
+# not a count: a fixture may hold more cases.
+
+required:
+  - glob-mount-file
+  - glob-metacharacters
+  - mount-file-glob-parent-segment
+  - mount-file-unclosed-bracket
 
 # Params the registry accepts. Each renders every static rule.
 valid:
@@ -12,6 +21,21 @@ valid:
       endpointCallees: [api, client.get, $fetch]
       mountFiles: [backend/internal/router/router.go, internal/server/mux.go]
       dataDirs: [testdata, golden, "@fixtures"]
+  - name: glob-mount-file
+    params:
+      endpointPrefixes: [/api/v1]
+      mountFiles: [backend/internal/router/*.go]
+      dataDirs: [testdata]
+    mountFilesBlock: "files:\n  - 'backend/internal/router/*.go'\n"
+  - name: glob-metacharacters
+    params:
+      endpointPrefixes: [/api/v1]
+      mountFiles:
+        - "backend/**/*.go"
+        - "backend/internal/router/route?.go"
+        - "backend/internal/router/route[0-9].go"
+      dataDirs: [testdata]
+    mountFilesBlock: "files:\n  - 'backend/**/*.go'\n  - 'backend/internal/router/route?.go'\n  - 'backend/internal/router/route[0-9].go'\n"
 
 # Params that render byte-identical rules: order and duplicates do not matter.
 equivalent:
@@ -59,12 +83,19 @@ invalid:
   - name: mount-file-parent-segment
     params: {endpointPrefixes: [/api/v1], mountFiles: [../router.go], dataDirs: [testdata]}
     names: endpoints.mountFiles
+  - name: mount-file-glob-parent-segment
+    params: {endpointPrefixes: [/api/v1], mountFiles: ["backend/**/../router.go"], dataDirs: [testdata]}
+    names: endpoints.mountFiles
   - name: mount-file-dot-segment
     params: {endpointPrefixes: [/api/v1], mountFiles: [./router.go], dataDirs: [testdata]}
     names: endpoints.mountFiles
   - name: mount-file-with-quote
     params: {endpointPrefixes: [/api/v1], mountFiles: ["it's/router.go"], dataDirs: [testdata]}
     names: endpoints.mountFiles
+  - name: mount-file-unclosed-bracket
+    params: {endpointPrefixes: [/api/v1], mountFiles: ["router/[.go"], dataDirs: [testdata]}
+    names: endpoints.mountFiles
+    contains: ["*", "?", "[…]", "**"]
   - name: data-dir-with-slash
     params: {endpointPrefixes: [/api/v1], dataDirs: [test/data]}
     names: dataDirs

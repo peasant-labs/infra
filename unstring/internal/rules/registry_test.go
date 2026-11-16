@@ -12,6 +12,9 @@ type registryFixture struct {
 	Valid []struct {
 		Name   string        `yaml:"name"`
 		Params fixtureParams `yaml:"params"`
+		// MountFilesBlock, when set, is the files: list the go-endpoint-literal
+		// document must contain: each entry quoted and unchanged.
+		MountFilesBlock string `yaml:"mountFilesBlock"`
 	} `yaml:"valid"`
 	Equivalent []struct {
 		Name string        `yaml:"name"`
@@ -19,10 +22,14 @@ type registryFixture struct {
 		B    fixtureParams `yaml:"b"`
 	} `yaml:"equivalent"`
 	Invalid []struct {
-		Name   string        `yaml:"name"`
-		Params fixtureParams `yaml:"params"`
-		Names  string        `yaml:"names"`
+		Name     string        `yaml:"name"`
+		Params   fixtureParams `yaml:"params"`
+		Names    string        `yaml:"names"`
+		Contains []string      `yaml:"contains"`
 	} `yaml:"invalid"`
+	// Required is the case names that must keep existing. The test asserts
+	// membership, not a count.
+	Required    []string `yaml:"required"`
 	DocumentIDs []struct {
 		ID   string `yaml:"id"`
 		Rule string `yaml:"rule"`
@@ -92,6 +99,15 @@ func TestRegistryHoldsExactlyTheStaticRules(t *testing.T) {
 			if _, ok := reg.Rule("no-such-rule"); ok {
 				t.Error(`Rule("no-such-rule") found a rule`)
 			}
+			if c.MountFilesBlock != "" {
+				rule, ok := reg.Rule(rules.GoEndpointLiteral)
+				if !ok {
+					t.Fatal("the registry has no go-endpoint-literal rule")
+				}
+				if !bytes.Contains(rule.Document, []byte(c.MountFilesBlock)) {
+					t.Errorf("go-endpoint-literal does not contain the quoted files block %q:\n%s", c.MountFilesBlock, rule.Document)
+				}
+			}
 		})
 	}
 }
@@ -124,12 +140,31 @@ func TestRegistryRefusesUnsafeParams(t *testing.T) {
 				t.Fatalf("NewRegistry accepted %+v and built %d rules; want an error naming %s", c.Params, len(reg.Rules()), c.Names)
 			}
 			msg := err.Error()
-			for _, part := range []string{c.Names, ".unstring.yaml", "nothing was scanned"} {
+			for _, part := range append([]string{c.Names, ".unstring.yaml", "nothing was scanned"}, c.Contains...) {
 				if !strings.Contains(msg, part) {
 					t.Errorf("the error does not mention %q:\n%s", part, msg)
 				}
 			}
 		})
+	}
+}
+
+func TestRegistryFixtureKeepsRequiredNames(t *testing.T) {
+	f := loadRegistryFixture(t)
+	names := map[string]bool{}
+	for _, c := range f.Valid {
+		names[c.Name] = true
+	}
+	for _, c := range f.Equivalent {
+		names[c.Name] = true
+	}
+	for _, c := range f.Invalid {
+		names[c.Name] = true
+	}
+	for _, want := range f.Required {
+		if !names[want] {
+			t.Errorf("testdata/registry.yaml is missing required case %q", want)
+		}
 	}
 }
 

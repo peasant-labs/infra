@@ -1,7 +1,8 @@
 # Rule 13: an API path written as a Go literal. Rendered with the repository's
 # endpoint prefixes; the second document, present only when the repository
 # names router files, flags every "/…" argument mounted in those files, where
-# patterns are relative to an r.Route prefix and carry none.
+# patterns are relative to an r.Route prefix and carry none. Each files: entry
+# is written quoted and unchanged, including a glob; ast-grep matches it.
 id: go-endpoint-literal
 language: go
 severity: warning
