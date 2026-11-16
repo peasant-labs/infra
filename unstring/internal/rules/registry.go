@@ -152,6 +152,12 @@ func newTemplateData(p Params) (templateData, error) {
 	for _, v := range p.MountFiles {
 		if !mountFileShape.MatchString(v) || slices.Contains(strings.Split(v, "/"), "..") || slices.Contains(strings.Split(v, "/"), ".") {
 			paramError("endpoints.mountFiles", v, "a file path or glob relative to the directory of .unstring.yaml, with / separators and no . or .. segment, such as backend/internal/router/*.go")
+			continue
+		}
+		// The shape accepts an unclosed bracket, such as router/[.go.
+		// path.Match refuses that syntax and treats ** as a valid pattern.
+		if _, err := path.Match(v, ""); err != nil {
+			paramError("endpoints.mountFiles", v, "a glob with *, ?, […] and ** for any number of directories, with every [ closed")
 		}
 	}
 	for _, v := range p.DataDirs {

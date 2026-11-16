@@ -1,4 +1,13 @@
 # Cases for rules.NewRegistry and rules.ParseDocumentID.
+#
+# required names the cases a change must keep. The test asserts membership,
+# not a count: a fixture may hold more cases.
+
+required:
+  - glob-mount-file
+  - glob-metacharacters
+  - mount-file-glob-parent-segment
+  - mount-file-unclosed-bracket
 
 # Params the registry accepts. Each renders every static rule.
 valid:
@@ -83,6 +92,10 @@ invalid:
   - name: mount-file-with-quote
     params: {endpointPrefixes: [/api/v1], mountFiles: ["it's/router.go"], dataDirs: [testdata]}
     names: endpoints.mountFiles
+  - name: mount-file-unclosed-bracket
+    params: {endpointPrefixes: [/api/v1], mountFiles: ["router/[.go"], dataDirs: [testdata]}
+    names: endpoints.mountFiles
+    contains: ["*", "?", "[…]", "**"]
   - name: data-dir-with-slash
     params: {endpointPrefixes: [/api/v1], dataDirs: [test/data]}
     names: dataDirs

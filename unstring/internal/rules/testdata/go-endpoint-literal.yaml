@@ -42,6 +42,16 @@ cases:
         	r.Get("healthz", h.Health)
         }
     hits: {backend/internal/router/auth.go: [4]}
+  - name: passes-mount-glob-matching-no-file
+    params:
+      mountFiles: [backend/internal/router/missing/*.go]
+    files:
+      backend/internal/router/auth.go: |
+        package router
+
+        func routes(r chi.Router, h *Handlers) {
+        	r.Get("/auth/me", h.Me)
+        }
   - name: flags-any-slash-argument-in-configured-router-file
     files:
       backend/internal/router/router.go: |

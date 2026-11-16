@@ -70,6 +70,7 @@ required:
     - flags-prefix-literal
     - flags-raw-string
     - flags-group-relative-argument-under-mount-glob
+    - passes-mount-glob-matching-no-file
     - flags-any-slash-argument-in-configured-router-file
     - passes-same-call-in-another-file
     - passes-repos-path-outside-router-files

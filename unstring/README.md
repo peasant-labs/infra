@@ -90,7 +90,9 @@ exempt:
 exact path or a glob (`*`, `?`, `[…]`, including `**`), for example
 `server/internal/router/*.go`. The tool does not expand the glob. It writes
 each entry, quoted and unchanged, into the mount-file rule's `files:` list,
-and ast-grep matches it.
+and ast-grep matches it. A glob that matches no file yields no hits and no
+error, exactly like a missing exact path; when the mount rule reports nothing,
+check the pattern.
 
 A route-mounting file has to be listed. A group-relative argument such as
 `"/auth/me"` carries no API prefix, so the prefix rule does not see it. The
