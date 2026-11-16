@@ -109,7 +109,8 @@ type templateData struct {
 	CalleeRegex string
 	// DataDirRegex is a non-capturing alternation of the data directories.
 	DataDirRegex string
-	// MountFiles are the router files, each safe inside single quotes.
+	// MountFiles are the router paths or globs, each safe inside single
+	// quotes and written into files: unchanged.
 	MountFiles []string
 	// PartSeparator is the separator of a part document's id.
 	PartSeparator string
@@ -120,8 +121,11 @@ var (
 	prefixShape = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
 	// A callee is a JS identifier, optionally dotted (client.get).
 	calleeShape = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$`)
-	// A mount file is a relative path with `/` separators.
-	mountFileShape = regexp.MustCompile(`^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$`)
+	// A mount file is a relative path or glob with `/` separators. A segment
+	// may contain the glob metacharacters `*`, `?` and `[...]`, including a
+	// `**` segment. A leading `/` fails this pattern; the caller still
+	// rejects a `\` separator and a `.` or `..` segment.
+	mountFileShape = regexp.MustCompile(`^[A-Za-z0-9._@+*?\[\]-]+(?:/[A-Za-z0-9._@+*?\[\]-]+)*$`)
 	// A data directory is one path segment.
 	dataDirShape = regexp.MustCompile(`^[A-Za-z0-9._@-]+$`)
 	// A part name is lowercase words joined by hyphens.
@@ -147,7 +151,7 @@ func newTemplateData(p Params) (templateData, error) {
 	}
 	for _, v := range p.MountFiles {
 		if !mountFileShape.MatchString(v) || slices.Contains(strings.Split(v, "/"), "..") || slices.Contains(strings.Split(v, "/"), ".") {
-			paramError("endpoints.mountFiles", v, "a file path relative to the directory of .unstring.yaml, with / separators and no . or .. segment, such as backend/internal/router/router.go")
+			paramError("endpoints.mountFiles", v, "a file path or glob relative to the directory of .unstring.yaml, with / separators and no . or .. segment, such as backend/internal/router/*.go")
 		}
 	}
 	for _, v := range p.DataDirs {

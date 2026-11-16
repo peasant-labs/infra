@@ -12,6 +12,9 @@ type registryFixture struct {
 	Valid []struct {
 		Name   string        `yaml:"name"`
 		Params fixtureParams `yaml:"params"`
+		// MountFilesBlock, when set, is the files: list the go-endpoint-literal
+		// document must contain: each entry quoted and unchanged.
+		MountFilesBlock string `yaml:"mountFilesBlock"`
 	} `yaml:"valid"`
 	Equivalent []struct {
 		Name string        `yaml:"name"`
@@ -91,6 +94,15 @@ func TestRegistryHoldsExactlyTheStaticRules(t *testing.T) {
 			}
 			if _, ok := reg.Rule("no-such-rule"); ok {
 				t.Error(`Rule("no-such-rule") found a rule`)
+			}
+			if c.MountFilesBlock != "" {
+				rule, ok := reg.Rule(rules.GoEndpointLiteral)
+				if !ok {
+					t.Fatal("the registry has no go-endpoint-literal rule")
+				}
+				if !bytes.Contains(rule.Document, []byte(c.MountFilesBlock)) {
+					t.Errorf("go-endpoint-literal does not contain the quoted files block %q:\n%s", c.MountFilesBlock, rule.Document)
+				}
 			}
 		})
 	}

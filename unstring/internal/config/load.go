@@ -158,8 +158,8 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 		if msg := relativePathProblem(f); msg != "" {
 			return fail(
 				fmt.Sprintf("the mount file %q in %s %s.", f, name, msg),
-				"mount files are relative to the config's directory, with `/` separators.",
-				"write the router file's path relative to the config.")
+				"mount files are paths or globs relative to the config's directory, with `/` separators.",
+				"write the router file's path or glob relative to the config, for example backend/internal/router/*.go.")
 		}
 	}
 	if len(c.DataDirs) == 0 {

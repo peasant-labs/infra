@@ -41,6 +41,17 @@ cases:
       dataDirs: [golden]
       schemaModule: github.com/peasant-labs/schema
 
+  - name: accepts-glob-mount-file
+    files: {backend/internal/router/auth.go: "package router\n"}
+    config: |
+      version: 1
+      go: {roots: [backend]}
+      endpoints:
+        mountFiles: [backend/internal/router/*.go]
+    want:
+      goRoots: [backend]
+      mountFiles: [backend/internal/router/*.go]
+
   - name: root-dot-accepted
     files: {a.ts: ""}
     config: |
@@ -129,6 +140,15 @@ cases:
       version: 1
       ts: {roots: [/srv/web]}
     error: ["is absolute"]
+
+  - name: refuses-mount-file-parent
+    files: {backend/a.go: "package backend\n"}
+    config: |
+      version: 1
+      go: {roots: [backend]}
+      endpoints:
+        mountFiles: [../router.go]
+    error: ["\"../router.go\"", "leaves the config's directory"]
 
   - name: refuses-root-outside-config-directory
     config: |

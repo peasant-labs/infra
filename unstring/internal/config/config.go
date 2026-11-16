@@ -62,8 +62,9 @@ type Endpoints struct {
 	Prefixes []string `yaml:"prefixes"`
 	// Callees are TS functions whose first argument is an API path.
 	Callees []string `yaml:"callees"`
-	// MountFiles are Go router files in which any `/…` argument is an
-	// endpoint literal.
+	// MountFiles are Go router files, as exact paths or globs, in which any
+	// `/…` argument is an endpoint literal. A glob is not expanded here;
+	// ast-grep matches the files: list.
 	MountFiles []string `yaml:"mountFiles"`
 }
 

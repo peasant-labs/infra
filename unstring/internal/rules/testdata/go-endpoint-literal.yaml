@@ -25,6 +25,23 @@ cases:
 
         var me = `/api/v1/auth/me`
     hits: {backend/internal/client/client.go: [3]}
+  - name: flags-group-relative-argument-under-mount-glob
+    params:
+      mountFiles: [backend/internal/router/*.go]
+    files:
+      backend/internal/router/auth.go: |
+        package router
+
+        func routes(r chi.Router, h *Handlers) {
+        	r.Get("/auth/me", h.Me)
+        }
+      backend/internal/router/health.go: |
+        package router
+
+        func routes(r chi.Router, h *Handlers) {
+        	r.Get("healthz", h.Health)
+        }
+    hits: {backend/internal/router/auth.go: [4]}
   - name: flags-any-slash-argument-in-configured-router-file
     files:
       backend/internal/router/router.go: |

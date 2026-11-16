@@ -55,6 +55,8 @@ type loadFixture struct {
 var requiredLoadCases = []string{
 	"defaults-applied",
 	"explicit-settings-kept",
+	"accepts-glob-mount-file",
+	"refuses-mount-file-parent",
 	"exempt-generated-files-for-closed-set",
 	"exempt-hand-written-file-for-other-rule",
 	"refuses-unknown-key",

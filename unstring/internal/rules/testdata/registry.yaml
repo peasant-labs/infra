@@ -12,6 +12,21 @@ valid:
       endpointCallees: [api, client.get, $fetch]
       mountFiles: [backend/internal/router/router.go, internal/server/mux.go]
       dataDirs: [testdata, golden, "@fixtures"]
+  - name: glob-mount-file
+    params:
+      endpointPrefixes: [/api/v1]
+      mountFiles: [backend/internal/router/*.go]
+      dataDirs: [testdata]
+    mountFilesBlock: "files:\n  - 'backend/internal/router/*.go'\n"
+  - name: glob-metacharacters
+    params:
+      endpointPrefixes: [/api/v1]
+      mountFiles:
+        - "backend/**/*.go"
+        - "backend/internal/router/route?.go"
+        - "backend/internal/router/route[0-9].go"
+      dataDirs: [testdata]
+    mountFilesBlock: "files:\n  - 'backend/**/*.go'\n  - 'backend/internal/router/route?.go'\n  - 'backend/internal/router/route[0-9].go'\n"
 
 # Params that render byte-identical rules: order and duplicates do not matter.
 equivalent:
@@ -58,6 +73,9 @@ invalid:
     names: endpoints.mountFiles
   - name: mount-file-parent-segment
     params: {endpointPrefixes: [/api/v1], mountFiles: [../router.go], dataDirs: [testdata]}
+    names: endpoints.mountFiles
+  - name: mount-file-glob-parent-segment
+    params: {endpointPrefixes: [/api/v1], mountFiles: ["backend/**/../router.go"], dataDirs: [testdata]}
     names: endpoints.mountFiles
   - name: mount-file-dot-segment
     params: {endpointPrefixes: [/api/v1], mountFiles: [./router.go], dataDirs: [testdata]}
