@@ -7,6 +7,7 @@ required_names:
   - unreleased-bare-style
   - breaking-marked
   - single-empty-release-line
+  - repeated-cut-request-one-line
   - no-pr-number
   - redact-bare-prefixed
   - peasant-bracket-version-dated
@@ -241,6 +242,40 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "generator: one forced-release subject renders one line"}
     mutation: {description: "a forced release with no other change"}
+  - name: repeated-cut-request-one-line
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      pending:
+        - {type: "release", scopes: [], breaking: false, level: "patch", subject: "cut a release", pr: 22}
+        - {type: "release", scopes: [], breaking: false, level: "minor", subject: "cut a release", pr: 11}
+      base_changelog: |
+        # Changelog
+
+        ## [v0.1.0] - 2026-11-01
+
+        - feat(x)[minor]: one (#9)
+      version: "0.2.0"
+      tag: "v0.2.0"
+      date: "2026-11-12"
+    expected:
+      changelog: |
+        # Changelog
+
+        ## [v0.2.0] - 2026-11-12
+
+        - cut a release (#22)
+
+        ## [v0.1.0] - 2026-11-01
+
+        - feat(x)[minor]: one (#9)
+      section: |
+        ## [v0.2.0] - 2026-11-12
+
+        - cut a release (#22)
+      versions: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "generator: a repeated cut request renders one line"}
+    mutation: {description: "two forced-cut requests for one release"}
   - name: no-pr-number
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
