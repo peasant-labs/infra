@@ -51,6 +51,7 @@ type Params struct {
 	EndpointCallees []string
 	// MountFiles are Go router files, relative to the config directory, in
 	// which any string argument starting with "/" is an endpoint literal.
+	// The mount-file rule ignores *_test.go files even when a glob lists them.
 	MountFiles []string
 	// DataDirs are the directory names whose relative paths the data-path
 	// rules flag, for example "testdata".

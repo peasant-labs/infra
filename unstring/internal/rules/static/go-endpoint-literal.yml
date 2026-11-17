@@ -1,8 +1,11 @@
 # Rule 13: an API path written as a Go literal. Rendered with the repository's
 # endpoint prefixes; the second document, present only when the repository
 # names router files, flags every "/…" argument mounted in those files, where
-# patterns are relative to an r.Route prefix and carry none. Each files: entry
-# is written quoted and unchanged, including a glob; ast-grep matches it.
+# patterns are relative to an r.Route prefix and carry none. That document
+# ignores *_test.go files: a router glob also names tests, and tests do not
+# mount production routes. The prefix rule above does not ignore them. Each
+# files: entry is written quoted and unchanged, including a glob; ast-grep
+# matches it.
 id: go-endpoint-literal
 language: go
 severity: warning
@@ -33,6 +36,8 @@ files:
 {{- range .MountFiles }}
   - '{{ . }}'
 {{- end }}
+ignores:
+  - '**/*_test.go'
 utils:
   text-literal:
     any: [{ kind: interpreted_string_literal }, { kind: raw_string_literal }]

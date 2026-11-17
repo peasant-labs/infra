@@ -97,6 +97,7 @@ check the pattern.
 A route-mounting file has to be listed. A group-relative argument such as
 `"/auth/me"` carries no API prefix, so the prefix rule does not see it. The
 mount-file rule flags every `"/…"` string argument in the listed files. The
+mount-file rule ignores `_test.go` files, including those a glob lists. The
 same call in a file that is not listed is not a mount.
 
 ## Baseline

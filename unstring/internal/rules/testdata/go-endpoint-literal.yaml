@@ -102,3 +102,33 @@ cases:
         package gitlab
 
         const userPath = "/api/v4/user"
+  - name: passes-listed-test-file-slash-arguments
+    params:
+      mountFiles: [backend/internal/router/*.go]
+    files:
+      backend/internal/router/router_test.go: |
+        package router
+
+        import "strings"
+
+        func helper(pattern, path string) bool {
+        	return strings.HasPrefix(pattern, "/") || len(strings.Split(path, "/")) > 0
+        }
+  - name: flags-listed-production-router-mount
+    params:
+      mountFiles: [backend/internal/router/router.go]
+    files:
+      backend/internal/router/router.go: |
+        package router
+
+        func routes(r chi.Router, h *Handlers) {
+        	r.Get("/auth/me", h.Me)
+        }
+    hits: {backend/internal/router/router.go: [4]}
+  - name: flags-prefix-literal-in-test-file
+    files:
+      backend/internal/client/client_test.go: |
+        package client
+
+        const meURL = "/api/v1/auth/me"
+    hits: {backend/internal/client/client_test.go: [3]}
