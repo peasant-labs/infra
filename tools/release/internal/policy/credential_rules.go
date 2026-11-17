@@ -196,6 +196,12 @@ func (c *queueChecker) checkJobCredentialScope(file, jobName string, job *yaml.N
 	for i, step := range stepsOf(job) {
 		label := stepLabel(jobName, i, step)
 		mint := isMintStep(step)
+		if mint && cj.viaWorkflowRun() {
+			emit(label+" mints the App token in a workflow_run comment job",
+				"a workflow_run comment job comments with its policy-named PAT alone, and an App token would be a second credential in a job that runs in the base repository with secrets",
+				"drop the mint step and read only the policy PAT in the env of the reviewed-script step")
+			continue
+		}
 		if mint && cj.class != credentialJobRelease && cj.class != credentialJobBot && cj.class != credentialJobComment {
 			emit(label+" mints the App token outside the release job and the listed bot jobs or comment jobs",
 				"a job the policy does not list runs commands no template holds, so it can push the default branch with the token",
@@ -291,7 +297,7 @@ func (c *queueChecker) checkCredentialActions() {
 				if !actionPinSHA.MatchString(ref) {
 					emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", pinned to "+strconv.Quote(ref)+" instead of a 40-hex commit", "pin the action to the reviewed commit SHA")
 				}
-				if why := actionInputFault(step, job, cj.class); why != "" {
+				if why := actionInputFault(step, job, cj); why != "" {
 					emit(stepLabel(jobName, i, step)+" "+why, "pass "+uses+" only the inputs it may take there")
 				}
 				if member == ActionReleaseAssets {
@@ -309,7 +315,11 @@ func (c *queueChecker) checkCredentialActions() {
 // Checkout and download inputs are literal except for the comment checkout's
 // fixed default-branch expression. A download lands in a literal subdirectory;
 // the reviewed-script rule additionally isolates the complete checkout.
-func actionInputFault(step, job *yaml.Node, class credentialJobClass) string {
+//
+// A workflow_run comment job's download also takes run-id, which must be the
+// triggering run's id: the evidence lives in that run, not in this one.
+func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
+	class := cj.class
 	name, _, _ := usesAction(stepUsesText(step))
 	action, err := ParseAllowedAction(name)
 	if err != nil {
@@ -318,6 +328,9 @@ func actionInputFault(step, job *yaml.Node, class credentialJobClass) string {
 	allowed := inputsOf(action)
 	if action == ActionCheckout && class == credentialJobComment {
 		allowed = append(allowed, InputRef, InputArtifactPath)
+	}
+	if action == ActionDownloadArtifact && cj.viaWorkflowRun() {
+		allowed = append(allowed, InputRunID)
 	}
 	if action == ActionCreateAppToken {
 		allowed = mintInputsFor(class)
@@ -334,7 +347,8 @@ func actionInputFault(step, job *yaml.Node, class credentialJobClass) string {
 			return "passes input " + key + " more than once; the checker cannot prove which value the action receives"
 		}
 		seen[input] = true
-		if action != ActionCreateAppToken && action != ActionReleaseAssets && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && strings.Contains(value, "${{") {
+		triggeringRunID := action == ActionDownloadArtifact && input == InputRunID && soleExpression(value) == workflowRunIDExpression
+		if action != ActionCreateAppToken && action != ActionReleaseAssets && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && !triggeringRunID && strings.Contains(value, "${{") {
 			return "passes input " + key + " from an expression; " + action.String() + " takes literal inputs there"
 		}
 	}
@@ -358,6 +372,14 @@ func actionInputFault(step, job *yaml.Node, class credentialJobClass) string {
 		path := mappingValue(with, InputArtifactPath.String())
 		if path == nil || !pathWord.MatchString(path.Value) || strings.Contains(path.Value, "..") {
 			return "downloads into " + strconv.Quote(valueOf(path)) + " instead of a literal subdirectory of the workspace, so an artifact could write into .git or over the checkout"
+		}
+		if cj.viaWorkflowRun() {
+			if soleExpression(valueOf(mappingValue(with, InputRunID.String()))) != workflowRunIDExpression {
+				return "downloads without run-id: ${{ " + workflowRunIDExpression + " }}; a workflow_run comment job reads the evidence of the run that triggered it, and no other run's"
+			}
+			if artifact := valueOf(mappingValue(with, InputArtifactName.String())); artifact == "" || strings.Contains(artifact, "${{") {
+				return "downloads an artifact whose name " + quote(artifact) + " is not a literal"
+			}
 		}
 	}
 	return ""
@@ -438,7 +460,9 @@ func (c *queueChecker) checkJobShape(file, jobName string, doc, job *yaml.Node, 
 		if uses := stepUsesText(step); uses != "" {
 			if isAction(uses, ActionDownloadArtifact) {
 				artifact := valueOf(mappingValue(mappingValue(step, "with"), InputArtifactName.String()))
-				if artifact == "" || !uploads[artifact] {
+				// A workflow_run comment job downloads from the producing
+				// run, which no job of this workflow uploads.
+				if artifact == "" || (!uploads[artifact] && !cj.viaWorkflowRun()) {
 					emit(label+" downloads artifact "+strconv.Quote(artifact)+", which no job it needs uploads", "name the artifact an earlier job uploads, and list that job in needs")
 				}
 			}
@@ -567,6 +591,7 @@ func isUploadArtifact(uses string) bool {
 // environment of template names only, and the runner's default shell.
 func (c *queueChecker) checkCredentialTemplates() {
 	c.eachDoc(QueueRuleCredentialTemplates, func(name string, doc *yaml.Node) {
+		c.checkCommentWorkflow(name, doc)
 		for _, jobName := range jobNames(doc) {
 			cj := c.creds[name][jobName]
 			if cj.class == "" {
@@ -578,15 +603,19 @@ func (c *queueChecker) checkCredentialTemplates() {
 					"jobs."+jobName+" sets continue-on-error on the comment job",
 					"a failed evidence post must not report success", rejected, "remove continue-on-error"))
 			}
+			if cj.viaWorkflowRun() {
+				c.checkWorkflowRunComment(name, jobName, doc, job, cj)
+			}
 			for i, step := range stepsOf(job) {
 				if stepRunText(step) == "" || !c.receivesCredential(name, jobName, step) {
 					continue
 				}
-				if cj.class == credentialJobComment && !hasPRRunGate(valueOf(mappingValue(job, "if"))) && !hasPRRunGate(stepIfText(step)) {
+				// A workflow_run job is gated at the job (checkWorkflowRunComment).
+				if cj.class == credentialJobComment && !cj.viaWorkflowRun() && !cj.hasRunGate(valueOf(mappingValue(job, "if"))) && !cj.hasRunGate(stepIfText(step)) {
 					c.emit(QueueRuleCredentialTemplates, name, jobName, violation(
 						stepLabel(jobName, i, step)+" runs without a pull_request event gate",
 						"a personal token may be available even when the mint is skipped", rejected,
-						"gate the job or comment step on github.event_name == 'pull_request'"))
+						"gate the job or comment step on "+cj.runGateText()))
 				}
 				if cj.class == credentialJobComment && hasContinueOnError(step) {
 					c.emit(QueueRuleCredentialTemplates, name, jobName, violation(
@@ -628,7 +657,7 @@ func (c *queueChecker) templateFault(doc, job, step *yaml.Node, cj credentialJob
 	if why != "" {
 		return "its run block is not one command: " + why
 	}
-	tmpl, why := matchTemplate(words, templateStep{class: cj.class, branch: cj.branch, env: env, doc: doc, job: job, reviewedScript: cj.reviewedScript})
+	tmpl, why := matchTemplate(words, templateStep{class: cj.class, branch: cj.branch, env: env, doc: doc, job: job, reviewedScript: cj.reviewedScript, runEvent: cj.runEvent})
 	if why != "" {
 		return why
 	}

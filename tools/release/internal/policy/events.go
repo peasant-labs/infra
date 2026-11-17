@@ -26,6 +26,11 @@ const (
 	GitHubEventSchedule GitHubEvent = "schedule"
 	// GitHubEventWorkflowDispatch is a manual run from the button or the API.
 	GitHubEventWorkflowDispatch GitHubEvent = "workflow_dispatch"
+	// GitHubEventWorkflowRun is a run triggered by another workflow's run. It
+	// executes in the base repository with secrets, so the only job class
+	// that may run under it is a listed comment job that gates on a
+	// pull_request producer. pull_request_target stays outside the set.
+	GitHubEventWorkflowRun GitHubEvent = "workflow_run"
 )
 
 // AllGitHubEvents is the canonical ordered closed set of the events the
@@ -36,6 +41,7 @@ var AllGitHubEvents = []GitHubEvent{
 	GitHubEventPush,
 	GitHubEventSchedule,
 	GitHubEventWorkflowDispatch,
+	GitHubEventWorkflowRun,
 }
 
 // String renders the event in its workflow spelling.
@@ -211,6 +217,7 @@ func activityTypes(t trigger) (actions []PullRequestAction, listed bool) {
 const (
 	workflowKeyOn            = "on"
 	triggerKeyTypes          = "types"
+	triggerKeyWorkflows      = "workflows"
 	triggerKeyTags           = "tags"
 	triggerKeyTagsIgnore     = "tags-ignore"
 	triggerKeyBranches       = "branches"

@@ -196,6 +196,9 @@ type templateStep struct {
 	doc            *yaml.Node
 	job            *yaml.Node
 	reviewedScript string
+	// runEvent is the comment job's event; workflow_run changes where the PR
+	// number comes from.
+	runEvent GitHubEvent
 }
 
 // The fixed words the templates are built from. These are git's and gh's,
@@ -358,11 +361,19 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 		spec[ghFlagVerifyTag] = flagSwitch
 		why = s.matchRelease(words[3:], spec, true)
 	case TemplatePRComment:
-		why = s.matchPRComment(words[3:])
+		if s.runEvent == GitHubEventWorkflowRun {
+			why = "a workflow_run comment job cannot run gh pr comment: the event carries no pull request, so the PR number would come from PR-controlled evidence; run the policy's reviewed script, which reads and validates it"
+		} else {
+			why = s.matchPRComment(words[3:])
+		}
 	case TemplateReviewedScript:
-		if len(words) != 2 || s.reviewedScript == "" || literalAt(words, 1) != reviewedCheckoutDir+"/"+s.reviewedScript {
+		switch {
+		case len(words) != 2 || s.reviewedScript == "" || literalAt(words, 1) != reviewedCheckoutDir+"/"+s.reviewedScript:
 			why = "the reviewed script command must be node followed by exactly the policy's literal reviewed_script path"
-		} else if soleExpression(s.env[TemplateEnvPRNumber.String()]) != triggeringPRNumber {
+		case s.runEvent == GitHubEventWorkflowRun:
+			// The script reads the PR number from the evidence; the job
+			// check refuses a PR_NUMBER env wherever it is set.
+		case soleExpression(s.env[TemplateEnvPRNumber.String()]) != triggeringPRNumber:
 			why = "PR_NUMBER must be mapped from this run's pull request number"
 		}
 	}

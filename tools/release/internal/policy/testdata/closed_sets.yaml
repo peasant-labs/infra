@@ -56,8 +56,8 @@ sets:
     refused: ["", "no-such-rule", "Required-Contexts"]
 
   - name: github-event
-    members: [pull_request, merge_group, push, schedule, workflow_dispatch]
-    refused: ["", "workflow_run", "pull_request_target", "Push"]
+    members: [pull_request, merge_group, push, schedule, workflow_dispatch, workflow_run]
+    refused: ["", "pull_request_target", "Push", "Workflow_Run"]
 
   - name: pull-request-action
     members: [opened, synchronize, reopened, edited]
@@ -104,6 +104,7 @@ sets:
       - ref
       - name
       - path
+      - run-id
       - app-id
       - client-id
       - private-key
@@ -119,7 +120,7 @@ sets:
       - prerelease
       - make_latest
       - repository
-    refused: ["", "token", "run-id", "github-token", "github-api-url", "Path"]
+    refused: ["", "token", "artifact-ids", "github-token", "github-api-url", "Path"]
 
   # The env names a credential step may carry: three credential carriers and
   # the values the templates' typed parts read.
