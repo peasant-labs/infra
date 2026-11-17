@@ -157,7 +157,8 @@ func ParseAllowedAction(raw string) (AllowedAction, error) {
 // are accepted only for an isolated comment checkout, checkout's token
 // would change which repository the templates push from, a
 // download's repository, run-id or github-token would fetch another run's
-// files, and the mint's API URL would send its signed request elsewhere. The
+// files (a workflow_run comment job's download passes only the triggering
+// run's id and the default token), and the mint's API URL would send its signed request elsewhere. The
 // zero value is unknown.
 type ActionInput string
 
@@ -178,6 +179,10 @@ const (
 	// InputRunID names the producing run a workflow_run comment job downloads
 	// its evidence artifact from. It must be the triggering run's id.
 	InputRunID ActionInput = "run-id"
+	// InputGitHubToken is the download's token. The action honors run-id only
+	// when it is passed, so a workflow_run comment job's download passes
+	// exactly the read-only default token, and no other job passes one.
+	InputGitHubToken ActionInput = "github-token"
 	// InputAppID is the mint's App id.
 	InputAppID ActionInput = "app-id"
 	// InputClientID is the mint's App client id.
@@ -220,6 +225,7 @@ var AllActionInputs = []ActionInput{
 	InputArtifactName,
 	InputArtifactPath,
 	InputRunID,
+	InputGitHubToken,
 	InputAppID,
 	InputClientID,
 	InputPrivateKey,

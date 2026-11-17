@@ -105,6 +105,7 @@ sets:
       - name
       - path
       - run-id
+      - github-token
       - app-id
       - client-id
       - private-key
@@ -120,7 +121,7 @@ sets:
       - prerelease
       - make_latest
       - repository
-    refused: ["", "token", "artifact-ids", "github-token", "github-api-url", "Path"]
+    refused: ["", "token", "artifact-ids", "merge-multiple", "github-api-url", "Path"]
 
   # The env names a credential step may carry: three credential carriers and
   # the values the templates' typed parts read.

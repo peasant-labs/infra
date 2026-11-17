@@ -317,7 +317,9 @@ func (c *queueChecker) checkCredentialActions() {
 // the reviewed-script rule additionally isolates the complete checkout.
 //
 // A workflow_run comment job's download also takes run-id, which must be the
-// triggering run's id: the evidence lives in that run, not in this one.
+// triggering run's id (the evidence lives in that run, not in this one), and
+// github-token, which must be the read-only default token (the action honors
+// run-id only when it is given a token). No other job's download takes either.
 func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 	class := cj.class
 	name, _, _ := usesAction(stepUsesText(step))
@@ -330,7 +332,7 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 		allowed = append(allowed, InputRef, InputArtifactPath)
 	}
 	if action == ActionDownloadArtifact && cj.viaWorkflowRun() {
-		allowed = append(allowed, InputRunID)
+		allowed = append(allowed, InputRunID, InputGitHubToken)
 	}
 	if action == ActionCreateAppToken {
 		allowed = mintInputsFor(class)
@@ -347,9 +349,10 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 			return "passes input " + key + " more than once; the checker cannot prove which value the action receives"
 		}
 		seen[input] = true
-		// run-id is judged below, where the message can say what it must be.
-		runID := action == ActionDownloadArtifact && input == InputRunID
-		if action != ActionCreateAppToken && action != ActionReleaseAssets && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && !runID && strings.Contains(value, "${{") {
+		// run-id and github-token are judged below, where the message can say
+		// what each must be.
+		judgedBelow := action == ActionDownloadArtifact && (input == InputRunID || input == InputGitHubToken)
+		if action != ActionCreateAppToken && action != ActionReleaseAssets && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && !judgedBelow && strings.Contains(value, "${{") {
 			return "passes input " + key + " from an expression; " + action.String() + " takes literal inputs there"
 		}
 	}
@@ -381,6 +384,13 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 			}
 			if soleExpression(runIDNode.Value) != workflowRunIDExpression {
 				return "passes run-id " + quote(runIDNode.Value) + ", which is not the triggering run's id ${{ " + workflowRunIDExpression + " }}; a workflow_run comment job reads the evidence of the run that triggered it, and no other run's"
+			}
+			tokenNode := mappingValue(with, InputGitHubToken.String())
+			if tokenNode == nil {
+				return "downloads without github-token: ${{ " + workflowRunTokenExpression + " }}; the action honors run-id only when it is given a token, and would otherwise search this run's own artifacts"
+			}
+			if soleExpression(tokenNode.Value) != workflowRunTokenExpression {
+				return "passes github-token " + quote(tokenNode.Value) + ", which is not the workflow token ${{ " + workflowRunTokenExpression + " }}; the download takes the read-only default token and never a secret, a PAT or another expression"
 			}
 			if artifact := valueOf(mappingValue(with, InputArtifactName.String())); artifact == "" || strings.Contains(artifact, "${{") {
 				return "downloads an artifact whose name " + quote(artifact) + " is not a literal"

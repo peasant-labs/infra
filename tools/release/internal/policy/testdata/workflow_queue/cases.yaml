@@ -77,7 +77,14 @@ required_names:
   - reject-workflow-run-comment-conditional-download
   - reject-workflow-run-comment-download-no-run-id
   - reject-workflow-run-comment-download-literal-run-id
-  - reject-workflow-run-comment-download-token
+  - reject-workflow-run-comment-download-token-twice
+  - reject-workflow-run-comment-download-no-token
+  - reject-workflow-run-comment-download-token-pat
+  - reject-workflow-run-comment-download-token-secrets-github-token
+  - reject-workflow-run-comment-download-token-custom-expression
+  - reject-workflow-run-comment-download-token-literal
+  - reject-workflow-run-comment-download-repository
+  - reject-comment-job-github-token
   - reject-workflow-run-comment-evidence-overlaps-checkout
   - reject-workflow-run-comment-pull-request-target
   - reject-workflow-run-comment-extra-trigger
@@ -2134,8 +2141,8 @@ cases:
       overlay: accept-workflow-run-comment
       edits:
         - file: workflows/apidiff-comment.yml
-          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n"
-          new: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n"
+          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          github-token: ${{ github.token }}\n          path: evidence\n"
+          new: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          github-token: ${{ github.token }}\n          path: evidence\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n"
     expected: { rule: credentials-stay-in-listed-jobs, want_contains: ["policy PAT"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
@@ -2194,7 +2201,7 @@ cases:
       overlay: accept-workflow-run-comment
       edits:
         - file: workflows/apidiff-comment.yml
-          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n"
+          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          github-token: ${{ github.token }}\n          path: evidence\n"
           new: ""
     expected: { rule: credential-steps-run-one-template, want_contains: ["from the triggering run"] }
     sibling: accept-workflow-run-comment
@@ -2206,8 +2213,8 @@ cases:
       overlay: accept-workflow-run-comment
       edits:
         - file: workflows/apidiff-comment.yml
-          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n"
-          new: "      - if: github.event.workflow_run.conclusion == 'success'\n        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n"
+          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          github-token: ${{ github.token }}\n          path: evidence\n"
+          new: "      - if: github.event.workflow_run.conclusion == 'success'\n        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          github-token: ${{ github.token }}\n          path: evidence\n"
     expected: { rule: credential-steps-run-one-template, want_contains: ["unconditional earlier artifact download"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
@@ -2237,18 +2244,18 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment evidence download" }
     mutation: { description: "Download from a run the trigger did not name." }
-  - name: reject-workflow-run-comment-download-token
+  - name: reject-workflow-run-comment-download-token-twice
     input:
       overlay: accept-workflow-run-comment
       edits:
         - file: workflows/apidiff-comment.yml
           old: "          path: evidence\n"
           new: "          github-token: ${{ github.token }}\n          path: evidence\n"
-    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["github-token"] }
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credentials-stay-in-listed-jobs], want_contains: ["passes input github-token more than once", "repeats YAML mapping key"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment evidence download" }
-    mutation: { description: "Pass a token to the artifact download." }
+    mutation: { description: "Pass the workflow token to the artifact download twice." }
   - name: reject-workflow-run-comment-evidence-overlaps-checkout
     input:
       overlay: accept-workflow-run-comment
@@ -2355,7 +2362,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "      actions: read\n"
           new: "      actions: read\n      pull-requests: write\n"
-    expected: { rule: default-token-read-only, want_contains: ["pull-requests"] }
+    expected: { rule: default-token-read-only, also: [credentials-stay-in-listed-jobs], want_contains: ["pull-requests", "reads github.token in with"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment read-only token" }
@@ -2464,8 +2471,8 @@ cases:
       overlay: accept-workflow-run-comment
       edits:
         - file: workflows/apidiff-comment.yml
-          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n"
-          new: "      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n"
+          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          github-token: ${{ github.token }}\n          path: evidence\n      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n"
+          new: "      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          github-token: ${{ github.token }}\n          path: evidence\n"
     expected: { rule: credential-steps-run-one-template, want_contains: ["unconditional earlier artifact download into EVIDENCE_DIR"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
@@ -2531,3 +2538,87 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run workflow confinement" }
     mutation: { description: "Drop the policy listing, leaving an unlisted workflow_run workflow." }
+  - name: reject-workflow-run-comment-download-no-token
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "          github-token: ${{ github.token }}\n"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["downloads without github-token"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment evidence download" }
+    mutation: { description: "Drop the token the cross-run download needs." }
+  - name: reject-workflow-run-comment-download-token-pat
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "github-token: ${{ github.token }}"
+          new: "github-token: ${{ secrets.APIDIFF_COMMENT_PAT }}"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template, credentials-stay-in-listed-jobs], want_contains: ["not the workflow token", "reads the policy PAT"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment PAT confinement" }
+    mutation: { description: "Hand the PAT to the artifact download." }
+  - name: reject-workflow-run-comment-download-token-secrets-github-token
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "github-token: ${{ github.token }}"
+          new: "github-token: ${{ secrets.GITHUB_TOKEN }}"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment evidence download" }
+    mutation: { description: "Spell the default token through the secrets context." }
+  - name: reject-workflow-run-comment-download-token-custom-expression
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "github-token: ${{ github.token }}"
+          new: "github-token: ${{ vars.ARTIFACT_TOKEN }}"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment evidence download" }
+    mutation: { description: "Pass a token from another expression." }
+  - name: reject-workflow-run-comment-download-token-literal
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "github-token: ${{ github.token }}"
+          new: "github-token: ghp_literal"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment evidence download" }
+    mutation: { description: "Pass a literal token value." }
+  - name: reject-workflow-run-comment-download-repository
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "          path: evidence\n"
+          new: "          repository: peasant-labs/schema\n          path: evidence\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["passes input repository"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment evidence download" }
+    mutation: { description: "Download from another repository." }
+  - name: reject-comment-job-github-token
+    input:
+      overlay: accept-reviewed-script
+      edits:
+        - file: workflows/journey.yml
+          old: "          name: journey-artifacts\n          path: notes\n"
+          new: "          name: journey-artifacts\n          github-token: ${{ github.token }}\n          path: notes\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["passes input github-token"] }
+    sibling: accept-reviewed-script
+    classification: must-fail
+    provenance: { source: requirement, ref: "cross-run download only for workflow_run" }
+    mutation: { description: "Pass a token to a pull_request comment job's download." }
