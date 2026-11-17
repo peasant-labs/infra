@@ -194,7 +194,7 @@ func CheckFrozenPrimaryOutputs(cfg Config, plan FreezePlan, dirty []string) erro
 		if len(stems) == 0 {
 			return stateSetError("frozen surface "+strconvQuote(surface.Name)+" has no configured stem", "intent.CheckFrozenPrimaryOutputs")
 		}
-		prefix := "generated/" + stems[0] + "-" + surface.To.String() + "."
+		prefix := cfg.FreezeDir + "/" + stems[0] + "-" + surface.To.String() + "."
 		found := false
 		for _, name := range dirty {
 			if strings.HasPrefix(name, prefix) && !strings.Contains(name[len(prefix):], "/") {

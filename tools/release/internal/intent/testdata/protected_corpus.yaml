@@ -21,7 +21,28 @@ required_names:
   - release-may-change-freeze-outputs
   - release-freeze-glob-cannot-match-workflow
   - release-freeze-glob-cannot-override-version-rule
+  - release-protected-version-only
+  - release-protected-version-other-content-rejected
 cases:
+  - name: release-protected-version-only
+    input:
+      config: &overlap_config {changelog: CHANGELOG.md, version_files: [{path: package.json, field: version}], protected_paths: ['*.json']}
+      kind: release
+      changes: [{path: package.json, protected_field_changed: true, other_content_changed: false}]
+    expected: {}
+    classification: must-pass
+    provenance: &overlap_p {source: requirement, ref: "version-field scope applies even with an overlapping protected glob"}
+    mutation: &overlap_m {description: "Change an ordinary field in the version document."}
+  - name: release-protected-version-other-content-rejected
+    input:
+      config: *overlap_config
+      kind: release
+      changes: [{path: package.json, protected_field_changed: true, other_content_changed: true}]
+    expected: {code: release-content-scope}
+    classification: must-fail
+    sibling: release-protected-version-only
+    provenance: *overlap_p
+    mutation: *overlap_m
   - name: content-may-change-freeze-working-file
     input:
       config: &freeze_config

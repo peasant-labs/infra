@@ -29,17 +29,19 @@ required_names:
   - symlink-parent-directory
   - hardlink-version-source
   - unsafe-pathspec
-  - protected-output
+  - protected-version-config-refused
+  - protected-version-glob-config-refused
   - protected-tracked-and-added
   - protected-staged-refused
   - protected-untracked-symlink-refused
-  - protected-version-other-content
+  - protected-version-dirty-config-refused
   - protected-files-with-freeze-plan
   - protected-files-forged-freeze-plan
   - protected-current-unchanged
   - protected-current-changed
   - protected-current-title-changed
   - freeze-outputs-and-multiple-surfaces
+  - freeze-outputs-alternate-directory
   - freeze-output-without-plan
   - freeze-output-outside-declared-set
   - freeze-output-missing-primary
@@ -120,7 +122,8 @@ cases:
     - {name: symlink-parent-directory, input: {scenario: symlink-parent}, expected: {exit: 1, error: "symlink"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "generated file ancestors must not be symlinks"}, mutation: {description: "Route a configured file through a symlink directory."}}
     - {name: hardlink-version-source, input: {scenario: hardlink}, expected: {exit: 1, error: "hard link"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "preparation cannot overwrite another file through a hard link"}, mutation: {description: "Link the version file to an outside file with identical bytes."}}
     - {name: unsafe-pathspec, input: {scenario: pathspec}, expected: {exit: 1, error: "unsafe"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "configured paths are literal confined paths"}, mutation: {description: "Supply Git pathspec magic as the changelog."}}
-    - {name: protected-output, input: {scenario: protected}, expected: *initial-output, classification: must-pass, provenance: {source: requirement, ref: "the release PR may write a version document that is also a protected path"}, mutation: {description: "Protect the configured version document as a whole file."}}
+    - {name: protected-version-config-refused, input: {scenario: protected}, expected: {exit: 2, error: "matches reserved path", code: config-invalid, details: [package.json]}, classification: must-fail, sibling: protected-tracked-and-added, provenance: {source: requirement, ref: "version documents cannot also be whole-file protected"}, mutation: {description: "List the configured version document as a protected path."}}
+    - {name: protected-version-glob-config-refused, input: {scenario: protected-version-glob}, expected: {exit: 2, error: "matches reserved path", code: config-invalid, details: [package.json]}, classification: must-fail, sibling: protected-tracked-and-added, provenance: {source: requirement, ref: "a protected glob cannot match a version document"}, mutation: {description: "Protect a glob that matches the version document."}}
     - name: protected-tracked-and-added
       input: {scenario: protected-files}
       expected:
@@ -131,12 +134,11 @@ cases:
       mutation: &protect_m {description: "Prepare a protected release output in the worktree."}
     - {name: protected-staged-refused, input: {scenario: protected-staged}, expected: {exit: 1, error: clean}, classification: must-fail, sibling: protected-tracked-and-added, provenance: *protect_p, mutation: *protect_m}
     - {name: protected-untracked-symlink-refused, input: {scenario: protected-symlink}, expected: {exit: 1, error: symlink}, classification: must-fail, sibling: protected-tracked-and-added, provenance: *protect_p, mutation: *protect_m}
-    - name: protected-version-other-content
+    - name: protected-version-dirty-config-refused
       input: {scenario: protected-version-dirty}
-      expected:
-        <<: *initial-output
-        version_file: "{\"scripts\":\"changed\",\"version\":\"0.2.0\"}\n"
-      classification: must-pass
+      expected: {exit: 2, error: "matches reserved path", code: config-invalid, details: [package.json]}
+      classification: must-fail
+      sibling: protected-tracked-and-added
       provenance: *protect_p
       mutation: *protect_m
     - name: protected-files-with-freeze-plan
@@ -214,6 +216,23 @@ cases:
       expected: {exit: 1, error: "unexpected path"}
       classification: must-fail
       sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-outputs-alternate-directory
+      input:
+        scenario: freeze-outputs
+        freeze_dir: specs/contracts
+        plan: *multi_plan
+        files:
+          specs/contracts/api.json: "working after\n"
+          specs/contracts/api-0.2.0.json: "frozen api\n"
+          specs/contracts/types-0.1.1.yaml: "frozen types\n"
+          registry.yaml: "registry after\n"
+          mirrors/api.json: "mirror after\n"
+      expected:
+        <<: *freeze_output
+        paths: "CHANGELOG.md\nmirrors/api.json\npackage.json\nregistry.yaml\nspecs/contracts/api-0.2.0.json\nspecs/contracts/api.json\nspecs/contracts/types-0.1.1.yaml"
+      classification: must-pass
       provenance: *freeze_p
       mutation: *freeze_m
     - name: freeze-output-outside-declared-set

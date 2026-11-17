@@ -191,12 +191,20 @@ func checkConfig(cfg Config, where string) error {
 				"set both path and field to the version file and its top-level version key")
 		}
 	}
+	reservedPaths := append([]string{cfg.Changelog}, configVersionPaths(cfg)...)
 	for _, glob := range cfg.ProtectedPaths {
 		if glob == "" {
 			return fail("protected_paths contains an empty pattern", "each protected path must name a path or a glob", "remove the empty entry or name a protected path")
 		}
 		if _, err := path.Match(glob, ""); err != nil {
 			return fail("protected_paths contains invalid pattern "+strconv.Quote(glob), "an invalid glob cannot reliably protect its paths", "correct the path glob")
+		}
+		for _, reserved := range reservedPaths {
+			if matchesPathPattern(glob, reserved) {
+				return fail("protected_paths pattern "+strconv.Quote(glob)+" matches reserved path "+strconv.Quote(reserved),
+					"the changelog and version files have their own release rules",
+					"narrow or remove the pattern so it excludes the changelog and every version file")
+			}
 		}
 	}
 	if len(cfg.FreezeOutputs) > 0 && !cfg.SpecFreeze {
@@ -217,7 +225,7 @@ func checkConfig(cfg Config, where string) error {
 				"remove the duplicate pattern")
 		}
 		seenOutputs[glob] = true
-		for _, reserved := range append([]string{cfg.Changelog}, configVersionPaths(cfg)...) {
+		for _, reserved := range reservedPaths {
 			if matchesPathPattern(glob, reserved) {
 				return fail("freeze_outputs pattern "+strconv.Quote(glob)+" matches reserved path "+strconv.Quote(reserved),
 					"the changelog and version files have their own release rules",
@@ -257,6 +265,11 @@ func checkConfig(cfg Config, where string) error {
 		return fail("spec_freeze is enabled without releasing surfaces",
 			"freezing needs releases and at least one configured surface",
 			"enable releases and list the surfaces, or disable spec_freeze")
+	}
+	if (cfg.SpecFreeze || cfg.FreezeDir != "") && !SafeReleaseOutput(cfg.FreezeDir) {
+		return fail("freeze_dir is missing or unsafe: "+strconv.Quote(cfg.FreezeDir),
+			"freezing needs a literal, confined repository-relative directory for numbered documents",
+			"set freeze_dir to a safe relative directory without a trailing slash, traversal, Git metadata, workflow paths or glob characters")
 	}
 	seenBranches := map[string]PRKind{}
 	for kind, branch := range cfg.BotBranches {

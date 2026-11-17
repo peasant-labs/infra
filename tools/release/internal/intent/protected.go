@@ -76,10 +76,10 @@ func checkReleaseScope(cfg Config, changes []ProtectedChange) error {
 			}
 		}
 		switch {
-		case matchesProtectedPath(cfg, change.Path):
-			continue
 		case versionFile && change.OtherContentChanged:
 			return scopeError(PRKindRelease, change.Path, "the release PR may change only the protected field of a version file, and this change also moves other content in it", "rebuild the release branch with "+ProgramName+" "+CommandReleasePR.String()+" "+FlagWrite.String()+" alone; edit the rest of the version file in an ordinary reviewed PR")
+		case matchesProtectedPath(cfg, change.Path):
+			continue
 		case !versionFile && !IsFreezeOutput(cfg, change.Path):
 			return scopeError(PRKindRelease, change.Path, "the release PR writes only the changelog "+strconv.Quote(cfg.Changelog)+", protected paths, freeze outputs and the protected field of each version file, and this path is none of those", "rebuild the release branch with "+ProgramName+" "+CommandReleasePR.String()+"; any other change belongs in an ordinary reviewed PR")
 		}

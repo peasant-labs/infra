@@ -10,6 +10,9 @@ required_names:
   - missing-boolean
   - unknown-field
   - two-documents
+  - duplicate-top-level-key
+  - duplicate-nested-key
+  - duplicate-aliased-key
 cases:
   - name: valid-full
     input: &valid
@@ -49,3 +52,6 @@ cases:
   - {name: missing-boolean, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
   - {name: unknown-field, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: []\nunknown: true\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
   - {name: two-documents, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: []\n---\nreport: 1\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: duplicate-top-level-key, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {error: "duplicate YAML key \"base\""}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: duplicate-nested-key, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, breaking: false, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {error: "duplicate YAML key \"breaking\""}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: duplicate-aliased-key, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\n&basekey base: abc\n*basekey : abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {error: "duplicate YAML key \"base\""}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}

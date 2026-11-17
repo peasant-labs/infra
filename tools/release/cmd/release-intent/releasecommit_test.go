@@ -8,11 +8,13 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"gopkg.in/yaml.v3"
 )
 
 type commitCaseInput struct {
 	Scenario      string            `yaml:"scenario"`
 	Plan          string            `yaml:"plan"`
+	FreezeDir     string            `yaml:"freeze_dir"`
 	BaseFiles     map[string]string `yaml:"base_files"`
 	Files         map[string]string `yaml:"files"`
 	Current       bool              `yaml:"current"`
@@ -168,15 +170,23 @@ func TestReleaseCommit(t *testing.T) {
 				r.cfg.Changelog = ":(glob)*"
 				r.WriteConfig(r.cfg)
 				r.Commit(titleDocs)
-			case "protected", "protected-version-dirty":
+			case "protected", "protected-version-dirty", "protected-version-glob":
 				r.cfg.ProtectedPaths = []string{"package.json"}
-				r.WriteConfig(r.cfg)
+				if s == "protected-version-glob" {
+					r.cfg.ProtectedPaths = []string{"*.json"}
+				}
+				data, err := yaml.Marshal(r.cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.WriteRawConfig(string(data))
 				r.Commit(titleDocs)
 			case "protected-files", "protected-staged", "protected-symlink", "protected-plan", "protected-current", "protected-current-changed", "protected-current-plan":
 				r.cfg.ProtectedPaths = []string{"versions.go", "generated/*-[0-9]*"}
 				if s == "protected-plan" || s == "protected-current-plan" {
 					r.cfg.Surfaces = map[string][]string{"local-api": {"local"}}
 					r.cfg.SpecFreeze = true
+					r.cfg.FreezeDir = "generated"
 				}
 				r.WriteConfig(r.cfg)
 				r.WriteFile("versions.go", "before\n")
@@ -186,12 +196,17 @@ func TestReleaseCommit(t *testing.T) {
 					r.Commit(titled(intent.TypeFeat, "local-api", intent.LevelMinor, "freeze changes"))
 				}
 			case "freeze-outputs":
-				r.cfg.ProtectedPaths = []string{"generated/*-[0-9]*"}
-				r.cfg.FreezeOutputs = []string{"generated/api.json", "registry.yaml", "mirrors/*.json"}
+				freezeDir := row.Input.FreezeDir
+				if freezeDir == "" {
+					freezeDir = "generated"
+				}
+				r.cfg.ProtectedPaths = []string{freezeDir + "/*-[0-9]*"}
+				r.cfg.FreezeOutputs = []string{freezeDir + "/api.json", "registry.yaml", "mirrors/*.json"}
 				r.cfg.Surfaces = map[string][]string{"api": {"api", "request"}, "types": {"types"}}
 				r.cfg.SpecFreeze = true
+				r.cfg.FreezeDir = freezeDir
 				r.WriteConfig(r.cfg)
-				r.WriteFile("generated/api.json", "working before\n")
+				r.WriteFile(freezeDir+"/api.json", "working before\n")
 				r.WriteFile("registry.yaml", "registry before\n")
 				r.WriteFile("mirrors/api.json", "mirror before\n")
 				for name, content := range row.Input.BaseFiles {

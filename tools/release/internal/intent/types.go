@@ -621,6 +621,7 @@ type Config struct {
 	VersionFiles     []VersionFile       `yaml:"version_files"`
 	ProtectedPaths   []string            `yaml:"protected_paths"`
 	FreezeOutputs    []string            `yaml:"freeze_outputs,omitempty"`
+	FreezeDir        string              `yaml:"freeze_dir,omitempty"`
 	Surfaces         map[string][]string `yaml:"surfaces"`
 	// SurfaceOrder retains the config document's surface-map order. It is
 	// derived when loading, never a separate configuration key.

@@ -45,6 +45,13 @@ type ContractReport struct {
 
 // strictDocument rejects unknown fields, duplicate keys and multiple documents.
 func strictDocument(data []byte, dst any) error {
+	var document yaml.Node
+	if err := yaml.NewDecoder(bytes.NewReader(data)).Decode(&document); err != nil {
+		return err
+	}
+	if err := rejectDuplicateKeys(&document); err != nil {
+		return err
+	}
 	d := yaml.NewDecoder(bytes.NewReader(data))
 	d.KnownFields(true)
 	if err := d.Decode(dst); err != nil {
@@ -56,6 +63,37 @@ func strictDocument(data []byte, dst any) error {
 			return err
 		}
 		return fmt.Errorf("multiple YAML documents")
+	}
+	return nil
+}
+
+// Walk the syntax tree before decoding so duplicate keys cannot be collapsed
+// by a typed decoder. Alias values are visited at their anchor; alias keys are
+// resolved to the scalar they name.
+func rejectDuplicateKeys(node *yaml.Node) error {
+	if node.Kind == yaml.MappingNode {
+		seen := map[string]int{}
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i]
+			resolved := key
+			visited := map[*yaml.Node]bool{}
+			for resolved.Kind == yaml.AliasNode && resolved.Alias != nil && !visited[resolved] {
+				visited[resolved] = true
+				resolved = resolved.Alias
+			}
+			if resolved.Kind != yaml.ScalarNode {
+				continue // The strict typed decoder refuses non-string keys.
+			}
+			if line, ok := seen[resolved.Value]; ok {
+				return fmt.Errorf("duplicate YAML key %q at line %d (first at line %d)", resolved.Value, key.Line, line)
+			}
+			seen[resolved.Value] = key.Line
+		}
+	}
+	for _, child := range node.Content {
+		if err := rejectDuplicateKeys(child); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -123,8 +123,9 @@ It stages only the generated changelog, named JSON version-field changes, and
 permitted protected and plan-authorized freeze paths,
 verifies the staged paths and bytes, then creates one local commit with the fixed
 releaser-bot author and committer and the source commit's timestamp. The JSON
-bytes outside the named field stay unchanged unless the whole version file is
-also protected. The validated source and exact commit title are printed as
+bytes outside the named field stay unchanged. The config refuses protected-path
+patterns that match the changelog or a version file. The validated source and
+exact commit title are printed as
 `source=` and `title=`. `push=true` means the checked-out
 bot branch now points to that commit; its HEAD can be bundled against the source
 commit. `push=false` means the existing `--current` branch already has the
@@ -450,8 +451,9 @@ bot branch can name the default branch.
 built by the job without a credential and land unreviewed, so `check-title`
 judges each bot PR by what that bot writes. The release PR may change the
 changelog, `protected_paths`, `freeze_outputs`, and the protected field of each
-version file. A version file that is not itself protected may change only in
-its protected field. Other paths are `release-content-scope`. The title guard
+version file. A version file may change only in its protected field; config
+patterns that match version files or the changelog are refused. Other paths
+are `release-content-scope`. The title guard
 cannot see the freeze plan; commit preparation requires it before carrying
 `freeze_outputs`. The cut-release PR is one empty commit and may change no
 path. A `protected_paths` entry is forbidden to content PRs; `freeze_outputs`

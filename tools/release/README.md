@@ -7,13 +7,14 @@ repository's tag-workflow guard and its policy remain separate.
 Surface names come from the release config. Each surface maps to one or more
 unversioned generated file stems. Stems must be unique and contain only
 lowercase letters and hyphens. `spec_freeze` defaults to false; enabling it
-requires releases and at least one surface. For example:
+requires releases, at least one surface, and a `freeze_dir`. For example:
 
 ```yaml
 surfaces:
   types: [types]
   api: [api, publish-request]
 spec_freeze: true
+freeze_dir: generated
 protected_paths:
   - 'generated/*-[0-9]*'
 freeze_outputs:
@@ -22,11 +23,17 @@ freeze_outputs:
   - 'mirrors/*.json'
 ```
 
-The first stem in each surface's list is its primary stem. `freeze_outputs`
-is optional and must be empty unless `spec_freeze` is enabled. Entries are
+The first stem in each surface's list is its primary stem. `freeze_dir` is the
+repository-relative directory for numbered primary documents; it must be a
+literal safe directory path without traversal, Git metadata, workflow paths,
+glob characters, or a trailing slash. Repositories enabling `spec_freeze`
+must configure it before adopting this tool. `freeze_outputs` is optional and
+must be empty unless `spec_freeze` is enabled. Entries are
 unique repository-relative paths or `path.Match` globs (where `*` does not
 cross `/`). They cannot traverse, use Git pathspec characters, name Git
-metadata or workflow paths, or match the changelog or a version file. Concrete
+metadata or workflow paths, or match the changelog or a version file.
+`protected_paths` entries also cannot match the changelog or a version file;
+those files have their own rules. Concrete
 matches are checked again for safety, including when a glob is broad. Paths
 that happen to be listed in both `protected_paths` and `freeze_outputs` remain
 protected; `freeze_outputs` by itself does not protect a file from content PRs.
@@ -124,8 +131,8 @@ unsafe paths. It verifies the staged and committed bytes.
 
 A supplied plan is strict and must match the releasing titles. For every
 surface with `freeze: true`, a dirty path must match
-`generated/<primary-stem>-<to>.*`, where the primary stem is the first stem
-configured for that surface and `to` is its plan version. A missing primary
+`<freeze_dir>/<primary-stem>-<to>.*`, where the primary stem is the first
+stem configured for that surface and `to` is its plan version. A missing primary
 document is a `freeze-output-missing` typed rejection naming the surface and
 expected prefix. The generated changelog must also change when a commit is
 needed. Only `--commit` accepts `--freeze-plan`; it prints the exact generated

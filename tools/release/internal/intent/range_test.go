@@ -2,6 +2,7 @@ package intent_test
 
 import (
 	_ "embed"
+	"slices"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
@@ -18,9 +19,11 @@ type contractRangeInput struct {
 }
 
 type contractRangeExpected struct {
-	Base   string           `yaml:"base"`
-	Titles int              `yaml:"titles"`
-	Code   intent.ErrorCode `yaml:"code"`
+	Base     string           `yaml:"base"`
+	Titles   int              `yaml:"titles"`
+	Subjects []string         `yaml:"subjects"`
+	Excluded []string         `yaml:"excluded"`
+	Code     intent.ErrorCode `yaml:"code"`
 }
 
 func TestCheckContractRange(t *testing.T) {
@@ -36,6 +39,18 @@ func TestCheckContractRange(t *testing.T) {
 			}
 			if err != nil || base != c.Expected.Base || len(titles) != c.Expected.Titles {
 				t.Fatalf("base=%q titles=%v error=%v", base, titles, err)
+			}
+			var subjects []string
+			for _, title := range titles {
+				subjects = append(subjects, intent.FormatTitle(title))
+			}
+			if c.Expected.Subjects != nil && !slices.Equal(subjects, c.Expected.Subjects) {
+				t.Fatalf("subjects = %v, want %v", subjects, c.Expected.Subjects)
+			}
+			for _, subject := range c.Expected.Excluded {
+				if slices.Contains(subjects, subject) {
+					t.Fatalf("excluded subject %q appeared in %v", subject, subjects)
+				}
 			}
 		})
 	}

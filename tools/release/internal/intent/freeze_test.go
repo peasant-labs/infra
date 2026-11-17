@@ -53,7 +53,8 @@ type freezeDocumentInput struct {
 }
 
 type freezeDocumentExpected struct {
-	Code intent.ErrorCode `yaml:"code"`
+	Code  intent.ErrorCode `yaml:"code"`
+	Error string           `yaml:"error"`
 }
 
 func TestFreezeDocuments(t *testing.T) {
@@ -74,6 +75,9 @@ func TestFreezeDocuments(t *testing.T) {
 					requireSixParts(t, err, c.Expected.Code)
 				} else {
 					requireSixLabels(t, err)
+				}
+				if c.Expected.Error != "" && !strings.Contains(err.Error(), c.Expected.Error) {
+					t.Fatalf("error %q does not contain %q", err, c.Expected.Error)
 				}
 			} else if err != nil {
 				t.Fatal(err)

@@ -506,7 +506,7 @@ func openReleaseFiles(ctx context.Context, g prepareGit, r GitRunner, cfg intent
 		if err == nil {
 			source, err = r.ReadFile(ctx, tip, f.name)
 		}
-		if err == nil && !bytes.Equal(source, working) && !(f.field != "" && intent.IsProtectedPath(cfg, f.name)) {
+		if err == nil && !bytes.Equal(source, working) {
 			err = fmt.Errorf("working bytes differ from source commit")
 		}
 		f.before = source
@@ -517,7 +517,7 @@ func openReleaseFiles(ctx context.Context, g prepareGit, r GitRunner, cfg intent
 			if !ok {
 				err = fmt.Errorf("generator did not provide a version")
 			} else {
-				f.after, err = intent.WriteVersionField(working, f.field, version)
+				f.after, err = intent.WriteVersionField(source, f.field, version)
 			}
 		}
 		if err != nil {

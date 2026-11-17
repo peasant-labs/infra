@@ -1,0 +1,18 @@
+required_names:
+  - clean-version-source
+  - dirty-version-source-with-overlapping-glob
+cases:
+  cases:
+    - name: clean-version-source
+      input: {protected_pattern: '*.json'}
+      expected: {version_file: "{\"version\":\"0.2.0\"}\n"}
+      classification: must-pass
+      provenance: &p {source: requirement, ref: "version source is clean even if an invalid overlapping config reaches the file guard"}
+      mutation: &m {description: "Change the working version document."}
+    - name: dirty-version-source-with-overlapping-glob
+      input: {protected_pattern: '*.json', document: "{\"version\":\"0.1.0\",\"scripts\":\"unexpected\"}\n"}
+      expected: {error: "working bytes differ from source commit"}
+      classification: must-fail
+      sibling: clean-version-source
+      provenance: *p
+      mutation: *m

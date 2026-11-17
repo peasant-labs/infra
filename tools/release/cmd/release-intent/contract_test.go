@@ -39,6 +39,7 @@ func TestCLIContract(t *testing.T) {
 			if !row.Input.NoSurfaces {
 				r.cfg.Surfaces = map[string][]string{"local-api": {"local"}}
 				r.cfg.SpecFreeze = true
+				r.cfg.FreezeDir = "generated"
 			}
 			r.Seed()
 			if row.Input.Adopting {

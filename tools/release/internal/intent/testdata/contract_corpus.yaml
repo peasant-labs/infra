@@ -20,7 +20,7 @@ required_names:
 cases:
   - name: breaking-go-api-no-bang
     input:
-      config: &on {releases: true, spec_freeze: true, surfaces: {local-api: [local], types: [types]}}
+      config: &on {releases: true, spec_freeze: true, freeze_dir: generated, surfaces: {local-api: [local], types: [types]}}
       current: "0.1.0"
       title: "fix(local-api)[patch]: change"
       report: &go {go_api_breaking: true, surfaces: [{name: local-api, change: functional}, {name: types, change: none}]}

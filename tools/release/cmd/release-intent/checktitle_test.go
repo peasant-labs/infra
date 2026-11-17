@@ -275,6 +275,7 @@ func buildTitleScene(t *testing.T, in checkTitleInput) titleScene {
 		r := newSeededRepo(t, repoAllBots)
 		r.cfg.Surfaces = map[string][]string{"api": {"api"}}
 		r.cfg.SpecFreeze = true
+		r.cfg.FreezeDir = "generated"
 		r.cfg.ProtectedPaths = []string{"generated/*-[0-9]*"}
 		r.cfg.FreezeOutputs = []string{"generated/api.json", "registry.yaml"}
 		r.WriteConfig(r.cfg)

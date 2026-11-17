@@ -6,10 +6,12 @@ required_names:
   - wrong-version
   - nested-path-is-not-primary
   - missing-second-surface
+  - alternate-freeze-directory
+  - old-directory-does-not-satisfy-config
 cases:
   - name: all-primary-files
     input:
-      config: &cfg {surfaces: {api: [api, request], types: [types]}}
+      config: &cfg {freeze_dir: generated, surfaces: {api: [api, request], types: [types]}}
       plan: &plan
         plan: 1
         surfaces:
@@ -34,3 +36,13 @@ cases:
   - {name: wrong-version, input: {config: *cfg, plan: *plan, dirty: [generated/api-0.1.0.json, generated/types-1.2.0.yaml]}, expected: {code: freeze-output-missing, surface: api, prefix: generated/api-0.2.0.}, classification: must-fail, sibling: all-primary-files, provenance: *p, mutation: *m}
   - {name: nested-path-is-not-primary, input: {config: *cfg, plan: *plan, dirty: [generated/api-0.2.0.json/nested, generated/types-1.2.0.yaml]}, expected: {code: freeze-output-missing, surface: api, prefix: generated/api-0.2.0.}, classification: must-fail, sibling: all-primary-files, provenance: *p, mutation: *m}
   - {name: missing-second-surface, input: {config: *cfg, plan: *plan, dirty: [generated/api-0.2.0.json]}, expected: {code: freeze-output-missing, surface: types, prefix: generated/types-1.2.0.}, classification: must-fail, sibling: all-primary-files, provenance: *p, mutation: *m}
+  - name: alternate-freeze-directory
+    input:
+      config: &alternate {freeze_dir: specs/contracts, surfaces: {api: [api, request], types: [types]}}
+      plan: *plan
+      dirty: [specs/contracts/api-0.2.0.json, specs/contracts/types-1.2.0.yaml]
+    expected: {}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - {name: old-directory-does-not-satisfy-config, input: {config: *alternate, plan: *plan, dirty: [generated/api-0.2.0.json, specs/contracts/types-1.2.0.yaml]}, expected: {code: freeze-output-missing, surface: api, prefix: specs/contracts/api-0.2.0.}, classification: must-fail, sibling: alternate-freeze-directory, provenance: *p, mutation: *m}
