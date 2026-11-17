@@ -75,16 +75,26 @@ func (j credentialJob) runGateText() string {
 // The trigger is typed: workflow_run alone, one literal producer name, and
 // types: [completed], with no other filter key. The workflow runs in the base
 // repository with secrets, so a second event would be a second way in.
+// pull_request_target is left out of the other-trigger list: checkCommentWorkflow
+// reports it once, for every comment workflow, so the fault names it nowhere.
 func workflowRunTriggerFault(doc *yaml.Node) string {
-	run, only := soleTrigger(doc, GitHubEventWorkflowRun)
-	if !only {
-		var names []string
-		for _, t := range workflowTriggers(doc) {
-			if t.Event != GitHubEventWorkflowRun {
-				names = append(names, quote(t.Name))
-			}
+	var run trigger
+	runs := 0
+	var names []string
+	for _, t := range workflowTriggers(doc) {
+		switch {
+		case t.Event == GitHubEventWorkflowRun:
+			runs++
+			run = t
+		case t.Name != triggerPullRequestTarget:
+			names = append(names, quote(t.Name))
 		}
+	}
+	if len(names) > 0 {
 		return "triggers on " + strings.Join(names, ", ") + " besides " + GitHubEventWorkflowRun.String() + "; a workflow_run comment job's workflow triggers on " + GitHubEventWorkflowRun.String() + " alone"
+	}
+	if runs != 1 {
+		return "names " + GitHubEventWorkflowRun.String() + " " + strconv.Itoa(runs) + " times; a workflow_run comment job's workflow names it once"
 	}
 	if run.Config == nil {
 		return GitHubEventWorkflowRun.String() + " names no " + triggerKeyWorkflows + " and no " + triggerKeyTypes
@@ -94,8 +104,8 @@ func workflowRunTriggerFault(doc *yaml.Node) string {
 			return GitHubEventWorkflowRun.String() + " sets " + quote(key) + "; only " + triggerKeyWorkflows + " and " + triggerKeyTypes + " are accepted"
 		}
 	}
-	names := scalarList(mappingValue(run.Config, triggerKeyWorkflows))
-	if len(names) != 1 || names[0] == "" || strings.ContainsAny(names[0], "*!?[]${}") {
+	producers := scalarList(mappingValue(run.Config, triggerKeyWorkflows))
+	if len(producers) != 1 || producers[0] == "" || strings.ContainsAny(producers[0], "*!?[]${}") {
 		return GitHubEventWorkflowRun.String() + " must name exactly one literal producing workflow in " + triggerKeyWorkflows
 	}
 	if types := scalarList(mappingValue(run.Config, triggerKeyTypes)); len(types) != 1 || types[0] != workflowRunCompleted {
@@ -136,6 +146,11 @@ func scalarList(node *yaml.Node) []string {
 // workflow additionally triggers on workflow_run alone and holds no job that
 // is not a listed comment job, so no unreviewed job runs in the privileged
 // context.
+//
+// The workflow_run scope limit is deliberate and covers every workflow that
+// names the trigger, listed comment job or not: a workflow_run workflow holds
+// only listed comment jobs. A credential-free probe job would need its own
+// typed class, so none is admitted today.
 func (c *queueChecker) checkCommentWorkflow(file string, doc *yaml.Node) {
 	first := ""
 	for _, jobName := range jobNames(doc) {
@@ -144,32 +159,44 @@ func (c *queueChecker) checkCommentWorkflow(file string, doc *yaml.Node) {
 			break
 		}
 	}
-	if first == "" {
+	runWorkflow := hasTrigger(doc, GitHubEventWorkflowRun)
+	if first == "" && !runWorkflow {
 		return
 	}
-	emit := func(what, why, fix string) {
-		c.emit(QueueRuleCredentialTemplates, file, first, violation(what, why, rejected, fix))
+	emit := func(job, what, why, fix string) {
+		c.emit(QueueRuleCredentialTemplates, file, job, violation(what, why, rejected, fix))
 	}
-	for _, t := range workflowTriggers(doc) {
-		if t.Name == triggerPullRequestTarget {
-			emit("the workflow of the listed comment job "+quote(first)+" triggers on "+triggerPullRequestTarget,
-				triggerPullRequestTarget+" runs with secrets in the base repository on behalf of a pull request, and the comment class refuses it",
-				"trigger on pull_request, or on workflow_run for a fork-capable comment")
+	if first != "" {
+		for _, t := range workflowTriggers(doc) {
+			if t.Name == triggerPullRequestTarget {
+				emit(first, "the workflow of the listed comment job "+quote(first)+" triggers on "+triggerPullRequestTarget,
+					triggerPullRequestTarget+" runs with secrets in the base repository on behalf of a pull request, and the comment class refuses it",
+					"trigger on pull_request, or on workflow_run for a fork-capable comment")
+			}
 		}
 	}
-	if !c.creds[file][first].viaWorkflowRun() {
+	if !runWorkflow {
 		return
 	}
-	if why := workflowRunTriggerFault(doc); why != "" {
-		emit("the workflow of the listed comment job "+quote(first)+" "+why,
-			"a workflow_run comment job runs in the base repository with secrets, so its trigger names one producing workflow's completion and nothing else",
-			"trigger on `workflow_run: {workflows: [<producer>], types: [completed]}` alone")
+	if first != "" {
+		if why := workflowRunTriggerFault(doc); why != "" {
+			emit(first, "the workflow of the listed comment job "+quote(first)+" "+why,
+				"a workflow_run comment job runs in the base repository with secrets, so its trigger names one producing workflow's completion and nothing else",
+				"trigger on `workflow_run: {workflows: [<producer>], types: [completed]}` alone")
+		}
+	}
+	// The release job's own trigger rule (release-tag-checked-before-push)
+	// already refuses workflow_run in its workflow; one finding is enough.
+	for _, jobName := range jobNames(doc) {
+		if c.creds[file][jobName].class == credentialJobRelease {
+			return
+		}
 	}
 	for _, jobName := range jobNames(doc) {
 		if c.creds[file][jobName].class != credentialJobComment {
-			emit("jobs."+jobName+" is not a listed comment job but shares a workflow_run workflow with one",
+			emit(jobName, "jobs."+jobName+" is not a listed comment job, and its workflow triggers on "+GitHubEventWorkflowRun.String(),
 				"every job of a workflow_run workflow runs in the base repository with secrets and the PR author's artifacts in reach, and the checker confines only the listed comment jobs",
-				"move the job to its own workflow, or list it as a comment job")
+				"move the job to a workflow with another trigger, or list it as a comment job")
 		}
 	}
 }

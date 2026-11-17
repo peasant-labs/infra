@@ -347,8 +347,9 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 			return "passes input " + key + " more than once; the checker cannot prove which value the action receives"
 		}
 		seen[input] = true
-		triggeringRunID := action == ActionDownloadArtifact && input == InputRunID && soleExpression(value) == workflowRunIDExpression
-		if action != ActionCreateAppToken && action != ActionReleaseAssets && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && !triggeringRunID && strings.Contains(value, "${{") {
+		// run-id is judged below, where the message can say what it must be.
+		runID := action == ActionDownloadArtifact && input == InputRunID
+		if action != ActionCreateAppToken && action != ActionReleaseAssets && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && !runID && strings.Contains(value, "${{") {
 			return "passes input " + key + " from an expression; " + action.String() + " takes literal inputs there"
 		}
 	}
@@ -374,8 +375,12 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 			return "downloads into " + strconv.Quote(valueOf(path)) + " instead of a literal subdirectory of the workspace, so an artifact could write into .git or over the checkout"
 		}
 		if cj.viaWorkflowRun() {
-			if soleExpression(valueOf(mappingValue(with, InputRunID.String()))) != workflowRunIDExpression {
+			runIDNode := mappingValue(with, InputRunID.String())
+			if runIDNode == nil {
 				return "downloads without run-id: ${{ " + workflowRunIDExpression + " }}; a workflow_run comment job reads the evidence of the run that triggered it, and no other run's"
+			}
+			if soleExpression(runIDNode.Value) != workflowRunIDExpression {
+				return "passes run-id " + quote(runIDNode.Value) + ", which is not the triggering run's id ${{ " + workflowRunIDExpression + " }}; a workflow_run comment job reads the evidence of the run that triggered it, and no other run's"
 			}
 			if artifact := valueOf(mappingValue(with, InputArtifactName.String())); artifact == "" || strings.Contains(artifact, "${{") {
 				return "downloads an artifact whose name " + quote(artifact) + " is not a literal"

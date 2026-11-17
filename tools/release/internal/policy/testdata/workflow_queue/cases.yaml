@@ -92,6 +92,15 @@ required_names:
   - reject-workflow-run-comment-persist-credentials
   - reject-comment-job-pull-request-target
   - reject-comment-job-run-id
+  - reject-workflow-run-comment-step-level-gate
+  - reject-workflow-run-comment-conditional-checkout
+  - reject-workflow-run-comment-download-path-mismatch
+  - reject-workflow-run-comment-download-after-script
+  - reject-workflow-run-comment-download-run-id-expression
+  - reject-workflow-run-comment-producer-wildcard
+  - reject-workflow-run-comment-producer-expression
+  - reject-workflow-run-comment-two-scripts
+  - reject-workflow-run-comment-unlisted-workflow
   - reject-pat-workflow-env
   - reject-pat-duplicate-workflow-env
   - reject-pat-yaml-alias
@@ -2012,7 +2021,7 @@ cases:
     expected: { rule: credential-steps-run-one-template }
     classification: must-pass
     provenance: { source: requirement, ref: "workflow_run comment" }
-    mutation: { description: "Comment on a pull request from the producing run's artifact, with the PAT only in the script step." }
+    mutation: { description: "No mutation: the typed workflow_run comment job as written is the baseline every reject row edits." }
   - name: accept-workflow-run-comment-extra-conjunct
     input:
       overlay: accept-workflow-run-comment
@@ -2023,7 +2032,7 @@ cases:
     expected: { rule: credential-steps-run-one-template }
     classification: must-pass
     provenance: { source: requirement, ref: "workflow_run comment event gate" }
-    mutation: { description: "Add a further conjunct to the pull_request producer gate." }
+    mutation: { description: "Append a conclusion conjunct to the pull_request producer gate." }
   - name: reject-workflow-run-comment-no-pr-gate
     input:
       overlay: accept-workflow-run-comment
@@ -2079,7 +2088,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "ref: ${{ github.event.repository.default_branch }}"
           new: "ref: ${{ github.event.workflow_run.head_sha }}"
-    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["default branch"] }
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["a comment job checkout may name only the repository's default branch", "requires one unconditional default-branch checkout"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment checkout" }
@@ -2223,7 +2232,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "run-id: ${{ github.event.workflow_run.id }}"
           new: "run-id: 1234567890"
-    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["without run-id"] }
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the triggering run's id"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment evidence download" }
@@ -2262,7 +2271,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "on:\n  workflow_run:"
           new: "on:\n  pull_request_target:\n  workflow_run:"
-    expected: { rule: credential-steps-run-one-template, want_contains: ["pull_request_target"] }
+    expected: { rule: credential-steps-run-one-template, want_contains: ["the comment class refuses it"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "pull_request_target stays refused" }
@@ -2411,3 +2420,114 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "cross-run download only for workflow_run" }
     mutation: { description: "Download another run's artifact in a pull_request comment job." }
+  - name: reject-workflow-run-comment-step-level-gate
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "    if: github.event.workflow_run.event == 'pull_request'\n"
+          new: ""
+        - file: workflows/apidiff-comment.yml
+          old: "      - name: Post comment\n"
+          new: "      - name: Post comment\n        if: github.event.workflow_run.event == 'pull_request'\n"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["job-level github.event.workflow_run.event == 'pull_request' gate"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment event gate" }
+    mutation: { description: "Move the pull_request producer gate from the job to the script step." }
+  - name: reject-workflow-run-comment-conditional-checkout
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\n"
+          new: "      - if: github.event.workflow_run.event == 'pull_request'\n        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\n"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["unconditional default-branch checkout"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment checkout" }
+    mutation: { description: "Make the default-branch checkout conditional." }
+  - name: reject-workflow-run-comment-download-path-mismatch
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "          path: evidence\n"
+          new: "          path: evidence-download\n"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["unconditional earlier artifact download into EVIDENCE_DIR"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment evidence download" }
+    mutation: { description: "Download into a directory other than EVIDENCE_DIR." }
+  - name: reject-workflow-run-comment-download-after-script
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n"
+          new: "      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: go-apidiff-comment\n          run-id: ${{ github.event.workflow_run.id }}\n          path: evidence\n"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["unconditional earlier artifact download into EVIDENCE_DIR"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment evidence download" }
+    mutation: { description: "Move the download after the script step." }
+  - name: reject-workflow-run-comment-download-run-id-expression
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "run-id: ${{ github.event.workflow_run.id }}"
+          new: "run-id: ${{ github.run_id }}"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the triggering run's id"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment evidence download" }
+    mutation: { description: "Download from the comment run itself through another expression." }
+  - name: reject-workflow-run-comment-producer-wildcard
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "workflows: [Tests]"
+          new: "workflows: [\"Test*\"]"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["exactly one literal producing workflow"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment trigger" }
+    mutation: { description: "Name the producer with a wildcard." }
+  - name: reject-workflow-run-comment-producer-expression
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "workflows: [Tests]"
+          new: "workflows: [\"${{ vars.PRODUCER }}\"]"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["exactly one literal producing workflow"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment trigger" }
+    mutation: { description: "Name the producer with an expression." }
+  - name: reject-workflow-run-comment-two-scripts
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: workflows/apidiff-comment.yml
+          old: "      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n"
+          new: "      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n      - name: Post comment\n        env:\n          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}\n          EVIDENCE_DIR: evidence\n        run: node reviewed/scripts/ci-post-apidiff-comment.mjs\n"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["reviewed script in 2 steps"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run comment reviewed script" }
+    mutation: { description: "Run the reviewed script in two steps." }
+  - name: reject-workflow-run-comment-unlisted-workflow
+    input:
+      overlay: accept-workflow-run-comment
+      edits:
+        - file: .github/release-queue.policy.yml
+          old: "  comment_jobs:\n    - workflow: apidiff-comment.yml\n      job: comment\n      reviewed_script: scripts/ci-post-apidiff-comment.mjs\n      pat_secret: APIDIFF_COMMENT_PAT\n"
+          new: ""
+    expected: { rule: credential-steps-run-one-template, want_contains: ["is not a listed comment job, and its workflow triggers on workflow_run"] }
+    sibling: accept-workflow-run-comment
+    classification: must-fail
+    provenance: { source: requirement, ref: "workflow_run workflow confinement" }
+    mutation: { description: "Drop the policy listing, leaving an unlisted workflow_run workflow." }

@@ -205,8 +205,10 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   [completed]`, the job's own `if` gates on `github.event.workflow_run.event ==
   'pull_request'`, it downloads only the triggering run's artifact, mints no
   App token, runs only the reviewed script with the PAT in that step's env,
-  and shares its workflow with no unlisted job. A missing artifact fails
-  closed. `pull_request_target` stays refused in every comment workflow. The
+  and every job of a workflow that names `workflow_run` is a listed comment
+  job (a deliberate scope limit; a probe job would need its own typed class).
+  A missing artifact fails closed; a stale run is the script's exit 0.
+  `pull_request_target` stays refused in every comment workflow. The
   release-assets action takes only the
   build job's `release-dist` handoff and the triggering tag. The
   `--print-required` mode prints the contexts but retains the policy verdict.
