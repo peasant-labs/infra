@@ -259,7 +259,7 @@ func (c *queueChecker) checkToolPin() {
 					continue
 				}
 				repo := mappingValue(with, "repository")
-				if repo == nil || repo.Value == "" {
+				if repo == nil || repo.Value != toolRepository {
 					continue
 				}
 				ref := ""
