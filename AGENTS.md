@@ -199,7 +199,17 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   the isolated default-branch checkout and a disjoint evidence directory; its
   policy-named user PAT is a credential confined to the comment step env.
   This is an accepted trust exception, not proof that the script or
-  PR-controlled evidence is safe. The release-assets action takes only the
+  PR-controlled evidence is safe. A comment job whose workflow triggers on
+  `workflow_run` (for fork and Dependabot PRs) is typed more tightly: the
+  trigger is `workflow_run` alone for one named producer with `types:
+  [completed]`, the job's own `if` gates on `github.event.workflow_run.event ==
+  'pull_request'`, it downloads only the triggering run's artifact, mints no
+  App token, runs only the reviewed script with the PAT in that step's env,
+  and every job of a workflow that names `workflow_run` is a listed comment
+  job (a deliberate scope limit; a probe job would need its own typed class).
+  A missing artifact fails closed; a stale run is the script's exit 0.
+  `pull_request_target` stays refused in every comment workflow. The
+  release-assets action takes only the
   build job's `release-dist` handoff and the triggering tag. The
   `--print-required` mode prints the contexts but retains the policy verdict.
 - **A release tag is checked before it leaves the release job.** The release

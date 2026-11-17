@@ -175,6 +175,9 @@ const (
 	InputArtifactName ActionInput = "name"
 	// InputArtifactPath is the download's destination directory.
 	InputArtifactPath ActionInput = "path"
+	// InputRunID names the producing run a workflow_run comment job downloads
+	// its evidence artifact from. It must be the triggering run's id.
+	InputRunID ActionInput = "run-id"
 	// InputAppID is the mint's App id.
 	InputAppID ActionInput = "app-id"
 	// InputClientID is the mint's App client id.
@@ -216,6 +219,7 @@ var AllActionInputs = []ActionInput{
 	InputRef,
 	InputArtifactName,
 	InputArtifactPath,
+	InputRunID,
 	InputAppID,
 	InputClientID,
 	InputPrivateKey,
@@ -432,6 +436,16 @@ type credentialJob struct {
 	tokenWrites bool
 	// mints holds the ids of the job's mint steps.
 	mints []string
+	// runEvent is the event a comment job's workflow runs under:
+	// pull_request by default, workflow_run when the workflow names that
+	// trigger. It is the zero value for every other class.
+	runEvent GitHubEvent
+}
+
+// viaWorkflowRun reports whether the job is a comment job whose workflow runs
+// under workflow_run, so its PR comes from the producing run's artifact.
+func (j credentialJob) viaWorkflowRun() bool {
+	return j.class == credentialJobComment && j.runEvent == GitHubEventWorkflowRun
 }
 
 // mintSecrets returns the names of policy-listed PATs and every secret a mint
@@ -554,6 +568,10 @@ func (c *queueChecker) credentialJobs(branches []allowedPush, comments []Comment
 				cj.class, cj.branch = a.class, a.branch
 			} else if comment, ok := commentListed[name][jobName]; ok {
 				cj.class, cj.reviewedScript, cj.patSecret = credentialJobComment, comment.ReviewedScript, comment.PATSecret
+				cj.runEvent = GitHubEventPullRequest
+				if hasTrigger(f.doc, GitHubEventWorkflowRun) {
+					cj.runEvent = GitHubEventWorkflowRun
+				}
 			} else if publish && cj.tokenWrites {
 				cj.class = credentialJobPublish
 			}

@@ -203,7 +203,9 @@ one artifact holding git bundles.
   `client-id`, `private-key`, `owner`, `repositories`, `permission-contents`,
   `permission-issues`, `permission-pull-requests`), each pinned to a 40-hex
   commit. A comment checkout may also set `ref` to the default-branch
-  expression and `path: reviewed`. A tag-publish job may additionally use the
+  expression and `path: reviewed`, and a `workflow_run` comment job's download
+  may also set `run-id` to `${{ github.event.workflow_run.id }}` (see below).
+  A tag-publish job may additionally use the
   pinned `softprops/action-gh-release` action under the asset constraints
   below. No setup action, no upload, no reusable workflow, no container.
 - **`credential-jobs-run-no-general-steps`.** Every run step of that job is one
@@ -359,8 +361,8 @@ operator step per repository; it does not replace any check above.
 | `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) [--] <own bot branch>`; in the release job only in the arm and hold steps |
 | `merge-queue-read` | `gh api graphql [-F name=literal]... -f query='<a mergeQueue query>' [> file]` |
 | `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`, and `create` passes `--verify-tag` |
-| `pr-comment` (comment job) | `gh pr comment "$PR_NUMBER" [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] (--body-file\|-F) <file>` |
-| `run-reviewed-script` (comment job) | `node reviewed/<policy reviewed_script>` |
+| `pr-comment` (`pull_request` comment job only) | `gh pr comment "$PR_NUMBER" [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] (--body-file\|-F) <file>` |
+| `run-reviewed-script` (comment job, both modes) | `node reviewed/<policy reviewed_script>` |
 
 The variable parts are typed:
 
@@ -425,6 +427,149 @@ they do not make hostile evidence safe. Protect the default branch, review
 the script and its dependencies and constrain file paths in the script. Fork
 PRs normally receive no secrets. Operators accept this residual trust; it is
 not equivalent to a single `gh` command.
+
+**`pull_request_target` is refused in every comment job's workflow**, in both
+modes below. It runs with secrets in the base repository on a pull request's
+behalf, which is what the comment class exists to avoid. It is not a member of
+the checker's event set, so no rule can be satisfied by it, and a workflow
+that lists a comment job and names it fails `credential-steps-run-one-template`.
+
+**Comment jobs for fork and Dependabot PRs: the `workflow_run` mode.** A
+`pull_request` run from a fork or from Dependabot gets no secrets, so the
+modes above cannot comment there. A comment job whose workflow triggers on
+`workflow_run` runs in the base repository with secrets, downloads the
+producing run's artifact, and comments. The checker reads the mode from the
+workflow's trigger, so a `pull_request` comment job keeps every rule above
+unchanged. A `workflow_run` comment job is listed in the policy with both
+`reviewed_script` and `pat_secret`:
+
+```yaml
+# .github/workflows/apidiff-comment.yml
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+permissions:
+  contents: read
+jobs:
+  comment:
+    if: >-
+      github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@<40-hex>
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: reviewed
+          persist-credentials: false
+      - uses: actions/download-artifact@<40-hex>
+        with:
+          name: go-apidiff-comment
+          run-id: ${{ github.event.workflow_run.id }}
+          path: evidence
+      - env:
+          GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}
+          EVIDENCE_DIR: evidence
+        run: node reviewed/scripts/ci-post-apidiff-comment.mjs
+```
+
+The checker accepts the mode only when all of these hold, each under
+`credential-steps-run-one-template` unless noted:
+
+- **Trigger.** `on:` is `workflow_run` alone, with exactly one literal producing
+  workflow in `workflows:`, `types: [completed]`, and no other key. A second
+  trigger of any kind is refused. `pull_request_target` is refused here as in
+  every comment workflow (above), and is reported once.
+- **Gate.** The job's own `if` carries `github.event.workflow_run.event ==
+  'pull_request'` as one conjunct, with no disjunction. A gate on a step does
+  not count: the checkout and download would still run. The `pull_request`
+  comparison is not a gate here: `github.event_name` is `workflow_run`.
+  Further conjuncts are accepted and optional; the example adds
+  `github.event.workflow_run.conclusion == 'success'`, which skips runs of a
+  producer that failed or was cancelled before it uploaded evidence.
+- **No PR code.** The job's only checkout is the default branch (`ref: ${{
+  github.event.repository.default_branch }}`, `path: reviewed`,
+  `persist-credentials: false`), unconditional and before the script. There is
+  no other checkout, no `repository:` input and no setup action. The checker
+  never reads the PR head, so the script runs reviewed code only.
+- **Evidence.** One unconditional download before the script, from the run
+  that triggered this one (`run-id: ${{ github.event.workflow_run.id }}`, the
+  only `run-id` accepted, and no `github-token` or `repository` input), into a
+  literal directory that is `EVIDENCE_DIR` and does not overlap `reviewed`.
+  The job grants `contents: read` and `actions: read` (the two explicit reads
+  in the example, or `permissions: read-all`; both are accepted). The no-write
+  guarantee is `default-token-read-only`, which refuses every write scope on
+  the default token in every workflow, so this mode adds no write of its own.
+- **Credential.** The policy PAT is the only credential: in the env of the one
+  reviewed-script step, never in a general step, workflow or job env, an
+  output, an action input or run text (`credentials-stay-in-listed-jobs`).
+  The job mints no App token (`credentials-stay-in-listed-jobs`), and
+  `JOURNEY_APP_TOKEN` and `PR_NUMBER` are refused, because the event carries
+  no pull request and the number comes from the artifact.
+- **Template.** The only credential step is `run-reviewed-script`, exactly
+  once. `gh pr comment` is not available: its target would be a number read
+  from PR-controlled evidence, and only the reviewed script can validate it.
+  Any other step is a general step (`credential-jobs-run-no-general-steps`).
+- **Failure.** No `continue-on-error` on the job or any comment step, and the
+  script step's `if` calls no status function.
+- **Workflow.** Every job of a workflow that names `workflow_run` must be a
+  listed comment job. This is a deliberate scope limit, not a one-job rule: a
+  workflow may list several comment jobs, and it applies to a `workflow_run`
+  workflow even when it lists none, so such a workflow with any job is refused.
+  An unreviewed job there would run in the base repository with secrets and
+  the PR author's artifacts in reach. The one exception is the release job's
+  workflow, which its own trigger rule (`release-tag-checked-before-push`)
+  already refuses, so it is not reported twice. A credential-free probe job
+  (for example one that checks that the artifact exists before the comment job
+  runs) would need its own typed job class; none exists, so no workflow_run
+  workflow may hold one. That class is a recorded follow-up.
+
+**Missing artifact versus a stale run.** These are different outcomes.
+
+- A **missing artifact fails closed**: the download fails and the job is red.
+  A clean no-op would need `continue-on-error` on the download (refused,
+  because it also hides a failed download that should be an error) or a
+  conditional download, and the checker accepts neither. A producer that wants
+  quiet runs should upload the artifact on every `pull_request` run (an empty
+  report is a valid report) and filter in the job's `if`.
+- A **stale or superseded run is a clean exit 0**: when the PR no longer has
+  `workflow_run.head_sha` as its head, the reviewed script exits 0 without
+  commenting, because a newer run owns the comment now. That decision belongs
+  to the script, not the checker: the job still downloads and runs the script,
+  and the script is what exits 0.
+
+**What the checker cannot see in this mode, and what the script must do.** The
+PAT is a user token, and the artifact, including `pr-number.txt`, is controlled
+by the PR's author. A fork can push a victim PR's public head commit to its own
+fork and open a PR there: a script that only compares the artifact's PR head
+commit with `workflow_run.head_sha` is then passed a victim's PR number by an
+artifact it cannot trust. The checker pins **who runs the script, not what it
+does**; the schema script owns all of this validation, and the checker cannot
+see any of it:
+
+- **Resolve the PR itself.** Find the PR from `workflow_run.head_sha` (read the
+  event payload at `GITHUB_EVENT_PATH`; for example `GET
+  /repos/{repo}/commits/{sha}/pulls`), never from the artifact's
+  `pr-number.txt`. The artifact may be read for the report, never for the
+  target.
+- **Bind the PR to the producing run.** Require the resolved PR to be open, and
+  its `head.repo.full_name` and `head.ref` to equal
+  `workflow_run.head_repository.full_name` and `workflow_run.head_branch`. A
+  commit shared with another repository's PR then names no PR here.
+- **Render from validated fields.** Build the comment from validated
+  structured fields with a size cap and mentions neutralized (for example by
+  breaking `@` handles and `#` references). Never post artifact markdown
+  verbatim. Constrain every path the script reads under `EVIDENCE_DIR`.
+- **Exit 0 on a stale run.** If the PR's head commit is no longer
+  `workflow_run.head_sha`, or no open PR resolves, exit 0 without commenting.
+  A missing artifact still fails closed (above).
+
+This is the same accepted exception as the `pull_request` reviewed script: the
+checker does not make the script, its dependencies or hostile evidence safe.
 
 **Prepared Release assets.** A tag-only publish job may use the pinned
 release-assets action with `tag_name: ${{ github.ref_name }}`,

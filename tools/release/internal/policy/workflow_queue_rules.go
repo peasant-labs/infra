@@ -455,10 +455,11 @@ func (c *queueChecker) checkTokenMint() {
 			continue
 		}
 		jobCond := valueOf(mappingValue(job, "if"))
+		cj := c.creds[comment.Workflow][comment.Job]
 		for _, step := range stepsOf(job) {
-			if isMintStep(step) && !hasPRRunGate(jobCond) && !hasPRRunGate(stepIfText(step)) {
+			if isMintStep(step) && !cj.hasRunGate(jobCond) && !cj.hasRunGate(stepIfText(step)) {
 				c.emit(QueueRuleTokenMint, comment.Workflow, comment.Job,
-					"the comment job mints without a pull_request event gate during merge-queue policy validation. Compare github.event_name == 'pull_request' in the job or mint step if")
+					"the comment job mints without a pull_request event gate during merge-queue policy validation. Compare "+cj.runGateText()+" in the job or mint step if")
 			}
 		}
 	}
