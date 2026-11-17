@@ -38,6 +38,7 @@ required_names:
   - protected-files-forged-freeze-plan
   - protected-current-unchanged
   - protected-current-changed
+  - protected-current-title-changed
   - wrong-checked-out-branch
   - bot-branch-at-wrong-tip
   - commit-plus-write-refused
@@ -141,6 +142,18 @@ cases:
       input: {scenario: protected-current-changed}
       expected:
         <<: *initial-output
+        paths: "CHANGELOG.md\ngenerated/types-0.2.0.json\npackage.json\nversions.go"
+      classification: must-pass
+      provenance: *protect_p
+      mutation: *protect_m
+    - name: protected-current-title-changed
+      input:
+        scenario: protected-current-plan
+        plan: *plan
+      expected:
+        <<: *initial-output
+        title: "release(local-api)[minor]: v0.2.0, Local API 0.2.0"
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- freeze changes\n"
         paths: "CHANGELOG.md\ngenerated/types-0.2.0.json\npackage.json\nversions.go"
       classification: must-pass
       provenance: *protect_p

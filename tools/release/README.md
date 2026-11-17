@@ -106,6 +106,8 @@ untracked files, staged changes, symlinks and unsafe paths. It verifies the
 staged and committed bytes. A supplied plan is strict and must match the
 releasing titles; the exact generated title and source commit are printed as
 `title=` and `source=`. Only `--commit` accepts `--freeze-plan`.
+An existing `--current` branch is a no-op only when its title, protected bytes,
+modes and generated release content all match.
 
 The release PR may change the changelog, configured protected paths and the
 protected version fields. Other paths are still outside its allowed scope.

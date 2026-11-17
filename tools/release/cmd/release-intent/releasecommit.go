@@ -224,7 +224,7 @@ func runReleaseCommit(flags flagValues) error {
 	}
 	push := true
 	if flags.Has(intent.FlagCurrent) {
-		push, err = releaseCommitNeedsPush(ctx, g, r, cfg, tip, flags.Value(intent.FlagCurrent), content, files)
+		push, err = releaseCommitNeedsPush(ctx, g, r, cfg, tip, flags.Value(intent.FlagCurrent), title, content, files)
 		if err != nil {
 			return err
 		}
@@ -565,13 +565,20 @@ func releaseCommitTitle(cfg intent.Config, facts intent.Facts, decision intent.D
 // releaseCommitNeedsPush accepts a no-op only for a readable, mergeable
 // current branch with both fresh content and no changes outside release scope.
 // A missing --current ref is an error: omit the flag for a new branch.
-func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip, current string, content intent.Content, files []releaseFile) (bool, error) {
+func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip, current, title string, content intent.Content, files []releaseFile) (bool, error) {
 	if current == "" || strings.HasPrefix(current, "-") {
 		return false, fmt.Errorf("release-pr --commit: invalid current branch %q; omit --current only when no branch exists", current)
 	}
 	currentOID, err := g.text(ctx, "rev-parse", "--verify", "--end-of-options", current+"^{commit}")
 	if err != nil {
 		return false, fmt.Errorf("release-pr --commit: cannot resolve current branch %q: %w; fetch it or omit --current for a new branch", current, err)
+	}
+	currentTitle, err := g.text(ctx, "show", "-s", "--format=%s", "--end-of-options", currentOID)
+	if err != nil {
+		return false, fmt.Errorf("release-pr --commit: cannot inspect the current branch title: %w", err)
+	}
+	if currentTitle != title {
+		return true, nil
 	}
 	got, err := fileContent(func(name string) ([]byte, error) { return r.ReadFile(ctx, currentOID, name) }, cfg, content)
 	if err != nil {

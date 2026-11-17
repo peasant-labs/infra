@@ -163,16 +163,16 @@ func TestReleaseCommit(t *testing.T) {
 				r.cfg.ProtectedPaths = []string{"package.json"}
 				r.WriteConfig(r.cfg)
 				r.Commit(titleDocs)
-			case "protected-files", "protected-staged", "protected-symlink", "protected-plan", "protected-current", "protected-current-changed":
+			case "protected-files", "protected-staged", "protected-symlink", "protected-plan", "protected-current", "protected-current-changed", "protected-current-plan":
 				r.cfg.ProtectedPaths = []string{"versions.go", "generated/*-[0-9]*"}
-				if s == "protected-plan" {
+				if s == "protected-plan" || s == "protected-current-plan" {
 					r.cfg.Surfaces = map[string][]string{"local-api": {"local"}}
 					r.cfg.SpecFreeze = true
 				}
 				r.WriteConfig(r.cfg)
 				r.WriteFile("versions.go", "before\n")
 				r.Commit(titleDocs)
-				if s == "protected-plan" {
+				if s == "protected-plan" || s == "protected-current-plan" {
 					r.WriteFile("local.txt", "changed\n")
 					r.Commit(titled(intent.TypeFeat, "local-api", intent.LevelMinor, "freeze changes"))
 				}
@@ -209,7 +209,7 @@ func TestReleaseCommit(t *testing.T) {
 				r.SetOrdinaryField(0, "scripts", "changed")
 			case "protected-version-dirty":
 				r.SetOrdinaryField(0, "scripts", "changed")
-			case "protected-files", "protected-staged", "protected-symlink", "protected-plan", "protected-current", "protected-current-changed":
+			case "protected-files", "protected-staged", "protected-symlink", "protected-plan", "protected-current", "protected-current-changed", "protected-current-plan":
 				r.WriteFile("versions.go", "after\n")
 				if s == "protected-staged" {
 					r.git(verbAdd, "--", "versions.go")
@@ -221,7 +221,7 @@ func TestReleaseCommit(t *testing.T) {
 					if err := os.Symlink("../versions.go", filepath.Join(r.dir, "generated", "types-0.2.0.json")); err != nil {
 						t.Fatal(err)
 					}
-				} else if s == "protected-files" || s == "protected-plan" || s == "protected-current" || s == "protected-current-changed" {
+				} else if s == "protected-files" || s == "protected-plan" || s == "protected-current" || s == "protected-current-changed" || s == "protected-current-plan" {
 					r.WriteFile("generated/types-0.2.0.json", "new spec\n")
 				}
 			case "assume-unchanged", "skip-worktree":
@@ -245,7 +245,7 @@ func TestReleaseCommit(t *testing.T) {
 				}
 			}
 			args := argvOf(intent.CommandReleasePR, intent.FlagBranch, r.Trunk().String(), intent.FlagCommit)
-			if s == "protected-current" || s == "protected-current-changed" {
+			if s == "protected-current" || s == "protected-current-changed" || s == "protected-current-plan" {
 				first := r.Run(args...)
 				if first.Exit != exitAccepted {
 					t.Fatalf("prepare existing protected release branch: %+v", first)

@@ -124,8 +124,8 @@ bytes outside the named field stay unchanged unless the whole version file is
 also protected. The validated source and exact commit title are printed as
 `source=` and `title=`. `push=true` means the checked-out
 bot branch now points to that commit; its HEAD can be bundled against the source
-commit. `push=false` means the existing `--current` branch already has fresh,
-in-scope content and merges
+commit. `push=false` means the existing `--current` branch already has the
+same validated title and fresh, in-scope content and merges
 cleanly; no commit is made. Omit `--current` when there is no existing branch.
 An unreadable current ref, a required push with no generated changes, or a
 version-only result with no changelog change is an error, not a no-op. The
