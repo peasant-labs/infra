@@ -65,7 +65,7 @@ func TestClosedSets(t *testing.T) {
 		intent.OutputAction, intent.OutputRangeBase, intent.OutputVersionBase, intent.OutputCandidate,
 		intent.OutputCandidateFresh, intent.OutputLevel, intent.OutputBreaking, intent.OutputVersion,
 		intent.OutputTag, intent.OutputError, intent.OutputPR, intent.OutputGate, intent.OutputFresh,
-		intent.OutputPush, intent.OutputKind, intent.OutputOK,
+		intent.OutputPush, intent.OutputKind, intent.OutputOK, intent.OutputSurfaces, intent.OutputFrozen, intent.OutputTitle, intent.OutputSource,
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllOutputKeys = %v, want %v", got, want)
 	}
@@ -91,6 +91,10 @@ func TestClosedSets(t *testing.T) {
 		intent.ErrPolicyViolation,
 		intent.ErrReleaseContentScope,
 		intent.ErrTagUnverified,
+		intent.ErrUnderDeclaredBreaking,
+		intent.ErrSpecChangeNeedsBump,
+		intent.ErrSurfaceMismatch,
+		intent.ErrSurfaceUndeclared,
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllErrorCodes = %v, want %v", got, want)
 	}
@@ -112,6 +116,7 @@ func TestErrorCodeCoverage(t *testing.T) {
 		queueDecodeCorpusYAML, queueGateCorpusYAML,
 		highestTagCorpusYAML, versionFieldCorpusYAML,
 		contentCorpusYAML, policyCorpusYAML, verifyTagCorpusYAML,
+		contractCorpusYAML, freezeCorpusYAML,
 	} {
 		var doc struct {
 			Cases []struct {

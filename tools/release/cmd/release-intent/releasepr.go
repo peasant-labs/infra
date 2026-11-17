@@ -12,6 +12,9 @@ import (
 // runReleasePR writes or checks working-tree content, or prepares a separate
 // validated local release commit.
 func runReleasePR(flags flagValues) error {
+	if flags.Has(intent.FlagFreezePlan) && !flags.Has(intent.FlagCommit) {
+		return usageErr("%s applies only with %s", intent.FlagFreezePlan, intent.FlagCommit)
+	}
 	if flags.Has(intent.FlagCommit) {
 		if flags.Has(intent.FlagWrite) || flags.Has(intent.FlagCheck) {
 			return usageErr("%s: %s is a separate mode; do not combine it with %s or %s", intent.CommandReleasePR, intent.FlagCommit, intent.FlagWrite, intent.FlagCheck)

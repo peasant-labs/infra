@@ -517,7 +517,11 @@ const (
 	// ErrTagUnverified rejects a release tag whose name is not the release
 	// prefix plus a version, or whose commit the default branch does not
 	// reach.
-	ErrTagUnverified ErrorCode = "tag-unverified"
+	ErrTagUnverified         ErrorCode = "tag-unverified"
+	ErrUnderDeclaredBreaking ErrorCode = "under-declared-breaking"
+	ErrSpecChangeNeedsBump   ErrorCode = "spec-change-needs-bump"
+	ErrSurfaceMismatch       ErrorCode = "surface-mismatch"
+	ErrSurfaceUndeclared     ErrorCode = "surface-undeclared"
 )
 
 // AllErrorCodes is the canonical closed set of typed error codes.
@@ -538,6 +542,10 @@ var AllErrorCodes = []ErrorCode{
 	ErrPolicyViolation,
 	ErrReleaseContentScope,
 	ErrTagUnverified,
+	ErrUnderDeclaredBreaking,
+	ErrSpecChangeNeedsBump,
+	ErrSurfaceMismatch,
+	ErrSurfaceUndeclared,
 }
 
 func (c ErrorCode) String() string { return string(c) }
@@ -605,14 +613,18 @@ type VersionFile struct {
 // file. BotBranches maps a bot PR kind to the one head branch that PR uses,
 // so every workflow compares against the same names.
 type Config struct {
-	Releases         bool              `yaml:"releases"`
-	TagPrefix        string            `yaml:"tag_prefix"`
-	AutomationAuthor string            `yaml:"automation_author"`
-	Changelog        string            `yaml:"changelog"`
-	VersionFiles     []VersionFile     `yaml:"version_files"`
-	ProtectedPaths   []string          `yaml:"protected_paths"`
-	Surfaces         map[string]string `yaml:"surfaces"`
-	BotBranches      map[PRKind]string `yaml:"bot_branches"`
+	Releases         bool                `yaml:"releases"`
+	TagPrefix        string              `yaml:"tag_prefix"`
+	AutomationAuthor string              `yaml:"automation_author"`
+	Changelog        string              `yaml:"changelog"`
+	VersionFiles     []VersionFile       `yaml:"version_files"`
+	ProtectedPaths   []string            `yaml:"protected_paths"`
+	Surfaces         map[string][]string `yaml:"surfaces"`
+	// SurfaceOrder retains the config document's surface-map order. It is
+	// derived when loading, never a separate configuration key.
+	SurfaceOrder []string          `yaml:"-"`
+	SpecFreeze   bool              `yaml:"spec_freeze"`
+	BotBranches  map[PRKind]string `yaml:"bot_branches"`
 }
 
 // Error is an actionable rejection: what went wrong, why, where it failed,

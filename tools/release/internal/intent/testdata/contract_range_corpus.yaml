@@ -1,0 +1,26 @@
+required_names:
+  - range-declared-bang
+  - range-undeclared-break
+  - range-release-commit-excluded
+  - range-floor-drops-declaring-subject
+  - range-epoch-drops-old-subjects
+  - range-unparseable-subject-fails
+  - range-tag-at-tip-excluded
+  - range-side-tag-excluded
+cases:
+  - name: range-declared-bang
+    input:
+      config: &cfg {releases: true, tag_prefix: v}
+      facts: &facts {branch: main, epoch: epoch, commits: [{sha: tip, subject: "fix(api)![minor]: break"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: "chore: prior"}], tags: {v0.1.0: base}}
+      report: &breaking {go_api_breaking: true}
+    expected: {base: v0.1.0, titles: 2}
+    classification: must-pass
+    provenance: &p {source: requirement, ref: "range boundaries"}
+    mutation: &m {description: "Change one boundary or landed subject."}
+  - {name: range-undeclared-break, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "fix(api)[patch]: change"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: "chore: prior"}], tags: {v0.1.0: base}}, report: *breaking}, expected: {code: under-declared-breaking}, classification: must-fail, sibling: range-declared-bang, provenance: *p, mutation: *m}
+  - {name: range-release-commit-excluded, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "release[minor]: tag", changes_changelog: true}, {sha: content, subject: "fix(api)![minor]: break"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: "chore: prior"}], tags: {v0.1.0: base}}, report: *breaking}, expected: {base: v0.1.0, titles: 2}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: range-floor-drops-declaring-subject, input: {config: *cfg, facts: {branch: main, epoch: epoch, floor: bad, commits: [{sha: tip, subject: "fix(api)[patch]: change"}, {sha: bad, subject: "fix(api)![minor]: break"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: "chore: prior"}], tags: {v0.1.0: base}}, report: *breaking}, expected: {code: under-declared-breaking}, classification: must-fail, sibling: range-declared-bang, provenance: *p, mutation: *m}
+  - {name: range-epoch-drops-old-subjects, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "fix(api)![minor]: break"}, {sha: epoch, subject: "chore: adopt"}, {sha: old, subject: "not a title"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: *breaking}, expected: {base: v0.1.0, titles: 2}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: range-unparseable-subject-fails, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "not a title"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: *breaking}, expected: {code: malformed}, classification: must-fail, sibling: range-declared-bang, provenance: *p, mutation: *m}
+  - {name: range-tag-at-tip-excluded, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "release[minor]: tag", changes_changelog: true}, {sha: content, subject: "fix(api)![minor]: break"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.2.0: tip, v0.1.0: base}}, report: *breaking}, expected: {base: v0.1.0, titles: 2}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: range-side-tag-excluded, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "fix(api)![minor]: break"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base, v0.3.0: side}}, report: *breaking}, expected: {base: v0.1.0, titles: 2}, classification: must-pass, provenance: *p, mutation: *m}

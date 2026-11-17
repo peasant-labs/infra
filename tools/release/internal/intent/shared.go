@@ -56,7 +56,11 @@ const (
 	// OutputKind carries the PRKind of a classified PR.
 	OutputKind OutputKey = "kind"
 	// OutputOK carries the pass mark of a check with no other value.
-	OutputOK OutputKey = "ok"
+	OutputOK       OutputKey = "ok"
+	OutputSurfaces OutputKey = "surfaces"
+	OutputFrozen   OutputKey = "frozen"
+	OutputTitle    OutputKey = "title"
+	OutputSource   OutputKey = "source"
 )
 
 // AllOutputKeys is the canonical closed set of step-output keys.
@@ -64,7 +68,7 @@ var AllOutputKeys = []OutputKey{
 	OutputAction, OutputRangeBase, OutputVersionBase, OutputCandidate,
 	OutputCandidateFresh, OutputLevel, OutputBreaking, OutputVersion,
 	OutputTag, OutputError, OutputPR, OutputGate, OutputFresh, OutputPush,
-	OutputKind, OutputOK,
+	OutputKind, OutputOK, OutputSurfaces, OutputFrozen, OutputTitle, OutputSource,
 }
 
 func (k OutputKey) String() string { return string(k) }

@@ -9,6 +9,20 @@
 # required_names is the manifest: every case must be listed and every listed
 # case must exist, so a dropped or stray sample fails loudly.
 required_names:
+  - accept-pretag-checks
+  - accept-no-pretag-steps
+  - accept-range-floor-freeze-plan
+  - reject-pretag-wrong-program
+  - reject-pretag-check-mismatch
+  - reject-pretag-shell-wrapper
+  - reject-pretag-second-command
+  - reject-range-floor-contract
+  - reject-range-floor-freeze-plan
+  - accept-pretag-flake-wrapper
+  - reject-pretag-double-wrapper
+  - accept-contract-pr-without-floor
+  - reject-range-floor-borrowed-from-second-call
+  - accept-release-protected-writes
   - accept-comment-job
   - accept-comment-job-no-checkout
   - accept-comment-pat
@@ -188,6 +202,134 @@ required_names:
   - accept-release-tag-guarded
   - reject-release-tag-no-guard
 cases:
+  - name: accept-release-protected-writes
+    input:
+      overlay: accept-pretag-checks
+      edits:
+        - {file: workflows/release-batch.yml, old: "      - id: write\n", new: "      - id: freeze\n        if: \"!cancelled() && steps.decide.outputs.action == 'open-pr'\"\n        run: schema-gen freeze --plan plan.yaml\n      - id: write\n"}
+        - {file: workflows/release-batch.yml, old: 'release-intent release-pr --branch develop --current automation/release --write --floor "${{ vars.RELEASE_BATCH_FLOOR }}"', new: 'release-intent release-pr --branch develop --current automation/release --commit --floor "${{ vars.RELEASE_BATCH_FLOOR }}"'}
+    expected: {rule: release-actions-gated}
+    classification: must-pass
+    provenance: &protect_writes_p {source: requirement, ref: "release preparation in the uncredentialed plan job"}
+    mutation: &protect_writes_m {description: "Prepare freeze outputs before the gated release commit."}
+  - name: accept-pretag-flake-wrapper
+    input:
+      overlay: accept-pretag-checks
+      edits: [{file: workflows/release-batch.yml, old: "nix develop -c schema-gen freeze --check", new: "nix develop '.#release' -c schema-gen freeze --check --plan plan.yaml"}]
+    expected: {rule: release-actions-gated}
+    classification: must-pass
+    provenance: &extra_p {source: requirement, ref: "closed wrappers and range calls"}
+    mutation: &extra_m {description: "Change the command wrapper or range-reader arguments."}
+  - name: reject-pretag-double-wrapper
+    input:
+      overlay: accept-pretag-checks
+      edits: [{file: workflows/release-batch.yml, old: "nix develop -c schema-gen freeze --check", new: "nix develop -c nix develop -c schema-gen freeze --check"}]
+    expected: {rule: release-actions-gated, want_contains: ["instead of its declared check"]}
+    sibling: accept-pretag-checks
+    classification: must-fail
+    provenance: *extra_p
+    mutation: *extra_m
+  - name: accept-contract-pr-without-floor
+    input:
+      overlay: accept-pretag-checks
+      edits:
+        - {file: workflows/release-batch.yml, old: "      - id: write\n", new: "      - id: contract-pr\n        run: release-intent check-contract --report report.yaml\n      - id: write\n"}
+    expected: {rule: range-readers-take-the-floor}
+    classification: must-pass
+    provenance: *extra_p
+    mutation: *extra_m
+  - name: reject-range-floor-borrowed-from-second-call
+    input:
+      overlay: accept-pretag-checks
+      edits:
+        - file: workflows/release-batch.yml
+          old: "      - id: write\n"
+          new: "      - id: freeze-plan\n        if: \"!cancelled() && steps.decide.outputs.action == 'open-pr'\"\n        run: release-intent freeze-plan --branch develop --state state.yaml --out plan.yaml && release-intent freeze-plan --branch develop --state state.yaml --out plan.yaml --floor \"${{ vars.RELEASE_BATCH_FLOOR }}\"\n      - id: write\n"
+    expected: {rule: range-readers-take-the-floor, want_contains: ["without a quoted --floor"]}
+    sibling: accept-range-floor-freeze-plan
+    classification: must-fail
+    provenance: *extra_p
+    mutation: *extra_m
+  - name: accept-pretag-checks
+    input: {overlay: accept-pretag-checks}
+    expected: {rule: release-actions-gated}
+    classification: must-pass
+    provenance: &pretag_provenance {source: requirement, ref: "typed pre-tag check commands"}
+    mutation: &pretag_mutation {description: "Change one declared pre-tag check or range floor."}
+  - name: accept-no-pretag-steps
+    input: {overlay: accept-no-pretag-steps}
+    expected: {rule: release-actions-gated}
+    classification: must-pass
+    provenance: *pretag_provenance
+    mutation: *pretag_mutation
+  - name: reject-pretag-wrong-program
+    input:
+      overlay: accept-pretag-checks
+      edits: [{file: workflows/release-batch.yml, old: "nix develop -c schema-gen freeze --check", new: "nix develop -c schema-gen status"}]
+    expected: {rule: release-actions-gated, want_contains: ["instead of its declared check"]}
+    sibling: accept-pretag-checks
+    classification: must-fail
+    provenance: *pretag_provenance
+    mutation: *pretag_mutation
+  - name: reject-pretag-check-mismatch
+    input:
+      overlay: accept-pretag-checks
+      edits: [{file: workflows/release-batch.yml, old: "nix develop -c schema-gen freeze --check", new: "release-intent check-config"}]
+    expected: {rule: release-actions-gated, want_contains: ["instead of its declared check"]}
+    sibling: accept-pretag-checks
+    classification: must-fail
+    provenance: *pretag_provenance
+    mutation: *pretag_mutation
+  - name: reject-pretag-shell-wrapper
+    input:
+      overlay: accept-pretag-checks
+      edits: [{file: workflows/release-batch.yml, old: "nix develop -c schema-gen freeze --check", new: "nix develop -c bash -c true"}]
+    expected: {rule: release-actions-gated, want_contains: ["instead of its declared check"]}
+    sibling: accept-pretag-checks
+    classification: must-fail
+    provenance: *pretag_provenance
+    mutation: *pretag_mutation
+  - name: reject-pretag-second-command
+    input:
+      overlay: accept-pretag-checks
+      edits: [{file: workflows/release-batch.yml, old: "nix develop -c schema-gen freeze --check", new: "nix develop -c schema-gen freeze --check && true"}]
+    expected: {rule: release-actions-gated, want_contains: ["does not run exactly one command"]}
+    sibling: accept-pretag-checks
+    classification: must-fail
+    provenance: *pretag_provenance
+    mutation: *pretag_mutation
+  - name: reject-range-floor-contract
+    input:
+      overlay: accept-pretag-checks
+      edits: [{file: workflows/release-batch.yml, old: 'release-intent check-contract --report "${REPORT}" --until "${UNTIL}" --floor "${FLOOR}"', new: 'release-intent check-contract --report "${REPORT}" --until "${UNTIL}"'}]
+    expected: {rule: range-readers-take-the-floor, want_contains: ["without a quoted --floor"]}
+    sibling: accept-pretag-checks
+    classification: must-fail
+    provenance: *pretag_provenance
+    mutation: *pretag_mutation
+  - name: accept-range-floor-freeze-plan
+    input:
+      overlay: accept-pretag-checks
+      edits:
+        - file: workflows/release-batch.yml
+          old: "      - id: write\n"
+          new: "      - id: freeze-plan\n        if: \"!cancelled() && steps.decide.outputs.action == 'open-pr'\"\n        run: release-intent freeze-plan --branch develop --state state.yaml --out plan.yaml --floor \"${{ vars.RELEASE_BATCH_FLOOR }}\"\n      - id: write\n"
+    expected: {rule: range-readers-take-the-floor}
+    classification: must-pass
+    provenance: *pretag_provenance
+    mutation: *pretag_mutation
+  - name: reject-range-floor-freeze-plan
+    input:
+      overlay: accept-pretag-checks
+      edits:
+        - file: workflows/release-batch.yml
+          old: "      - id: write\n"
+          new: "      - id: freeze-plan\n        if: \"!cancelled() && steps.decide.outputs.action == 'open-pr'\"\n        run: release-intent freeze-plan --branch develop --state state.yaml --out plan.yaml\n      - id: write\n"
+    expected: {rule: range-readers-take-the-floor, want_contains: ["without a quoted --floor"]}
+    sibling: accept-range-floor-freeze-plan
+    classification: must-fail
+    provenance: *pretag_provenance
+    mutation: *pretag_mutation
   - name: accept-comment-job
     input: { overlay: accept-comment-job }
     expected: { rule: credential-steps-run-one-template }
@@ -1098,7 +1240,7 @@ cases:
 
   - name: reject-release-actions-pretag-script
     input: { overlay: "reject-release-actions-pretag-script" }
-    expected: { rule: "release-actions-gated", want_contains: ["instead of an implemented release-intent subcommand"] }
+    expected: { rule: "release-actions-gated", want_contains: ["instead of its declared check"] }
     sibling: accept-release-actions
     classification: must-fail
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy release-actions-gated" }

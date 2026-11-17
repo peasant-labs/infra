@@ -16,7 +16,34 @@ required_names:
   - bot-branch-no-prefix
   - bot-branch-prefix-alone
   - two-documents
+  - surfaces-and-freeze
+  - multiple-stems
+  - freeze-without-surfaces
+  - freeze-while-quiet
+  - empty-surface-stems
+  - duplicated-stem
+  - stem-with-path
+  - stem-with-version
+  - stem-with-extension
+  - scalar-stem-refused
+  - invalid-protected-glob
 cases:
+  - name: surfaces-and-freeze
+    input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {segmented-read: [segmented-read]}\nspec_freeze: true\n"}
+    expected: {releases: true, tag_prefix: v, automation_author: bot, changelog: CHANGELOG.md, surfaces: {segmented-read: [segmented-read]}, surface_order: [segmented-read], spec_freeze: true}
+    classification: must-pass
+    provenance: &surface_provenance {source: requirement, ref: "surface config and spec freeze"}
+    mutation: &surface_mutation {description: "Change one surface config boundary."}
+  - {name: multiple-stems, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {village-api: [village-api, publish-request]}\n"}, expected: {releases: true, tag_prefix: v, automation_author: bot, changelog: CHANGELOG.md, surfaces: {village-api: [village-api, publish-request]}, surface_order: [village-api]}, classification: must-pass, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: freeze-without-surfaces, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nspec_freeze: true\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: freeze-while-quiet, input: {document: "releases: false\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nspec_freeze: true\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: minimal-quiet-config, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: empty-surface-stems, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: []}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: duplicated-stem, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: [types], other: [types]}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: multiple-stems, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: stem-with-path, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: [generated/types]}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: stem-with-version, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: [types-1]}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: stem-with-extension, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: [types.json]}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: scalar-stem-refused, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: types}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: invalid-protected-glob, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nprotected_paths: ['generated/[']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: full-config, provenance: *surface_provenance, mutation: *surface_mutation}
   - name: full-config
     input:
       document: |
@@ -94,7 +121,7 @@ cases:
         automation_author: peasant-labs-releaser[bot]
         changelog: CHANGELOG.md
         surfaces:
-          types: types
+          types: [types]
     expected: {code: "config-invalid"}
     classification: must-fail
     sibling: minimal-quiet-config

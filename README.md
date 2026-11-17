@@ -95,6 +95,9 @@ repository at a full commit SHA and build the command from that checkout:
   working-directory: infra-tool
 ```
 
+The [contract and freeze handoff reference](tools/release/README.md) describes
+the report, state and plan files and the new commands.
+
 Run its checks with `make release-tool-check` (gofmt, build, vet, test). The
 `Release tool` workflow runs the same steps on every pull request.
 
@@ -104,18 +107,22 @@ In a job with **no App credential**, check out the configured release bot
 branch at the source branch's tip and run from the repository root:
 
 ```sh
-release-intent release-pr --branch <source-ref> --commit [--current <existing-release-ref>] [--floor <sha>]
+release-intent release-pr --branch <source-ref> --commit [--freeze-plan <file>] [--current <existing-release-ref>] [--floor <sha>]
 ```
 
 `--commit` is an alternative to `--write` and `--check`, not an additional
-switch. It requires a clean index and worktree, including untracked files. It
-uses the source commit's config and refuses unsafe or overlapping output paths,
+switch. It requires a clean index and permits only unstaged regular files
+covered by the source config's `protected_paths` in the worktree. It
+uses the source commit's config and refuses unsafe or duplicate output paths,
 symlinks, multiply linked files, non-regular or missing source files, and an
 active Git reference hook.
-It stages only the generated changelog and the named JSON version-field changes,
+It stages only the generated changelog, named JSON version-field changes, and
+permitted protected paths,
 verifies the staged paths and bytes, then creates one local commit with the fixed
 releaser-bot author and committer and the source commit's timestamp. The JSON
-bytes outside the named field stay unchanged. `push=true` means the checked-out
+bytes outside the named field stay unchanged unless the whole version file is
+also protected. The validated source and exact commit title are printed as
+`source=` and `title=`. `push=true` means the checked-out
 bot branch now points to that commit; its HEAD can be bundled against the source
 commit. `push=false` means the existing `--current` branch already has fresh,
 in-scope content and merges

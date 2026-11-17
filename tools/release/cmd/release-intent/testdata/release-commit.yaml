@@ -30,6 +30,14 @@ required_names:
   - hardlink-version-source
   - unsafe-pathspec
   - protected-output
+  - protected-tracked-and-added
+  - protected-staged-refused
+  - protected-untracked-symlink-refused
+  - protected-version-other-content
+  - protected-files-with-freeze-plan
+  - protected-files-forged-freeze-plan
+  - protected-current-unchanged
+  - protected-current-changed
   - wrong-checked-out-branch
   - bot-branch-at-wrong-tip
   - commit-plus-write-refused
@@ -94,7 +102,61 @@ cases:
     - {name: symlink-parent-directory, input: {scenario: symlink-parent}, expected: {exit: 1, error: "symlink"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "generated file ancestors must not be symlinks"}, mutation: {description: "Route a configured file through a symlink directory."}}
     - {name: hardlink-version-source, input: {scenario: hardlink}, expected: {exit: 1, error: "hard link"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "preparation cannot overwrite another file through a hard link"}, mutation: {description: "Link the version file to an outside file with identical bytes."}}
     - {name: unsafe-pathspec, input: {scenario: pathspec}, expected: {exit: 1, error: "unsafe"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "configured paths are literal confined paths"}, mutation: {description: "Supply Git pathspec magic as the changelog."}}
-    - {name: protected-output, input: {scenario: protected}, expected: {exit: 1, error: "protected"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "additional protected paths must not be generated over"}, mutation: {description: "Protect the configured version document as a whole file."}}
+    - {name: protected-output, input: {scenario: protected}, expected: *initial-output, classification: must-pass, provenance: {source: requirement, ref: "the release PR may write a version document that is also a protected path"}, mutation: {description: "Protect the configured version document as a whole file."}}
+    - name: protected-tracked-and-added
+      input: {scenario: protected-files}
+      expected:
+        <<: *initial-output
+        paths: "CHANGELOG.md\ngenerated/types-0.2.0.json\npackage.json\nversions.go"
+      classification: must-pass
+      provenance: &protect_p {source: requirement, ref: "protected release content"}
+      mutation: &protect_m {description: "Prepare a protected release output in the worktree."}
+    - {name: protected-staged-refused, input: {scenario: protected-staged}, expected: {exit: 1, error: clean}, classification: must-fail, sibling: protected-tracked-and-added, provenance: *protect_p, mutation: *protect_m}
+    - {name: protected-untracked-symlink-refused, input: {scenario: protected-symlink}, expected: {exit: 1, error: symlink}, classification: must-fail, sibling: protected-tracked-and-added, provenance: *protect_p, mutation: *protect_m}
+    - name: protected-version-other-content
+      input: {scenario: protected-version-dirty}
+      expected:
+        <<: *initial-output
+        version_file: "{\"scripts\":\"changed\",\"version\":\"0.2.0\"}\n"
+      classification: must-pass
+      provenance: *protect_p
+      mutation: *protect_m
+    - name: protected-files-with-freeze-plan
+      input:
+        scenario: protected-plan
+        plan: &plan |
+          plan: 1
+          surfaces:
+            - {name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}
+      expected:
+        <<: *initial-output
+        title: "release(local-api)[minor]: v0.2.0, Local API 0.2.0"
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- freeze changes\n"
+        paths: "CHANGELOG.md\ngenerated/types-0.2.0.json\npackage.json\nversions.go"
+      classification: must-pass
+      provenance: *protect_p
+      mutation: *protect_m
+    - {name: protected-current-unchanged, input: {scenario: protected-current}, expected: {exit: 0, push: false, version: "0.2.0"}, classification: must-pass, provenance: *protect_p, mutation: *protect_m}
+    - name: protected-current-changed
+      input: {scenario: protected-current-changed}
+      expected:
+        <<: *initial-output
+        paths: "CHANGELOG.md\ngenerated/types-0.2.0.json\npackage.json\nversions.go"
+      classification: must-pass
+      provenance: *protect_p
+      mutation: *protect_m
+    - name: protected-files-forged-freeze-plan
+      input:
+        scenario: protected-plan
+        plan: |
+          plan: 1
+          surfaces:
+            - {name: local-api, label: Local API, from: 0.1.0, to: 0.1.1, level: patch, breaking: false, freeze: true}
+      expected: {exit: 1, error: "does not match"}
+      sibling: protected-files-with-freeze-plan
+      classification: must-fail
+      provenance: *protect_p
+      mutation: *protect_m
     - {name: wrong-checked-out-branch, input: {scenario: wrong-branch}, expected: {exit: 1, error: "branch"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "the operation never creates a default-branch commit"}, mutation: {description: "Run with the ordinary branch checked out."}}
     - {name: bot-branch-at-wrong-tip, input: {scenario: wrong-tip}, expected: {exit: 1, error: "source tip"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "the single commit must have the source tip as its parent"}, mutation: {description: "Check out the bot branch at an older commit."}}
     - {name: commit-plus-write-refused, input: {scenario: mixed-write}, expected: {exit: 1, error: "separate mode"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "write-only mode stays distinct from commit mode"}, mutation: {description: "Pass both write and commit switches."}}

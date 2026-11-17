@@ -55,8 +55,8 @@ func TestLoadQueuePolicy_QueueSection(t *testing.T) {
 	if rel.Workflow != "release-batch.yml" || rel.Job != "release" {
 		t.Fatalf("loaded release job = %+v, want the release-batch entry", rel)
 	}
-	if len(rel.PreTagSteps) != 2 || rel.PreTagSteps[0] != "verify-config" || rel.PreTagSteps[1] != "verify-workflows" {
-		t.Fatalf("loaded pre_tag_steps = %q, want [verify-config verify-workflows]", rel.PreTagSteps)
+	if len(rel.PreTagSteps) != 2 || rel.PreTagSteps[0] != (PreTagStep{ID: "verify-config", Check: PreTagCheckConfig}) || rel.PreTagSteps[1] != (PreTagStep{ID: "verify-workflows", Check: PreTagCheckWorkflows}) {
+		t.Fatalf("loaded pre_tag_steps = %+v, want typed config and workflows checks", rel.PreTagSteps)
 	}
 	if len(policy.Queue.BotJobs) != 1 {
 		t.Fatalf("loaded queue has %d bot jobs, want 1", len(policy.Queue.BotJobs))

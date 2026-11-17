@@ -72,6 +72,18 @@ func shapeOf(f intent.Flag) flagShape {
 		return flagShape{"N", "the release PR number, a positive integer"}
 	case intent.FlagTag:
 		return flagShape{"TAG", "the release tag to verify"}
+	case intent.FlagReport:
+		return flagShape{"FILE", "the strict contract report"}
+	case intent.FlagUntil:
+		return flagShape{"REV", "the revision ending the landed range"}
+	case intent.FlagState:
+		return flagShape{"FILE", "the strict surface status document"}
+	case intent.FlagOut:
+		return flagShape{"FILE", "the freeze plan output"}
+	case intent.FlagFreezePlan:
+		return flagShape{"FILE", "the freeze plan used for the release commit"}
+	case intent.FlagPrintRangeBase:
+		return flagShape{"", "print the final tag before the revision without judging"}
 	default:
 		return flagShape{}
 	}
@@ -177,6 +189,9 @@ func parseFlags(c intent.Command, args []string) (flagValues, error) {
 		i++
 	}
 	for _, use := range c.Flags() {
+		if c == intent.CommandCheckContract && use.Flag == intent.FlagReport && out.Has(intent.FlagPrintRangeBase) {
+			continue
+		}
 		if use.Required && !out.Has(use.Flag) {
 			return flagValues{}, usageErr("%s (missing required %s): pass %s", usageOf(c), use.Flag, shapeOf(use.Flag).Meaning)
 		}

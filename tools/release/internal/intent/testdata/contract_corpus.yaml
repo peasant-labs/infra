@@ -1,0 +1,64 @@
+required_names:
+  - breaking-go-api-no-bang
+  - breaking-go-api-bang
+  - breaking-surface-no-bang
+  - breaking-surface-bang
+  - breaking-below-1-requires-minor
+  - breaking-below-1-minor-bang
+  - no-breaking-any-title
+  - spec-functional-nonreleasing
+  - spec-functional-releasing
+  - spec-docs-nonreleasing
+  - surface-missing-one
+  - surface-lists-both
+  - surface-listed-unchanged
+  - surface-listed-ahead-on-base
+  - surface-misspelt-is-missing
+  - surface-never-release-type
+  - freeze-off-ignores-spec-change
+  - freeze-off-ignores-surface-missing
+cases:
+  - name: breaking-go-api-no-bang
+    input:
+      config: &on {releases: true, spec_freeze: true, surfaces: {local-api: [local], types: [types]}}
+      current: "0.1.0"
+      title: "fix(local-api)[patch]: change"
+      report: &go {go_api_breaking: true, surfaces: [{name: local-api, change: functional}, {name: types, change: none}]}
+    expected: {code: under-declared-breaking}
+    classification: must-fail
+    sibling: breaking-go-api-bang
+    provenance: &p {source: requirement, ref: "contract decision"}
+    mutation: &m {description: "Change the title or report boundary."}
+  - {name: breaking-go-api-bang, input: {config: *on, current: "0.1.0", title: "fix(local-api)![minor]: change", report: *go}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - name: breaking-surface-no-bang
+    input:
+      config: *on
+      current: "0.1.0"
+      title: "fix(local-api)[patch]: change"
+      report: &break {surfaces: [{name: local-api, change: functional, breaking: true}, {name: types, change: none}]}
+    expected: {code: under-declared-breaking}
+    classification: must-fail
+    sibling: breaking-surface-bang
+    provenance: *p
+    mutation: *m
+  - {name: breaking-surface-bang, input: {config: *on, current: "0.1.0", title: "fix(local-api)![minor]: change", report: *break}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: breaking-below-1-requires-minor, input: {config: *on, current: "0.1.0", title: "fix(local-api)![patch]: change", report: *break}, expected: {code: bang-bump-mismatch}, classification: must-fail, sibling: breaking-below-1-minor-bang, provenance: *p, mutation: *m}
+  - {name: breaking-below-1-minor-bang, input: {config: *on, current: "0.1.0", title: "fix(local-api)![minor]: change", report: *break}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: no-breaking-any-title, input: {config: *on, current: "0.1.0", title: "docs: explain", report: {surfaces: [{name: local-api, change: none}, {name: types, change: none}]}}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - name: spec-functional-nonreleasing
+    input: {config: *on, current: "0.1.0", title: "docs(local-api): change", report: &functional {surfaces: [{name: local-api, change: functional}, {name: types, change: none}]}}
+    expected: {code: spec-change-needs-bump}
+    classification: must-fail
+    sibling: spec-functional-releasing
+    provenance: *p
+    mutation: *m
+  - {name: spec-functional-releasing, input: {config: *on, current: "0.1.0", title: "fix(local-api)[patch]: change", report: *functional}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: spec-docs-nonreleasing, input: {config: *on, current: "0.1.0", title: "docs(local-api): explain", report: {surfaces: [{name: local-api, change: docs}, {name: types, change: none}]}}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: surface-missing-one, input: {config: *on, current: "0.1.0", title: "fix(local-api)[patch]: change", report: &both {surfaces: [{name: local-api, change: functional}, {name: types, change: functional}]}}, expected: {code: surface-mismatch}, classification: must-fail, sibling: surface-lists-both, provenance: *p, mutation: *m}
+  - {name: surface-lists-both, input: {config: *on, current: "0.1.0", title: "fix(local-api,types)[patch]: change", report: *both}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: surface-listed-unchanged, input: {config: *on, current: "0.1.0", title: "fix(local-api,types)[patch]: change", report: *functional}, expected: {code: surface-mismatch}, classification: must-fail, sibling: spec-functional-releasing, provenance: *p, mutation: *m}
+  - {name: surface-listed-ahead-on-base, input: {config: *on, current: "0.1.0", title: "fix(local-api,types)[patch]: change", report: {surfaces: [{name: local-api, change: functional}, {name: types, change: none, ahead_on_base: true}]}}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: surface-misspelt-is-missing, input: {config: *on, current: "0.1.0", title: "fix(local-ap)[patch]: change", report: *functional}, expected: {code: surface-mismatch}, classification: must-fail, sibling: spec-functional-releasing, provenance: *p, mutation: *m}
+  - {name: surface-never-release-type, input: {config: *on, current: "0.1.0", title: "docs(local-api): change", report: *functional}, expected: {code: spec-change-needs-bump}, classification: must-fail, sibling: spec-functional-releasing, provenance: *p, mutation: *m}
+  - {name: freeze-off-ignores-spec-change, input: {config: &off {releases: true, surfaces: {local-api: [local], types: [types]}}, current: "0.1.0", title: "docs: change", report: *functional}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: freeze-off-ignores-surface-missing, input: {config: *off, current: "0.1.0", title: "fix[patch]: change", report: *functional}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}

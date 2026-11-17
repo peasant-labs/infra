@@ -1,0 +1,40 @@
+required_names:
+  - valid-status
+  - status-missing-field
+  - status-unknown-field
+  - status-unknown-state
+  - status-duplicate-surface
+  - status-bad-version
+  - valid-plan
+  - plan-missing-boolean
+  - plan-unknown-field
+  - plan-incoherent-version
+  - plan-invalid-level
+  - plan-unknown-surface
+cases:
+  - name: valid-status
+    input:
+      kind: status
+      document: "status: 1\nsurfaces: [{name: local-api, label: Local API, frozen: 0.1.0, state: ahead}]\n"
+    expected: {}
+    classification: must-pass
+    provenance: &p {source: requirement, ref: "strict freeze handoff"}
+    mutation: &m {description: "Change one field in the handoff."}
+  - {name: status-missing-field, input: {kind: status, document: "status: 1\nsurfaces: [{name: local-api, frozen: 0.1.0, state: ahead}]\n"}, expected: {}, classification: must-fail, sibling: valid-status, provenance: *p, mutation: *m}
+  - {name: status-unknown-field, input: {kind: status, document: "status: 1\nsurfaces: [{name: local-api, label: Local API, frozen: 0.1.0, state: ahead, extra: true}]\n"}, expected: {}, classification: must-fail, sibling: valid-status, provenance: *p, mutation: *m}
+  - {name: status-unknown-state, input: {kind: status, document: "status: 1\nsurfaces: [{name: local-api, label: Local API, frozen: 0.1.0, state: almost}]\n"}, expected: {}, classification: must-fail, sibling: valid-status, provenance: *p, mutation: *m}
+  - {name: status-duplicate-surface, input: {kind: status, document: "status: 1\nsurfaces: [{name: local-api, label: Local API, frozen: 0.1.0, state: ahead}, {name: local-api, label: Local API, frozen: 0.1.0, state: ahead}]\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: valid-status, provenance: *p, mutation: *m}
+  - {name: status-bad-version, input: {kind: status, document: "status: 1\nsurfaces: [{name: local-api, label: Local API, frozen: no, state: ahead}]\n"}, expected: {}, classification: must-fail, sibling: valid-status, provenance: *p, mutation: *m}
+  - name: valid-plan
+    input:
+      kind: plan
+      document: "plan: 1\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}]\n"
+    expected: {}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - {name: plan-missing-boolean, input: {kind: plan, document: "plan: 1\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, freeze: true}]\n"}, expected: {}, classification: must-fail, sibling: valid-plan, provenance: *p, mutation: *m}
+  - {name: plan-unknown-field, input: {kind: plan, document: "plan: 1\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true, extra: true}]\n"}, expected: {}, classification: must-fail, sibling: valid-plan, provenance: *p, mutation: *m}
+  - {name: plan-incoherent-version, input: {kind: plan, document: "plan: 1\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.9.0, level: minor, breaking: false, freeze: true}]\n"}, expected: {}, classification: must-fail, sibling: valid-plan, provenance: *p, mutation: *m}
+  - {name: plan-invalid-level, input: {kind: plan, document: "plan: 1\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: large, breaking: false, freeze: true}]\n"}, expected: {}, classification: must-fail, sibling: valid-plan, provenance: *p, mutation: *m}
+  - {name: plan-unknown-surface, input: {kind: plan, document: "plan: 1\nsurfaces: [{name: other, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}]\n"}, expected: {}, classification: must-fail, sibling: valid-plan, provenance: *p, mutation: *m}

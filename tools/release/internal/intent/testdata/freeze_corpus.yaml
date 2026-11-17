@@ -1,0 +1,49 @@
+required_names:
+  - one-surface-minor
+  - multi-surface-title-moves-each
+  - highest-level-wins
+  - breaking-flag-carried
+  - no-declaring-subject
+  - declaring-subject-before-migration
+  - stale-release-commit-does-not-restart
+  - two-content-prs-one-number
+  - unchanged-surface-kept-at-from
+  - unknown-surface-in-state
+  - config-order-preserved
+  - docs-ahead-does-not-freeze
+cases:
+  - name: one-surface-minor
+    input:
+      config: &cfg {releases: true, surfaces: {local-api: [local], types: [types]}}
+      states: &states {status: 1, surfaces: [{name: local-api, label: Local API, frozen: "0.1.0", state: ahead}, {name: types, label: Types, frozen: "0.5.0", state: clean}]}
+      titles: ["feat(local-api)[minor]: change"]
+    expected: {surface: local-api, to: "0.2.0", level: minor, freeze: true}
+    classification: must-pass
+    provenance: &p {source: requirement, ref: "surface freeze decision"}
+    mutation: &m {description: "Change a surface state or title declaration."}
+  - {name: multi-surface-title-moves-each, input: {config: *cfg, states: {status: 1, surfaces: [{name: local-api, label: Local API, frozen: "0.1.0", state: ahead}, {name: types, label: Types, frozen: "0.5.0", state: ahead}]}, titles: ["feat(local-api,types)[minor]: change"]}, expected: {surface: types, to: "0.6.0", level: minor, freeze: true}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: highest-level-wins, input: {config: *cfg, states: *states, titles: ["fix(local-api)[patch]: fix", "feat(local-api)[minor]: feature"]}, expected: {surface: local-api, to: "0.2.0", level: minor, freeze: true}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: breaking-flag-carried, input: {config: *cfg, states: *states, titles: ["feat(local-api)![minor]: break"]}, expected: {surface: local-api, to: "0.2.0", level: minor, breaking: true, freeze: true}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: no-declaring-subject, input: {config: *cfg, states: *states, titles: ["feat(types)[minor]: other"]}, expected: {code: surface-undeclared}, classification: must-fail, sibling: one-surface-minor, provenance: *p, mutation: *m}
+  - {name: declaring-subject-before-migration, input: {config: *cfg, states: *states, titles: ["fix(local-api)[patch]: prior"]}, expected: {surface: local-api, to: "0.1.1", level: patch, freeze: true}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: stale-release-commit-does-not-restart, input: {config: *cfg, states: {status: 1, surfaces: [{name: local-api, label: Local API, frozen: "0.2.0", state: clean}, {name: types, label: Types, frozen: "0.5.0", state: clean}]}, titles: ["feat(local-api)[minor]: old"]}, expected: {surface: local-api, to: "0.2.0", level: none}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: two-content-prs-one-number, input: {config: *cfg, states: *states, titles: ["feat(local-api)[minor]: first", "feat(local-api)[minor]: second"]}, expected: {surface: local-api, to: "0.2.0", level: minor, freeze: true}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: unchanged-surface-kept-at-from, input: {config: *cfg, states: *states, titles: ["feat(local-api)[minor]: change"]}, expected: {surface: types, to: "0.5.0", level: none}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: unknown-surface-in-state, input: {config: *cfg, states: {status: 1, surfaces: [{name: local-api, label: Local API, frozen: "0.1.0", state: ahead}, {name: other, label: Other, frozen: "0.5.0", state: clean}]}, titles: ["feat(local-api)[minor]: change"]}, expected: {code: config-invalid}, classification: must-fail, sibling: one-surface-minor, provenance: *p, mutation: *m}
+  - name: config-order-preserved
+    input:
+      config_document: |
+        releases: true
+        tag_prefix: v
+        automation_author: bot
+        changelog: CHANGELOG.md
+        surfaces:
+          types: [types]
+          local-api: [local]
+      states: *states
+      titles: ["feat(local-api)[minor]: change"]
+    expected: {surface: local-api, to: "0.2.0", level: minor, freeze: true, order: [types, local-api]}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - {name: docs-ahead-does-not-freeze, input: {config: *cfg, states: {status: 1, surfaces: [{name: local-api, label: Local API, frozen: "0.1.0", state: docs-ahead}, {name: types, label: Types, frozen: "0.5.0", state: clean}]}, titles: ["fix(local-api)[patch]: change"]}, expected: {surface: local-api, to: "0.1.0", level: none}, classification: must-pass, provenance: *p, mutation: *m}

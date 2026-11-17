@@ -207,13 +207,28 @@ func (c *queueChecker) checkRangeFloor() {
 		for _, jobName := range jobNames(doc) {
 			job := jobNode(doc, jobName)
 			for _, step := range stepsOf(job) {
-				run := stepRunText(step)
-				if !rangeReader.MatchString(run) {
-					continue
-				}
-				c.checkQuotedFlag(name, job, step, run, intent.FlagFloor, intent.VarBatchFloor)
-				if planRunner.MatchString(run) {
-					c.checkQuotedFlag(name, job, step, run, intent.FlagMode, intent.VarBatchMode)
+				for _, call := range toolCalls(stepRunText(step)) {
+					if len(call) < 2 {
+						continue
+					}
+					command, err := intent.ParseCommand(call[1].bare)
+					if err != nil {
+						continue
+					}
+					var raw []string
+					until := false
+					for _, word := range call {
+						raw = append(raw, word.raw)
+						until = until || word.bare == intent.FlagUntil.String()
+					}
+					if command != intent.CommandPlan && command != intent.CommandReleasePR && command != intent.CommandFreezePlan && !(command == intent.CommandCheckContract && until) {
+						continue
+					}
+					run := strings.Join(raw, " ")
+					c.checkQuotedFlag(name, job, step, run, intent.FlagFloor, intent.VarBatchFloor)
+					if command == intent.CommandPlan {
+						c.checkQuotedFlag(name, job, step, run, intent.FlagMode, intent.VarBatchMode)
+					}
 				}
 			}
 		}
@@ -241,10 +256,14 @@ func (c *queueChecker) quotedVariable(step, job *yaml.Node, value string, variab
 			return true
 		}
 		if strings.HasPrefix(inner, "$") {
-			if v := envValue(step, inner[1:]); strings.Contains(v, repoVar(variable)) {
+			name := inner[1:]
+			if strings.HasPrefix(name, "{") && strings.HasSuffix(name, "}") {
+				name = name[1 : len(name)-1]
+			}
+			if v := envValue(step, name); strings.Contains(v, repoVar(variable)) {
 				return true
 			}
-			if v := envValue(job, inner[1:]); strings.Contains(v, repoVar(variable)) {
+			if v := envValue(job, name); strings.Contains(v, repoVar(variable)) {
 				return true
 			}
 		}

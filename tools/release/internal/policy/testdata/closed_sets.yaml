@@ -26,7 +26,10 @@ required_names:
   - verify-input
   - verify-env
   - status-function
+  - pre-tag-check
 sets:
+  - name: pre-tag-check
+    members: [config, workflows, contract, freeze]
   - name: queue-rule
     members:
       - required-contexts
