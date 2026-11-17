@@ -1,0 +1,15 @@
+name: e2e
+on: [pull_request, merge_group]
+permissions:
+  contents: read
+jobs:
+  checkout-village:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: peasant-labs/village
+          ref: v0.52.0
+          persist-credentials: false

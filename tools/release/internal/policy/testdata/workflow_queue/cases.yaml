@@ -82,6 +82,7 @@ required_names:
   - accept-titles-plain
   - accept-cut-release
   - accept-tool-pin
+  - accept-non-tool-checkout
   - accept-classify
   - reject-required-contexts-missing-file
   - reject-required-contexts-missing-job
@@ -990,6 +991,14 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "peasant-labs/polyrepo#83 merge-queue policy tool-pin-is-a-sha" }
     mutation: { description: "base repo: one tool checkout pinned to one commit SHA" }
+
+  - name: accept-non-tool-checkout
+    input: { overlay: "accept-non-tool-checkout" }
+    expected: { rule: "tool-pin-is-a-sha", want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "tool-pin-is-a-sha applies only to release-tool checkouts" }
+    mutation: { description: "a workflow checks out another repository at a tag; it is not the release tool" }
 
   - name: accept-classify
     input: { overlay: "" }
