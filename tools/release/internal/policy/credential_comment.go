@@ -32,6 +32,11 @@ var runPREventComparison = regexp.MustCompile(`(?i)^github\.event\.workflow_run\
 // download from: the run that triggered it.
 const workflowRunIDExpression = "github.event.workflow_run.id"
 
+// workflowRunTokenExpression is the only github-token a workflow_run comment
+// job's download may pass: the read-only default token. The action needs a
+// token to read another run's artifacts, and it is not a write credential.
+const workflowRunTokenExpression = "github.token"
+
 // triggerPullRequestTarget is spelled out because the event set does not
 // contain it: a comment job's workflow may never trigger on it.
 const triggerPullRequestTarget = "pull_request_target"
@@ -406,7 +411,9 @@ func (c *queueChecker) reviewedScriptFault(doc, job, step *yaml.Node, cj credent
 				return "an artifact download can overwrite the reviewed script or its imports"
 			}
 			runID := valueOf(mappingValue(mappingValue(candidate, "with"), InputRunID.String()))
-			fromTriggeringRun := !cj.viaWorkflowRun() || soleExpression(runID) == workflowRunIDExpression
+			token := valueOf(mappingValue(mappingValue(candidate, "with"), InputGitHubToken.String()))
+			fromTriggeringRun := !cj.viaWorkflowRun() ||
+				(soleExpression(runID) == workflowRunIDExpression && soleExpression(token) == workflowRunTokenExpression)
 			if !foundScript && fromTriggeringRun && path.Clean(dest) == path.Clean(dir) && mappingValue(candidate, "if") == nil && !hasContinueOnError(candidate) {
 				foundDownload = true
 			}
@@ -417,7 +424,7 @@ func (c *queueChecker) reviewedScriptFault(doc, job, step *yaml.Node, cj credent
 	}
 	if !foundDownload {
 		if cj.viaWorkflowRun() {
-			return "the reviewed script requires an unconditional earlier artifact download into EVIDENCE_DIR from the triggering run (run-id: ${{ " + workflowRunIDExpression + " }}); a missing artifact fails the job closed"
+			return "the reviewed script requires an unconditional earlier artifact download into EVIDENCE_DIR from the triggering run (run-id: ${{ " + workflowRunIDExpression + " }} and github-token: ${{ " + workflowRunTokenExpression + " }}); a missing artifact fails the job closed"
 		}
 		return "the reviewed script requires an unconditional earlier artifact download into EVIDENCE_DIR"
 	}

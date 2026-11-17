@@ -204,7 +204,9 @@ one artifact holding git bundles.
   `permission-issues`, `permission-pull-requests`), each pinned to a 40-hex
   commit. A comment checkout may also set `ref` to the default-branch
   expression and `path: reviewed`, and a `workflow_run` comment job's download
-  may also set `run-id` to `${{ github.event.workflow_run.id }}` (see below).
+  must also set `run-id` to `${{ github.event.workflow_run.id }}` and
+  `github-token` to `${{ github.token }}` (see below); no other download takes
+  either input.
   A tag-publish job may additionally use the
   pinned `softprops/action-gh-release` action under the asset constraints
   below. No setup action, no upload, no reusable workflow, no container.
@@ -470,6 +472,7 @@ jobs:
         with:
           name: go-apidiff-comment
           run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
           path: evidence
       - env:
           GH_TOKEN: ${{ secrets.APIDIFF_COMMENT_PAT }}
@@ -497,17 +500,28 @@ The checker accepts the mode only when all of these hold, each under
   no other checkout, no `repository:` input and no setup action. The checker
   never reads the PR head, so the script runs reviewed code only.
 - **Evidence.** One unconditional download before the script, from the run
-  that triggered this one (`run-id: ${{ github.event.workflow_run.id }}`, the
-  only `run-id` accepted, and no `github-token` or `repository` input), into a
-  literal directory that is `EVIDENCE_DIR` and does not overlap `reviewed`.
-  The job grants `contents: read` and `actions: read` (the two explicit reads
-  in the example, or `permissions: read-all`; both are accepted). The no-write
-  guarantee is `default-token-read-only`, which refuses every write scope on
-  the default token in every workflow, so this mode adds no write of its own.
+  that triggered this one, into a literal directory that is `EVIDENCE_DIR` and
+  does not overlap `reviewed`. The download passes exactly `run-id: ${{
+  github.event.workflow_run.id }}` and `github-token: ${{ github.token }}`, and
+  no `repository` input. The token is required because
+  `actions/download-artifact` honors `run-id` only when it is given a token;
+  without one it searches the comment workflow's own run, not the producing
+  run, and finds nothing. It is the read-only default token, not a write
+  credential. Any other value is refused: a missing token, a secret or the
+  policy PAT, another expression (including `secrets.GITHUB_TOKEN`), a
+  literal, and `github-token` in a `pull_request` comment job. The PAT stays
+  script-only. The job grants `contents: read` and `actions: read` (the two
+  explicit reads in the example, or `permissions: read-all`; both are
+  accepted). The no-write guarantee is `default-token-read-only`, which
+  refuses every write scope on the default token in every workflow, so this
+  mode adds no write of its own. If a job did let the token write,
+  `credentials-stay-in-listed-jobs` would also flag `github.token` in the
+  download's inputs, because a writable default token is a credential.
 - **Credential.** The policy PAT is the only credential: in the env of the one
   reviewed-script step, never in a general step, workflow or job env, an
-  output, an action input or run text (`credentials-stay-in-listed-jobs`).
-  The job mints no App token (`credentials-stay-in-listed-jobs`), and
+  output, an action input (the download's `github-token` included) or run text
+  (`credentials-stay-in-listed-jobs`). The job mints no App token
+  (`credentials-stay-in-listed-jobs`), and
   `JOURNEY_APP_TOKEN` and `PR_NUMBER` are refused, because the event carries
   no pull request and the number comes from the artifact.
 - **Template.** The only credential step is `run-reviewed-script`, exactly
