@@ -2545,7 +2545,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "          github-token: ${{ github.token }}\n"
           new: ""
-    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["downloads without github-token"] }
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["downloads without github-token", "requires an unconditional earlier artifact download into EVIDENCE_DIR from the triggering run"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment evidence download" }
@@ -2557,7 +2557,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "github-token: ${{ github.token }}"
           new: "github-token: ${{ secrets.APIDIFF_COMMENT_PAT }}"
-    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template, credentials-stay-in-listed-jobs], want_contains: ["not the workflow token", "reads the policy PAT"] }
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template, credentials-stay-in-listed-jobs], want_contains: ["not the workflow token", "reads the policy PAT", "requires an unconditional earlier artifact download into EVIDENCE_DIR from the triggering run"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment PAT confinement" }
@@ -2569,7 +2569,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "github-token: ${{ github.token }}"
           new: "github-token: ${{ secrets.GITHUB_TOKEN }}"
-    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token"] }
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token", "requires an unconditional earlier artifact download into EVIDENCE_DIR from the triggering run"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment evidence download" }
@@ -2581,7 +2581,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "github-token: ${{ github.token }}"
           new: "github-token: ${{ vars.ARTIFACT_TOKEN }}"
-    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token"] }
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token", "requires an unconditional earlier artifact download into EVIDENCE_DIR from the triggering run"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment evidence download" }
@@ -2593,7 +2593,7 @@ cases:
         - file: workflows/apidiff-comment.yml
           old: "github-token: ${{ github.token }}"
           new: "github-token: ghp_literal"
-    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token"] }
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["not the workflow token", "requires an unconditional earlier artifact download into EVIDENCE_DIR from the triggering run"] }
     sibling: accept-workflow-run-comment
     classification: must-fail
     provenance: { source: requirement, ref: "workflow_run comment evidence download" }

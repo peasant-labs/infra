@@ -154,12 +154,12 @@ func ParseAllowedAction(raw string) (AllowedAction, error) {
 
 // ActionInput is one with: input an allowed action may take in a job that
 // may hold a credential. Every other input is refused: checkout's ref and path
-// are accepted only for an isolated comment checkout, checkout's token
-// would change which repository the templates push from, a
-// download's repository, run-id or github-token would fetch another run's
-// files (a workflow_run comment job's download passes only the triggering
-// run's id and the default token), and the mint's API URL would send its signed request elsewhere. The
-// zero value is unknown.
+// are accepted only for an isolated comment checkout; checkout's token would
+// change which repository the templates push from; a download's repository
+// would fetch another repository's files; a download's run-id and github-token
+// are accepted only together, only in a workflow_run comment job, and only with
+// the triggering run's id and the default token; and the mint's API URL would
+// send its signed request elsewhere. The zero value is unknown.
 type ActionInput string
 
 const (
