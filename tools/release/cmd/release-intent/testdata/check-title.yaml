@@ -15,9 +15,39 @@ required_names:
   - release-pr-version-file-other-edit-rejected
   - cut-release-empty-accepted
   - cut-release-file-rejected
+  - content-freeze-working-accepted
+  - content-freeze-numbered-rejected
+  - release-freeze-output-accepted
+  - release-undeclared-freeze-output-rejected
 
 cases:
   cases:
+    - name: content-freeze-working-accepted
+      input: {title: "fix(api)[patch]: update working document", author: "octocat", headBranch: "feature/work", setup: freeze-output, changedPath: generated/api.json}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: &freeze_p {source: requirement, ref: "freeze outputs do not themselves protect files from content PRs"}
+      mutation: &freeze_m {description: "Change the PR kind or freeze output path."}
+    - name: content-freeze-numbered-rejected
+      input: {title: "fix(api)[patch]: update frozen document", author: "octocat", headBranch: "feature/work", setup: freeze-output, changedPath: generated/api-0.2.0.json}
+      expected: {exit: 2, code: protected-path, stdout: []}
+      classification: must-fail
+      sibling: content-freeze-working-accepted
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: release-freeze-output-accepted
+      input: {title: "release[minor]: publish the pending changes", author: "SETUP_BOT_AUTHOR", headBranch: "SETUP_RELEASE_BRANCH", setup: freeze-output, changedPath: registry.yaml}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: release-undeclared-freeze-output-rejected
+      input: {title: "release[minor]: publish the pending changes", author: "SETUP_BOT_AUTHOR", headBranch: "SETUP_RELEASE_BRANCH", setup: freeze-output, changedPath: unlisted.yaml}
+      expected: {exit: 2, code: release-content-scope, stdout: []}
+      classification: must-fail
+      sibling: release-freeze-output-accepted
+      provenance: *freeze_p
+      mutation: *freeze_m
     - name: base-read-failure-is-internal
       input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "base-read-failure"}
       expected: {exit: 1, stdout: [], absent_keys: [error]}

@@ -25,7 +25,9 @@ const (
 	// CommandCheckWorkflows checks a workflows directory against the queue policy.
 	CommandCheckWorkflows Command = "check-workflows"
 	// CommandCheckTitle judges a PR title and the PR's protected-path changes.
-	CommandCheckTitle Command = "check-title"
+	CommandCheckTitle    Command = "check-title"
+	CommandCheckContract Command = "check-contract"
+	CommandFreezePlan    Command = "freeze-plan"
 	// CommandClassify prints which bot PR kind a head branch belongs to.
 	CommandClassify Command = "classify"
 	// CommandGroupPR prints the PR number a merge-group ref names.
@@ -48,6 +50,8 @@ var AllCommands = []Command{
 	CommandCheckConfig,
 	CommandCheckWorkflows,
 	CommandCheckTitle,
+	CommandCheckContract,
+	CommandFreezePlan,
 	CommandClassify,
 	CommandGroupPR,
 	CommandPlan,
@@ -112,7 +116,13 @@ const (
 	// FlagReleasePR carries the release PR number.
 	FlagReleasePR Flag = "--release-pr"
 	// FlagTag names the release tag to verify.
-	FlagTag Flag = "--tag"
+	FlagTag            Flag = "--tag"
+	FlagReport         Flag = "--report"
+	FlagUntil          Flag = "--until"
+	FlagState          Flag = "--state"
+	FlagOut            Flag = "--out"
+	FlagFreezePlan     Flag = "--freeze-plan"
+	FlagPrintRangeBase Flag = "--print-range-base"
 )
 
 // AllFlags is the canonical closed set of flags across every subcommand.
@@ -123,7 +133,7 @@ var AllFlags = []Flag{
 	FlagBranch, FlagMode, FlagFloor, FlagVerdict,
 	FlagWrite, FlagCommit, FlagCheck, FlagCurrent,
 	FlagQueue, FlagReleasePR,
-	FlagTag,
+	FlagTag, FlagReport, FlagUntil, FlagState, FlagOut, FlagFreezePlan, FlagPrintRangeBase,
 }
 
 func (f Flag) String() string { return string(f) }
@@ -155,6 +165,11 @@ func (c Command) Flags() []FlagUse {
 		return []FlagUse{{FlagPolicy, false}, {FlagDir, true}, {FlagPrintRequired, false}}
 	case CommandCheckTitle:
 		return []FlagUse{{FlagBase, true}, {FlagHead, true}, {FlagAuthor, true}, {FlagHeadBranch, true}}
+	case CommandCheckContract:
+		// A report is mandatory except in print-range-base mode.
+		return []FlagUse{{FlagReport, true}, {FlagUntil, false}, {FlagFloor, false}, {FlagPrintRangeBase, false}}
+	case CommandFreezePlan:
+		return []FlagUse{{FlagBranch, true}, {FlagState, true}, {FlagOut, true}, {FlagUntil, false}, {FlagFloor, false}}
 	case CommandClassify:
 		return []FlagUse{{FlagAuthor, true}, {FlagHeadBranch, true}, {FlagRev, true}}
 	case CommandGroupPR:
@@ -162,7 +177,7 @@ func (c Command) Flags() []FlagUse {
 	case CommandPlan:
 		return []FlagUse{{FlagBranch, true}, {FlagMode, true}, {FlagFloor, false}, {FlagVerdict, false}}
 	case CommandReleasePR:
-		return []FlagUse{{FlagBranch, true}, {FlagFloor, false}, {FlagWrite, false}, {FlagCommit, false}, {FlagCheck, false}, {FlagCurrent, false}}
+		return []FlagUse{{FlagBranch, true}, {FlagFloor, false}, {FlagWrite, false}, {FlagCommit, false}, {FlagCheck, false}, {FlagCurrent, false}, {FlagFreezePlan, false}}
 	case CommandQueueGate:
 		return []FlagUse{{FlagQueue, true}, {FlagReleasePR, true}}
 	case CommandVerifyTag:

@@ -25,6 +25,7 @@ type configInput struct {
 type configExpected struct {
 	intent.Config `yaml:",inline"`
 	Code          intent.ErrorCode `yaml:"code"`
+	SurfaceOrder  []string         `yaml:"surface_order"`
 }
 
 func TestLoadConfig(t *testing.T) {
@@ -60,6 +61,7 @@ func TestLoadConfig(t *testing.T) {
 			if parseErr != nil {
 				t.Fatalf("ParseConfig: unexpected error: %v", parseErr)
 			}
+			c.Expected.Config.SurfaceOrder = c.Expected.SurfaceOrder
 			if !reflect.DeepEqual(parsed, c.Expected.Config) {
 				t.Errorf("ParseConfig = %+v, want %+v", parsed, c.Expected.Config)
 			}

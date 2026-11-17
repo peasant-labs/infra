@@ -354,6 +354,7 @@ func marshalConfig(t *testing.T, cfg intent.Config) []byte {
 // normalConfig maps empty collections to nil so a round trip through YAML
 // compares equal.
 func normalConfig(cfg intent.Config) intent.Config {
+	cfg.SurfaceOrder = nil
 	if len(cfg.VersionFiles) == 0 {
 		cfg.VersionFiles = nil
 	}

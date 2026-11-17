@@ -1,0 +1,57 @@
+required_names:
+  - valid-full
+  - wrong-version
+  - missing-surface
+  - extra-surface
+  - duplicate-surface
+  - bad-change-member
+  - docs-with-breaking
+  - missing-head
+  - missing-boolean
+  - unknown-field
+  - two-documents
+  - duplicate-top-level-key
+  - duplicate-nested-key
+  - duplicate-aliased-key
+cases:
+  - name: valid-full
+    input: &valid
+      config: {surfaces: {local-api: [local], types: [types]}}
+      document: |
+        report: 1
+        base: abc
+        head: def
+        go_api_breaking: false
+        surfaces:
+          - {name: local-api, breaking: false, change: functional, ahead_on_base: true}
+          - {name: types, breaking: false, change: none, ahead_on_base: false}
+    expected: {}
+    classification: must-pass
+    provenance: &p {source: requirement, ref: "strict report document"}
+    mutation: &m {description: "Mutate one part of the report document."}
+  - name: wrong-version
+    input:
+      <<: *valid
+      document: |
+        report: 2
+        base: abc
+        head: def
+        go_api_breaking: false
+        surfaces: []
+    expected: {}
+    classification: must-fail
+    sibling: valid-full
+    provenance: *p
+    mutation: *m
+  - {name: missing-surface, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: extra-surface, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}, {name: extra, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: duplicate-surface, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: none, ahead_on_base: false}, {name: local-api, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: bad-change-member, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: maybe, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: docs-with-breaking, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: true, change: docs, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: missing-head, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\ngo_api_breaking: false\nsurfaces: []\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: missing-boolean, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: unknown-field, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: []\nunknown: true\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: two-documents, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: []\n---\nreport: 1\n"}, expected: {}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: duplicate-top-level-key, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {error: "duplicate YAML key \"base\""}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: duplicate-nested-key, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\nbase: abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, breaking: false, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {error: "duplicate YAML key \"breaking\""}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}
+  - {name: duplicate-aliased-key, input: {config: {surfaces: {local-api: [local], types: [types]}}, document: "report: 1\n&basekey base: abc\n*basekey : abc\nhead: def\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: none, ahead_on_base: false}, {name: types, breaking: false, change: none, ahead_on_base: false}]\n"}, expected: {error: "duplicate YAML key \"base\""}, classification: must-fail, sibling: valid-full, provenance: *p, mutation: *m}

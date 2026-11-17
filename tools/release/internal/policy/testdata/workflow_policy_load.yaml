@@ -28,7 +28,19 @@ required_names:
   - no-queue-section
   - empty-document
   - queue-only
+  - typed-pre-tag-steps
+  - bare-pre-tag-step
+  - pre-tag-missing-check
+  - pre-tag-unknown-check
+  - pre-tag-unknown-field
+  - pre-tag-duplicate-id
 cases:
+  - {name: typed-pre-tag-steps, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [{id: verify, check: contract}]\n"}, expected: {}, classification: must-pass, provenance: &pretag_p {source: requirement, ref: "typed pre-tag policy"}, mutation: &pretag_m {description: "Change one pre-tag declaration."}}
+  - {name: bare-pre-tag-step, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [verify]\n"}, expected: {want_contains: ["mapping {id, check}"]}, sibling: typed-pre-tag-steps, classification: must-fail, provenance: *pretag_p, mutation: *pretag_m}
+  - {name: pre-tag-missing-check, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [{id: verify}]\n"}, expected: {want_contains: ["unknown check"]}, sibling: typed-pre-tag-steps, classification: must-fail, provenance: *pretag_p, mutation: *pretag_m}
+  - {name: pre-tag-unknown-check, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [{id: verify, check: bogus}]\n"}, expected: {want_contains: ["unknown check"]}, sibling: typed-pre-tag-steps, classification: must-fail, provenance: *pretag_p, mutation: *pretag_m}
+  - {name: pre-tag-unknown-field, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [{id: verify, check: contract, extra: true}]\n"}, expected: {want_contains: ["unknown pre_tag_steps key"]}, sibling: typed-pre-tag-steps, classification: must-fail, provenance: *pretag_p, mutation: *pretag_m}
+  - {name: pre-tag-duplicate-id, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [{id: verify, check: contract}, {id: verify, check: freeze}]\n"}, expected: {want_contains: ["duplicate id"]}, sibling: typed-pre-tag-steps, classification: must-fail, provenance: *pretag_p, mutation: *pretag_m}
   - name: comment-policy
     input:
       policy: |
@@ -245,7 +257,7 @@ cases:
           release_job:
             workflow: release-batch.yml
             job: release
-            pre_tag_steps: [""]
+            pre_tag_steps: [{id: "", check: config}]
     expected: { want_contains: ["pre_tag_steps[0] is empty"] }
     sibling: queue-only
     classification: must-fail

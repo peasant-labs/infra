@@ -230,6 +230,10 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   plumbing templates, the pre-tag checks and the tag-verify job all use it. Do
   not add another way to read a run block for a step whose exit status or
   effect the policy depends on.
+- **Pre-tag policy entries are `{id, check}` mappings.** The check is one of
+  `config`, `workflows`, `contract`, and `freeze`. Only the exact declared
+  check may run, optionally under one `nix develop -c` wrapper; an empty list
+  is valid. All range readers pass the quoted recovery floor.
 - Test cases live in `testdata/*.yaml` corpora with required-name manifests,
   not inline tables.
 

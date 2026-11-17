@@ -95,6 +95,9 @@ repository at a full commit SHA and build the command from that checkout:
   working-directory: infra-tool
 ```
 
+The [contract and freeze handoff reference](tools/release/README.md) describes
+the report, state and plan files and the new commands.
+
 Run its checks with `make release-tool-check` (gofmt, build, vet, test). The
 `Release tool` workflow runs the same steps on every pull request.
 
@@ -104,21 +107,29 @@ In a job with **no App credential**, check out the configured release bot
 branch at the source branch's tip and run from the repository root:
 
 ```sh
-release-intent release-pr --branch <source-ref> --commit [--current <existing-release-ref>] [--floor <sha>]
+release-intent release-pr --branch <source-ref> --commit [--freeze-plan <file>] [--current <existing-release-ref>] [--floor <sha>]
 ```
 
 `--commit` is an alternative to `--write` and `--check`, not an additional
-switch. It requires a clean index and worktree, including untracked files. It
-uses the source commit's config and refuses unsafe or overlapping output paths,
+switch. It requires a clean index and permits unstaged regular files
+covered by the source config's `protected_paths`, plus `freeze_outputs` only
+when a validated `--freeze-plan` is supplied. Each frozen surface must have a
+dirty numbered primary document, as described in the
+[freeze handoff reference](tools/release/README.md). It
+uses the source commit's config and refuses unsafe or duplicate output paths,
 symlinks, multiply linked files, non-regular or missing source files, and an
 active Git reference hook.
-It stages only the generated changelog and the named JSON version-field changes,
+It stages only the generated changelog, named JSON version-field changes, and
+permitted protected and plan-authorized freeze paths,
 verifies the staged paths and bytes, then creates one local commit with the fixed
 releaser-bot author and committer and the source commit's timestamp. The JSON
-bytes outside the named field stay unchanged. `push=true` means the checked-out
+bytes outside the named field stay unchanged. The config refuses protected-path
+patterns that match the changelog or a version file. The validated source and
+exact commit title are printed as
+`source=` and `title=`. `push=true` means the checked-out
 bot branch now points to that commit; its HEAD can be bundled against the source
-commit. `push=false` means the existing `--current` branch already has fresh,
-in-scope content and merges
+commit. `push=false` means the existing `--current` branch already has the
+same validated title and fresh, in-scope content and merges
 cleanly; no commit is made. Omit `--current` when there is no existing branch.
 An unreadable current ref, a required push with no generated changes, or a
 version-only result with no changelog change is an error, not a no-op. The
@@ -438,9 +449,12 @@ bot branch can name the default branch.
 
 **What the bot PRs may contain.** The release and cut-release branches are
 built by the job without a credential and land unreviewed, so `check-title`
-judges each bot PR by what that bot writes. The release PR may change only the
-changelog and the protected field of each version file; any other path, or
-any other change inside a version file, is `release-content-scope`. The
-cut-release PR is one empty commit and may change no path. A path in
-`protected_paths` is release content for no PR: unlist it in a reviewed config
-change before editing it.
+judges each bot PR by what that bot writes. The release PR may change the
+changelog, `protected_paths`, `freeze_outputs`, and the protected field of each
+version file. A version file may change only in its protected field; config
+patterns that match version files or the changelog are refused. Other paths
+are `release-content-scope`. The title guard
+cannot see the freeze plan; commit preparation requires it before carrying
+`freeze_outputs`. The cut-release PR is one empty commit and may change no
+path. A `protected_paths` entry is forbidden to content PRs; `freeze_outputs`
+alone does not protect a path.

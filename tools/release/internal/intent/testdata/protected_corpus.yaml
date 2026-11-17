@@ -16,7 +16,68 @@ required_names:
   - cut-release-empty
   - cut-release-file
   - cut-release-changelog
+  - content-may-change-freeze-working-file
+  - content-cannot-change-frozen-file
+  - release-may-change-freeze-outputs
+  - release-freeze-glob-cannot-match-workflow
+  - release-freeze-glob-cannot-override-version-rule
+  - release-protected-version-only
+  - release-protected-version-other-content-rejected
 cases:
+  - name: release-protected-version-only
+    input:
+      config: &overlap_config {changelog: CHANGELOG.md, version_files: [{path: package.json, field: version}], protected_paths: ['*.json']}
+      kind: release
+      changes: [{path: package.json, protected_field_changed: true, other_content_changed: false}]
+    expected: {}
+    classification: must-pass
+    provenance: &overlap_p {source: requirement, ref: "version-field scope applies even with an overlapping protected glob"}
+    mutation: &overlap_m {description: "Change an ordinary field in the version document."}
+  - name: release-protected-version-other-content-rejected
+    input:
+      config: *overlap_config
+      kind: release
+      changes: [{path: package.json, protected_field_changed: true, other_content_changed: true}]
+    expected: {code: release-content-scope}
+    classification: must-fail
+    sibling: release-protected-version-only
+    provenance: *overlap_p
+    mutation: *overlap_m
+  - name: content-may-change-freeze-working-file
+    input:
+      config: &freeze_config
+        changelog: CHANGELOG.md
+        version_files: [{path: package.json, field: version}]
+        protected_paths: ['generated/*-[0-9]*']
+        freeze_outputs: ['generated/*.json', registry.yaml, mirrors/api.json]
+      kind: ordinary
+      changes: [{path: generated/api.json}, {path: registry.yaml}, {path: mirrors/api.json}]
+    expected: {}
+    classification: must-pass
+    provenance: &freeze_scope_p {source: requirement, ref: "freeze outputs are allowances, not protections"}
+    mutation: &freeze_scope_m {description: "Change the PR kind or output path."}
+  - {name: content-cannot-change-frozen-file, input: {config: *freeze_config, kind: ordinary, changes: [{path: generated/api-0.2.0.json}]}, expected: {code: protected-path}, classification: must-fail, sibling: content-may-change-freeze-working-file, provenance: *freeze_scope_p, mutation: *freeze_scope_m}
+  - {name: release-may-change-freeze-outputs, input: {config: *freeze_config, kind: release, changes: [{path: generated/api.json}, {path: registry.yaml}, {path: mirrors/api.json}]}, expected: {}, classification: must-pass, provenance: *freeze_scope_p, mutation: *freeze_scope_m}
+  - name: release-freeze-glob-cannot-match-workflow
+    input:
+      config: {changelog: CHANGELOG.md, freeze_outputs: ['*/workflows/release.yml']}
+      kind: release
+      changes: [{path: .github/workflows/release.yml}]
+    expected: {code: release-content-scope}
+    classification: must-fail
+    sibling: release-may-change-freeze-outputs
+    provenance: *freeze_scope_p
+    mutation: *freeze_scope_m
+  - name: release-freeze-glob-cannot-override-version-rule
+    input:
+      config: {changelog: CHANGELOG.md, version_files: [{path: package.json, field: version}], freeze_outputs: ['*.json']}
+      kind: release
+      changes: [{path: package.json, other_content_changed: true}]
+    expected: {code: release-content-scope}
+    classification: must-fail
+    sibling: release-may-change-freeze-outputs
+    provenance: *freeze_scope_p
+    mutation: *freeze_scope_m
   - name: changelog-by-author
     input:
       config:
@@ -238,10 +299,9 @@ cases:
       kind: release
       changes:
         - { path: "generated/types-0.2.0.json", protected_field_changed: false, other_content_changed: false }
-    expected: {code: "release-content-scope"}
-    classification: must-fail
-    sibling: release-pr-may-change
-    provenance: {source: requirement, ref: "release scope: a protected path is not release content"}
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "release scope: protected paths are writable by the release PR"}
     mutation: {description: "added a protected path to the release PR"}
   - name: release-pr-deletes-version-file
     input:

@@ -11,6 +11,8 @@ required_names:
   - accept-check-config
   - accept-check-workflows
   - accept-check-title
+  - accept-check-contract
+  - accept-freeze-plan
   - accept-classify
   - accept-group-pr
   - accept-plan
@@ -25,6 +27,8 @@ required_names:
   - reject-check-config-foreign-flag
   - reject-check-workflows-missing-dir
   - reject-check-title-missing-head-branch
+  - reject-check-contract-missing-report
+  - reject-freeze-plan-missing-state
   - reject-classify-missing-rev
   - reject-group-pr-missing-ref
   - reject-plan-missing-mode
@@ -47,6 +51,12 @@ cases:
     problems: []
   - name: accept-check-title
     run: release-intent check-title --base a --head b --author c --head-branch d
+    problems: []
+  - name: accept-check-contract
+    run: release-intent check-contract --report report.yaml
+    problems: []
+  - name: accept-freeze-plan
+    run: release-intent freeze-plan --branch main --state state.yaml --out plan.yaml
     problems: []
   - name: accept-classify
     run: release-intent classify --author a --head-branch b --rev c
@@ -93,6 +103,14 @@ cases:
     run: release-intent check-title --base a --head b --author c
     problems: ['missing required flag "--head-branch"']
     sibling: accept-check-title
+  - name: reject-freeze-plan-missing-state
+    run: release-intent freeze-plan --branch main --out plan.yaml
+    problems: ['missing required flag "--state"']
+    sibling: accept-freeze-plan
+  - name: reject-check-contract-missing-report
+    run: release-intent check-contract
+    problems: ['missing required flag "--report"']
+    sibling: accept-check-contract
   - name: reject-classify-missing-rev
     run: release-intent classify --author a --head-branch b
     problems: ['missing required flag "--rev"']

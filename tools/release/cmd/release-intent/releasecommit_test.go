@@ -8,20 +8,33 @@ import (
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"gopkg.in/yaml.v3"
 )
 
 type commitCaseInput struct {
-	Scenario string `yaml:"scenario"`
+	Scenario      string            `yaml:"scenario"`
+	Plan          string            `yaml:"plan"`
+	FreezeDir     string            `yaml:"freeze_dir"`
+	BaseFiles     map[string]string `yaml:"base_files"`
+	Files         map[string]string `yaml:"files"`
+	Current       bool              `yaml:"current"`
+	CurrentFiles  map[string]string `yaml:"current_files"`
+	NoCurrentPlan bool              `yaml:"no_current_plan"`
+	Stage         []string          `yaml:"stage"`
+	Symlinks      map[string]string `yaml:"symlinks"`
 }
 type commitCaseExpected struct {
-	Exit        wantExit `yaml:"exit"`
-	Push        bool     `yaml:"push"`
-	Version     string   `yaml:"version"`
-	Error       string   `yaml:"error"`
-	Title       string   `yaml:"title"`
-	Identity    string   `yaml:"identity"`
-	Changelog   string   `yaml:"changelog"`
-	VersionFile string   `yaml:"version_file"`
+	Exit        wantExit         `yaml:"exit"`
+	Push        bool             `yaml:"push"`
+	Version     string           `yaml:"version"`
+	Error       string           `yaml:"error"`
+	Title       string           `yaml:"title"`
+	Identity    string           `yaml:"identity"`
+	Changelog   string           `yaml:"changelog"`
+	VersionFile string           `yaml:"version_file"`
+	Paths       string           `yaml:"paths"`
+	Code        intent.ErrorCode `yaml:"code"`
+	Details     []string         `yaml:"details"`
 }
 
 // gitIn runs Git only in the disposable repositories made by this test. The
@@ -157,10 +170,53 @@ func TestReleaseCommit(t *testing.T) {
 				r.cfg.Changelog = ":(glob)*"
 				r.WriteConfig(r.cfg)
 				r.Commit(titleDocs)
-			case "protected":
+			case "protected", "protected-version-dirty", "protected-version-glob":
 				r.cfg.ProtectedPaths = []string{"package.json"}
-				r.WriteConfig(r.cfg)
+				if s == "protected-version-glob" {
+					r.cfg.ProtectedPaths = []string{"*.json"}
+				}
+				data, err := yaml.Marshal(r.cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.WriteRawConfig(string(data))
 				r.Commit(titleDocs)
+			case "protected-files", "protected-staged", "protected-symlink", "protected-plan", "protected-current", "protected-current-changed", "protected-current-plan":
+				r.cfg.ProtectedPaths = []string{"versions.go", "generated/*-[0-9]*"}
+				if s == "protected-plan" || s == "protected-current-plan" {
+					r.cfg.Surfaces = map[string][]string{"local-api": {"local"}}
+					r.cfg.SpecFreeze = true
+					r.cfg.FreezeDir = "generated"
+				}
+				r.WriteConfig(r.cfg)
+				r.WriteFile("versions.go", "before\n")
+				r.Commit(titleDocs)
+				if s == "protected-plan" || s == "protected-current-plan" {
+					r.WriteFile("local.txt", "changed\n")
+					r.Commit(titled(intent.TypeFeat, "local-api", intent.LevelMinor, "freeze changes"))
+				}
+			case "freeze-outputs":
+				freezeDir := row.Input.FreezeDir
+				if freezeDir == "" {
+					freezeDir = "generated"
+				}
+				r.cfg.ProtectedPaths = []string{freezeDir + "/*-[0-9]*"}
+				r.cfg.FreezeOutputs = []string{freezeDir + "/api.json", "registry.yaml", "mirrors/*.json"}
+				r.cfg.Surfaces = map[string][]string{"api": {"api", "request"}, "types": {"types"}}
+				r.cfg.SpecFreeze = true
+				r.cfg.FreezeDir = freezeDir
+				r.WriteConfig(r.cfg)
+				r.WriteFile(freezeDir+"/api.json", "working before\n")
+				r.WriteFile("registry.yaml", "registry before\n")
+				r.WriteFile("mirrors/api.json", "mirror before\n")
+				for name, content := range row.Input.BaseFiles {
+					r.WriteFile(name, content)
+				}
+				r.Commit(titleDocs)
+				r.WriteFile("api.txt", "changed\n")
+				r.Commit(titled(intent.TypeFeat, "api", intent.LevelMinor, "freeze api"))
+				r.WriteFile("types.txt", "changed\n")
+				r.Commit(titled(intent.TypeFix, "types", intent.LevelPatch, "freeze types"))
 			case "duplicate":
 				r.cfg.VersionFiles = append(r.cfg.VersionFiles, r.cfg.VersionFiles[0])
 				r.WriteConfig(r.cfg)
@@ -192,6 +248,39 @@ func TestReleaseCommit(t *testing.T) {
 				r.WriteFile("untracked.txt", "untracked\n")
 			case "json-dirty":
 				r.SetOrdinaryField(0, "scripts", "changed")
+			case "protected-version-dirty":
+				r.SetOrdinaryField(0, "scripts", "changed")
+			case "protected-files", "protected-staged", "protected-symlink", "protected-plan", "protected-current", "protected-current-changed", "protected-current-plan":
+				r.WriteFile("versions.go", "after\n")
+				if s == "protected-staged" {
+					r.git(verbAdd, "--", "versions.go")
+				}
+				if s == "protected-symlink" {
+					if err := os.MkdirAll(filepath.Join(r.dir, "generated"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink("../versions.go", filepath.Join(r.dir, "generated", "types-0.2.0.json")); err != nil {
+						t.Fatal(err)
+					}
+				} else if s == "protected-files" || s == "protected-plan" || s == "protected-current" || s == "protected-current-changed" || s == "protected-current-plan" {
+					name := "generated/types-0.2.0.json"
+					if s == "protected-plan" || s == "protected-current-plan" {
+						name = "generated/local-0.2.0.json"
+					}
+					r.WriteFile(name, "new spec\n")
+				}
+			case "freeze-outputs":
+				for name, content := range row.Input.Files {
+					r.WriteFile(name, content)
+				}
+				for name, target := range row.Input.Symlinks {
+					if err := os.Symlink(target, filepath.Join(r.dir, name)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				for _, name := range row.Input.Stage {
+					r.git(verbAdd, "--", name)
+				}
 			case "assume-unchanged", "skip-worktree":
 				option := "--assume-unchanged"
 				if s == "skip-worktree" {
@@ -213,6 +302,47 @@ func TestReleaseCommit(t *testing.T) {
 				}
 			}
 			args := argvOf(intent.CommandReleasePR, intent.FlagBranch, r.Trunk().String(), intent.FlagCommit)
+			if s == "protected-current" || s == "protected-current-changed" || s == "protected-current-plan" {
+				first := r.Run(args...)
+				if first.Exit != exitAccepted {
+					t.Fatalf("prepare existing protected release branch: %+v", first)
+				}
+				mustGitIn(t, r.dir, "update-ref", "refs/remotes/origin/release", r.Head())
+				mustGitIn(t, r.dir, "checkout", "-q", "-B", r.branchName(r.BotBranch(intent.PRKindRelease)), tip)
+				r.WriteFile("versions.go", "after\n")
+				spec := "new spec\n"
+				if s == "protected-current-changed" {
+					spec = "different spec\n"
+				}
+				name := "generated/types-0.2.0.json"
+				if s == "protected-current-plan" {
+					name = "generated/local-0.2.0.json"
+				}
+				r.WriteFile(name, spec)
+				args = append(args, intent.FlagCurrent.String(), "refs/remotes/origin/release")
+			}
+			if row.Input.Plan != "" {
+				planPath := filepath.Join(t.TempDir(), "freeze.yaml")
+				if err := os.WriteFile(planPath, []byte(row.Input.Plan), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, intent.FlagFreezePlan.String(), planPath)
+			}
+			if s == "freeze-outputs" && row.Input.Current {
+				first := r.Run(args...)
+				if first.Exit != exitAccepted {
+					t.Fatalf("prepare current freeze release branch: %+v", first)
+				}
+				mustGitIn(t, r.dir, "update-ref", "refs/remotes/origin/release", r.Head())
+				mustGitIn(t, r.dir, "checkout", "-q", "-B", r.branchName(r.BotBranch(intent.PRKindRelease)), tip)
+				for name, content := range row.Input.CurrentFiles {
+					r.WriteFile(name, content)
+				}
+				if row.Input.NoCurrentPlan {
+					args = argvOf(intent.CommandReleasePR, intent.FlagBranch, r.Trunk().String(), intent.FlagCommit)
+				}
+				args = append(args, intent.FlagCurrent.String(), "refs/remotes/origin/release")
+			}
 			if s == "missing-source" {
 				args = argvOf(intent.CommandReleasePR, intent.FlagBranch, "refs/remotes/origin/missing", intent.FlagCommit)
 			}
@@ -263,6 +393,21 @@ func TestReleaseCommit(t *testing.T) {
 				if !strings.Contains(strings.ToLower(result.Stderr), strings.ToLower(row.Expected.Error)) {
 					t.Fatalf("stderr %q does not contain %q", result.Stderr, row.Expected.Error)
 				}
+				if row.Expected.Code != "" {
+					if !strings.Contains(result.Stdout, "error="+row.Expected.Code.String()) {
+						t.Fatalf("stdout %q does not contain typed code %q", result.Stdout, row.Expected.Code)
+					}
+					for _, label := range []string{"what:", "why:", "where:", "when:", "means:", "fix:"} {
+						if !strings.Contains(result.Stderr, label) {
+							t.Fatalf("diagnostic %q lacks %s", result.Stderr, label)
+						}
+					}
+				}
+				for _, detail := range row.Expected.Details {
+					if !strings.Contains(result.Stderr, detail) {
+						t.Fatalf("stderr %q does not contain %q", result.Stderr, detail)
+					}
+				}
 				if r.Head() != headBefore {
 					t.Fatal("failed preparation moved HEAD")
 				}
@@ -275,8 +420,15 @@ func TestReleaseCommit(t *testing.T) {
 			if outputs[intent.OutputPush] != map[bool]string{true: "true", false: "false"}[row.Expected.Push] {
 				t.Fatalf("unexpected output: %s", result.Stdout)
 			}
-			if len(splitLines(result.Stdout)) != 4 || outputs[intent.OutputFresh] != "true" || outputs[intent.OutputVersion] != row.Expected.Version || outputs[intent.OutputError] != "" {
+			lines := 6
+			if s == "old-write" {
+				lines = 4
+			}
+			if len(splitLines(result.Stdout)) != lines || outputs[intent.OutputFresh] != "true" || outputs[intent.OutputVersion] != row.Expected.Version || outputs[intent.OutputError] != "" {
 				t.Fatalf("unexpected release output: %s", result.Stdout)
+			}
+			if s != "old-write" && (outputs[intent.OutputSource] != tip || outputs[intent.OutputTitle] == "") {
+				t.Fatalf("commit output did not name source and title: %s", result.Stdout)
 			}
 			if s == "old-write" {
 				if r.Head() != tip || mustGitIn(t, r.dir, "status", "--porcelain=v1") == "" {
@@ -289,7 +441,7 @@ func TestReleaseCommit(t *testing.T) {
 				return
 			}
 			if !row.Expected.Push {
-				if r.Head() != tip || mustGitIn(t, r.dir, "status", "--porcelain=v1") != "" {
+				if r.Head() != tip || mustGitIn(t, r.dir, "status", "--porcelain=v1", "--untracked-files=all") != beforeStatus {
 					t.Fatal("no-op changed the branch or tree")
 				}
 				return
@@ -303,7 +455,11 @@ func TestReleaseCommit(t *testing.T) {
 			if status := mustGitIn(t, r.dir, "status", "--porcelain=v1"); status != "" {
 				t.Fatalf("working tree after commit is not clean: %s", status)
 			}
-			if got := mustGitIn(t, r.dir, "diff", "--name-only", "--no-renames", tip, "HEAD"); got != "CHANGELOG.md\npackage.json" {
+			wantPaths := row.Expected.Paths
+			if wantPaths == "" {
+				wantPaths = "CHANGELOG.md\npackage.json"
+			}
+			if got := mustGitIn(t, r.dir, "diff", "--name-only", "--no-renames", tip, "HEAD"); got != wantPaths {
 				t.Fatalf("unexpected commit paths: %q", got)
 			}
 			packageBytes, err := gitIn(t, r.dir, "show", "HEAD:package.json")
@@ -319,6 +475,9 @@ func TestReleaseCommit(t *testing.T) {
 			subject := mustGitIn(t, r.dir, "show", "-s", "--format=%s", "HEAD")
 			if subject != row.Expected.Title {
 				t.Fatalf("title = %q, want %q", subject, row.Expected.Title)
+			}
+			if subject != outputs[intent.OutputTitle] {
+				t.Fatalf("printed title %q differs from commit subject %q", outputs[intent.OutputTitle], subject)
 			}
 			if _, err := intent.ParseTitle(r.cfg, r.fix.SeedVersion, subject); err != nil {
 				t.Fatalf("invalid commit title %q: %v", subject, err)

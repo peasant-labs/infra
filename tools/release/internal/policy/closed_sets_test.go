@@ -73,6 +73,7 @@ func closedSetsUnderTest() map[string]closedSetUnderTest {
 		"verify-input":                 {memberNames(AllVerifyInputs), parserOf(ParseVerifyInput)},
 		"verify-env":                   {memberNames(AllVerifyEnvs), parserOf(ParseVerifyEnv)},
 		"status-function":              {memberNames(AllStatusFunctions), parserOf(ParseStatusFunction)},
+		"pre-tag-check":                {memberNames(AllPreTagChecks), nil},
 	}
 }
 

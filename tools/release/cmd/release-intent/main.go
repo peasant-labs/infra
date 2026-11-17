@@ -43,6 +43,10 @@ func run(command intent.Command, args []string) error {
 		return runCheckWorkflows(flags)
 	case intent.CommandCheckTitle:
 		return runCheckTitle(flags)
+	case intent.CommandCheckContract:
+		return runCheckContract(flags)
+	case intent.CommandFreezePlan:
+		return runFreezePlan(flags)
 	case intent.CommandClassify:
 		return runClassify(flags)
 	case intent.CommandGroupPR:

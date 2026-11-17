@@ -6,6 +6,7 @@ import (
 
 	"github.com/peasant-labs/infra/tools/release/internal/closedset"
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
+	"gopkg.in/yaml.v3"
 )
 
 // QueueRule names one merge-queue workflow rule the shared checker applies to
@@ -219,9 +220,55 @@ type RequiredContext struct {
 // comes from the release config's bot_branches release entry, the one source,
 // resolved by the checker.
 type ReleaseJobRule struct {
-	Workflow    string   `yaml:"workflow"`
-	Job         string   `yaml:"job"`
-	PreTagSteps []string `yaml:"pre_tag_steps"`
+	Workflow    string       `yaml:"workflow"`
+	Job         string       `yaml:"job"`
+	PreTagSteps []PreTagStep `yaml:"pre_tag_steps"`
+}
+
+type PreTagCheck string
+
+const (
+	PreTagCheckConfig    PreTagCheck = "config"
+	PreTagCheckWorkflows PreTagCheck = "workflows"
+	PreTagCheckContract  PreTagCheck = "contract"
+	PreTagCheckFreeze    PreTagCheck = "freeze"
+)
+
+var AllPreTagChecks = []PreTagCheck{PreTagCheckConfig, PreTagCheckWorkflows, PreTagCheckContract, PreTagCheckFreeze}
+
+func (c PreTagCheck) IsValid() bool  { return slices.Contains(AllPreTagChecks, c) }
+func (c PreTagCheck) String() string { return string(c) }
+
+type PreTagStep struct {
+	ID    string      `yaml:"id"`
+	Check PreTagCheck `yaml:"check"`
+}
+
+func (s *PreTagStep) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("pre_tag_steps entry must be a mapping {id, check}, not a bare string")
+	}
+	seen := map[string]bool{}
+	for i := 0; i < len(node.Content); i += 2 {
+		key, value := node.Content[i], node.Content[i+1]
+		if seen[key.Value] {
+			return fmt.Errorf("duplicate pre_tag_steps key %q; use one {id, check} entry", key.Value)
+		}
+		seen[key.Value] = true
+		switch key.Value {
+		case "id":
+			if err := value.Decode(&s.ID); err != nil {
+				return err
+			}
+		case "check":
+			if err := value.Decode(&s.Check); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unknown pre_tag_steps key %q; use {id, check}", key.Value)
+		}
+	}
+	return nil
 }
 
 // BotJobRule locates one bot job that may push a branch: the workflow file,
@@ -310,10 +357,15 @@ func validateQueueSection(path string, queue QueueSection) error {
 		if queue.ReleaseJob.Job == "" {
 			return fmt.Errorf("%s has an empty job during merge-queue policy validation. Set 'job:' to the release job that carries out the planner's action", where)
 		}
+		seenSteps := map[string]bool{}
 		for i, step := range queue.ReleaseJob.PreTagSteps {
-			if step == "" {
+			if step.ID == "" {
 				return fmt.Errorf("%s pre_tag_steps[%d] is empty during merge-queue policy validation. Name the pre-tag step ids in verdict order, or drop the key when the repo has no pre-tag steps", where, i)
 			}
+			if !step.Check.IsValid() || seenSteps[step.ID] {
+				return fmt.Errorf("%s pre_tag_steps[%d] has an unknown check %q or a duplicate id during merge-queue policy validation. Use distinct {id, check} entries with a check from %s", where, i, step.Check, closedset.Join(AllPreTagChecks, ", "))
+			}
+			seenSteps[step.ID] = true
 		}
 	}
 	for i, bot := range queue.BotJobs {

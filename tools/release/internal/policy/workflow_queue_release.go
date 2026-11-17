@@ -43,8 +43,6 @@ var (
 	verdictArg = regexp.MustCompile(regexp.QuoteMeta(intent.FlagVerdict.String()) + `\s+(\$\{\{.*?\}\}|\S+)`)
 	// planRunner matches a step that runs the planner.
 	planRunner = regexp.MustCompile(toolCall(intent.CommandPlan))
-	// rangeReader matches a step that reads a commit range.
-	rangeReader = regexp.MustCompile(toolCall(intent.CommandPlan, intent.CommandReleasePR))
 )
 
 // gateAlternatives renders the planner's closed gate set as a regex
@@ -113,7 +111,7 @@ type releaseChecker struct {
 	jobName  string
 	doc      *yaml.Node
 	job      *yaml.Node
-	preTag   []string
+	preTag   []PreTagStep
 	steps    []*yaml.Node
 	stepJobs []string
 	ids      map[string]int
@@ -259,14 +257,14 @@ func isQueueReadStep(step *yaml.Node) bool {
 // outcome, and nothing else. With no pre-tag steps the verdict is the
 // taggable literal. The literals come from the intent package, the same
 // objects the planner prints.
-func canonicalVerdict(preTag []string) string {
+func canonicalVerdict(preTag []PreTagStep) string {
 	taggable := intent.VerdictTaggable.String()
 	if len(preTag) == 0 {
 		return taggable
 	}
 	parts := make([]string, 0, len(preTag))
-	for _, name := range preTag {
-		parts = append(parts, "steps."+name+".outcome == 'success'")
+	for _, step := range preTag {
+		parts = append(parts, "steps."+step.ID+".outcome == 'success'")
 	}
 	return "${{ (" + strings.Join(parts, " && ") + ") && '" + taggable + "' || '" + intent.VerdictRejected.String() + "' }}"
 }
@@ -423,7 +421,8 @@ func (r *releaseChecker) stepJobsHas(job string) bool {
 // pipe or background job, and no shell override, so the step's exit status
 // is the check's verdict.
 func (r *releaseChecker) checkPreTagSteps() {
-	for i, name := range r.preTag {
+	for i, declaration := range r.preTag {
+		name := declaration.ID
 		idx, ok := r.ids[name]
 		if !ok {
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
@@ -446,29 +445,76 @@ func (r *releaseChecker) checkPreTagSteps() {
 		case why != "":
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
 				"pre-tag step "+strconv.Quote(name)+" does not run exactly one command during merge-queue policy validation: "+why+". Run exactly one "+intent.ProgramName+" command, with no ||, &&, ;, &, pipe, second line, set +e or shell override, so the step's exit status is the check's verdict and nothing else can mask it")
-		case !isToolCommand(words):
+		case !checkMatches(declaration.Check, words):
 			r.c.emit(QueueRuleReleaseActions, r.workflow, name,
-				"pre-tag step "+strconv.Quote(name)+" runs "+strconv.Quote(firstLine(stepRunText(step)))+" during merge-queue policy validation instead of an implemented "+intent.ProgramName+" subcommand. Run the check itself here; a wrapper script that exits zero on a break would tag a rejected commit")
+				"pre-tag step "+strconv.Quote(name)+" runs "+strconv.Quote(firstLine(stepRunText(step)))+" during merge-queue policy validation instead of its declared check "+strconv.Quote(declaration.Check.String())+". Run the declared check itself, optionally through nix develop -c; a wrapper script that exits zero on a break would tag a rejected commit")
 		}
 	}
 }
 
-// isToolCommand reports whether one command's words call the tool by name
-// with an implemented subcommand.
-func isToolCommand(words []templateWord) bool {
-	if len(words) < 2 {
+func checkMatches(check PreTagCheck, words []templateWord) bool {
+	literal := func(i int, want string) bool {
+		if i >= len(words) {
+			return false
+		}
+		got, ok := words[i].literal()
+		return ok && got == want
+	}
+	if literal(0, "nix") && literal(1, "develop") {
+		switch {
+		case literal(2, "-c"):
+			words = words[3:]
+		case len(words) >= 4 && literal(3, "-c"):
+			flake, ok := words[2].literal()
+			if !ok || flake == "" || strings.HasPrefix(flake, "-") {
+				return false
+			}
+			words = words[4:]
+		default:
+			return false
+		}
+	}
+	switch check {
+	case PreTagCheckConfig:
+		return literal(0, intent.ProgramName) && literal(1, intent.CommandCheckConfig.String()) && validPreTagToolFlags(words)
+	case PreTagCheckWorkflows:
+		return literal(0, intent.ProgramName) && literal(1, intent.CommandCheckWorkflows.String()) && validPreTagToolFlags(words)
+	case PreTagCheckContract:
+		if !literal(0, intent.ProgramName) || !literal(1, intent.CommandCheckContract.String()) {
+			return false
+		}
+		until, report := false, false
+		for _, word := range words[2:] {
+			s, ok := word.literal()
+			if ok && s == intent.FlagPrintRangeBase.String() {
+				return false
+			}
+			until = until || ok && s == intent.FlagUntil.String()
+			report = report || ok && s == intent.FlagReport.String()
+		}
+		return until && report && validPreTagToolFlags(words)
+	case PreTagCheckFreeze:
+		return literal(0, "schema-gen") && literal(1, "freeze") && literal(2, "--check")
+	default:
 		return false
 	}
-	program, ok := words[0].literal()
-	if !ok || program != intent.ProgramName {
-		return false
+}
+
+func validPreTagToolFlags(words []templateWord) bool {
+	call := make(shellCommand, 0, len(words))
+	for _, word := range words {
+		if word.redirect {
+			return false
+		}
+		bare, ok := word.literal()
+		if !ok {
+			// A parameter is a value, not a flag. singleCommand has already
+			// required it to be quoted and confined its expansion.
+			bare = "value"
+		}
+		call = append(call, shellWord{raw: word.raw, bare: bare})
 	}
-	sub, ok := words[1].literal()
-	if !ok {
-		return false
-	}
-	_, err := intent.ParseCommand(sub)
-	return err == nil
+	return len(toolCallProblems(call)) == 0
 }
 
 // checkStatusFunctions (clause 5) requires every step after the first pre-tag
@@ -617,9 +663,9 @@ func (r *releaseChecker) checkArmHold() {
 	}
 }
 
-func isPreTag(preTag []string, id string) bool {
-	for _, name := range preTag {
-		if name == id {
+func isPreTag(preTag []PreTagStep, id string) bool {
+	for _, step := range preTag {
+		if step.ID == id {
 			return true
 		}
 	}

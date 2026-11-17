@@ -21,6 +21,21 @@ commands:
       - {flag: --head, required: true}
       - {flag: --author, required: true}
       - {flag: --head-branch, required: true}
+  - name: check-contract
+    usage: "usage: release-intent check-contract --report FILE [--until REV] [--floor SHA] [--print-range-base]"
+    flags:
+      - {flag: --report, required: true}
+      - {flag: --until}
+      - {flag: --floor}
+      - {flag: --print-range-base}
+  - name: freeze-plan
+    usage: "usage: release-intent freeze-plan --branch REF --state FILE --out FILE [--until REV] [--floor SHA]"
+    flags:
+      - {flag: --branch, required: true}
+      - {flag: --state, required: true}
+      - {flag: --out, required: true}
+      - {flag: --until}
+      - {flag: --floor}
   - name: classify
     usage: "usage: release-intent classify --author LOGIN --head-branch BRANCH --rev REV"
     flags:
@@ -39,7 +54,7 @@ commands:
       - {flag: --floor}
       - {flag: --verdict}
   - name: release-pr
-    usage: "usage: release-intent release-pr --branch REF [--floor SHA] [--write] [--commit] [--check] [--current REF]"
+    usage: "usage: release-intent release-pr --branch REF [--floor SHA] [--write] [--commit] [--check] [--current REF] [--freeze-plan FILE]"
     flags:
       - {flag: --branch, required: true}
       - {flag: --floor}
@@ -47,6 +62,7 @@ commands:
       - {flag: --commit}
       - {flag: --check}
       - {flag: --current}
+      - {flag: --freeze-plan}
   - name: queue-gate
     usage: "usage: release-intent queue-gate --queue FILE --release-pr N"
     flags:
@@ -79,13 +95,19 @@ flags:
   - {flag: --queue, takes_value: true}
   - {flag: --release-pr, takes_value: true}
   - {flag: --tag, takes_value: true}
+  - {flag: --report, takes_value: true}
+  - {flag: --until, takes_value: true}
+  - {flag: --state, takes_value: true}
+  - {flag: --out, takes_value: true}
+  - {flag: --freeze-plan, takes_value: true}
+  - {flag: --print-range-base}
 git_subcommands: [merge-base, log, diff, show, ls-tree, for-each-ref, merge-tree]
 exit_statuses: [0, 1, 2]
 reported_verdicts: [taggable, rejected]
 # Words outside each closed set. None may parse as a member, and none may
 # fall back to a default member.
 rejected:
-  commands: ["", "Plan", "check_config", "check-contract", "freeze-plan", "push", " plan"]
-  flags: ["", "--bogus", "-branch", "--Branch", "branch", "--until", "--branch "]
+  commands: ["", "Plan", "check_config", "check-contracts", "freeze-plans", "push", " plan"]
+  flags: ["", "--bogus", "-branch", "--Branch", "branch", "--untils", "--branch "]
   git_subcommands: ["", "push", "commit", "tag", "rev-list", "Log"]
   reported_verdicts: ["", "none", "Taggable", "fresh"]

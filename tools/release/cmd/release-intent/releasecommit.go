@@ -13,8 +13,6 @@ import (
 	"reflect"
 	"slices"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
@@ -33,6 +31,7 @@ type releaseFile struct {
 	file              *os.File
 	before, after     []byte
 	blob              string
+	added             bool
 }
 
 // prepareGit is intentionally separate from the read-only GitRunner. Its
@@ -127,9 +126,6 @@ func runReleaseCommit(flags flagValues) error {
 	if err != nil || headRef != botRef.String() {
 		return fmt.Errorf("release-pr --commit: checked-out branch must be the configured release bot branch %q; check it out at the source tip first", botRef)
 	}
-	if err := requireClean(ctx, g); err != nil {
-		return err
-	}
 	if err := requireNoReferenceHook(ctx, g); err != nil {
 		return err
 	}
@@ -160,32 +156,97 @@ func runReleaseCommit(flags flagValues) error {
 		return err
 	}
 
+	var freezePlan *intent.FreezePlan
+	if flags.Has(intent.FlagFreezePlan) {
+		data, err := os.ReadFile(flags.Value(intent.FlagFreezePlan))
+		if err != nil {
+			return fmt.Errorf("release-pr --commit: cannot read freeze plan: %w", err)
+		}
+		plan, err := intent.ParseFreezePlan(data, cfg)
+		if err != nil {
+			return err
+		}
+		states := intent.SurfaceStates{Status: intent.SurfaceStateSchemaVersion}
+		for _, s := range plan.Surfaces {
+			state := intent.SurfaceClean
+			if s.Freeze {
+				state = intent.SurfaceAhead
+			}
+			states.Surfaces = append(states.Surfaces, intent.SurfaceState{Name: s.Name, Label: s.Label, Frozen: s.From, State: state})
+		}
+		computed, err := intent.PlanFreeze(cfg, states, decision.Full.Pending)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(plan, computed) {
+			return fmt.Errorf("release-pr --commit: freeze plan does not match the landed titles; regenerate it from the current source range")
+		}
+		freezePlan = &plan
+	}
+	dirtyOutputs, err := releaseOutputChanges(ctx, g, cfg, freezePlan != nil)
+	if err != nil {
+		return err
+	}
 	files, err := openReleaseFiles(ctx, g, r, cfg, content, tip)
 	if err != nil {
 		return err
 	}
+	var extraOutputs []string
+	for _, name := range dirtyOutputs {
+		if !slices.Contains(versionPaths(cfg), name) {
+			extraOutputs = append(extraOutputs, name)
+		}
+	}
+	extra, err := openExtraReleaseFiles(ctx, g, r, cfg, tip, extraOutputs, freezePlan != nil)
+	if err != nil {
+		for i := range files {
+			_ = files[i].file.Close()
+		}
+		return err
+	}
+	files = append(files, extra...)
 	defer func() {
 		for i := range files {
 			_ = files[i].file.Close()
 		}
 	}()
 
+	if freezePlan != nil {
+		var dirty []string
+		for _, file := range files {
+			if slices.Contains(dirtyOutputs, file.name) && (file.added || !bytes.Equal(file.before, file.after)) {
+				dirty = append(dirty, file.name)
+			}
+		}
+		if err := intent.CheckFrozenPrimaryOutputs(cfg, *freezePlan, dirty); err != nil {
+			return rejectAsMode(intent.CommandReleasePR, intent.FlagCommit, err)
+		}
+	}
+	title, err := releaseCommitTitle(cfg, facts, decision, freezePlan)
+	if err != nil {
+		return err
+	}
+	output := func(push bool) error {
+		lines := releasePRLines(push, decision)
+		lines = append(lines[:len(lines)-1], out(intent.OutputSource, tip), out(intent.OutputTitle, title), out(intent.OutputError, ""))
+		return emit(lines...)
+	}
 	push := true
 	if flags.Has(intent.FlagCurrent) {
-		push, err = releaseCommitNeedsPush(ctx, g, r, cfg, tip, flags.Value(intent.FlagCurrent), content)
+		push, err = releaseCommitNeedsPush(ctx, g, r, cfg, tip, flags.Value(intent.FlagCurrent), title, content, files, freezePlan != nil)
 		if err != nil {
 			return err
 		}
 	}
 	if !push {
-		return emit(releasePRLines(false, decision)...)
+		return output(false)
 	}
 
 	changed := make([]int, 0, len(files))
 	changes := make([]intent.ProtectedChange, 0, len(files))
 	for i := range files {
 		f := &files[i]
-		if bytes.Equal(f.before, f.after) {
+		if !f.added && bytes.Equal(f.before, f.after) {
 			continue
 		}
 		changed = append(changed, i)
@@ -207,11 +268,6 @@ func runReleaseCommit(flags flagValues) error {
 	if err := intent.CheckProtectedPaths(cfg, changes, intent.PRKindRelease); err != nil {
 		return rejectAs(intent.CommandReleasePR, err)
 	}
-	title, err := releaseCommitTitle(cfg, facts, decision)
-	if err != nil {
-		return err
-	}
-
 	// Install only the already-computed bytes, then stage blobs directly. This
 	// avoids pathspec expansion, clean filters, and commit hooks. The index is
 	// inspected again before a commit object or branch ref is created.
@@ -268,7 +324,7 @@ func runReleaseCommit(flags flagValues) error {
 	if _, err := g.run(ctx, nil, nil, "update-ref", botRef.String(), strings.TrimSpace(string(commit)), tip); err != nil {
 		return fmt.Errorf("release-pr --commit: source or bot branch moved during preparation: %w; discard the incomplete worktree and retry", err)
 	}
-	return emit(releasePRLines(true, decision)...)
+	return output(true)
 }
 
 func validateReleasePaths(cfg intent.Config) error {
@@ -278,27 +334,13 @@ func validateReleasePaths(cfg intent.Config) error {
 	}
 	seen := map[string]bool{}
 	for _, name := range paths {
-		if name == "" || !utf8.ValidString(name) || path.Clean(name) != name || strings.HasPrefix(name, "/") || strings.ContainsAny(name, ":*?[]\\") || strings.IndexFunc(name, unicode.IsControl) >= 0 {
-			return fmt.Errorf("release-pr --commit: unsafe configured output path %q; use a literal repository-relative file path without pathspec characters", name)
-		}
-		for _, part := range strings.Split(name, "/") {
-			if part == "" || part == "." || part == ".." || strings.HasPrefix(part, "-") || strings.EqualFold(part, ".git") || strings.EqualFold(part, ".github") {
-				return fmt.Errorf("release-pr --commit: unsafe configured output path %q; do not target Git metadata, workflow configuration, or traversing paths", name)
-			}
+		if !intent.SafeReleaseOutput(name) {
+			return fmt.Errorf("release-pr --commit: unsafe configured output path %q; use a literal repository-relative file path outside Git metadata and workflow configuration", name)
 		}
 		if seen[name] {
 			return fmt.Errorf("release-pr --commit: unsafe duplicate configured output path %q; each output must have one role", name)
 		}
 		seen[name] = true
-		for _, glob := range cfg.ProtectedPaths {
-			match, err := path.Match(glob, name)
-			if err != nil {
-				return fmt.Errorf("release-pr --commit: invalid protected path pattern %q: %w", glob, err)
-			}
-			if name == glob || match {
-				return fmt.Errorf("release-pr --commit: output %q overlaps protected path %q; move the output or remove protection through a reviewed config change", name, glob)
-			}
-		}
 	}
 	if strings.EqualFold(path.Ext(cfg.Changelog), ".json") {
 		return fmt.Errorf("release-pr --commit: unsafe changelog %q: a changelog cannot replace a JSON document", cfg.Changelog)
@@ -306,24 +348,91 @@ func validateReleasePaths(cfg intent.Config) error {
 	return nil
 }
 
-func requireClean(ctx context.Context, g prepareGit) error {
+// releaseOutputChanges accepts only unstaged modifications or new files
+// covered by protected_paths or, when a validated plan is supplied, freeze_outputs.
+func releaseOutputChanges(ctx context.Context, g prepareGit, cfg intent.Config, withPlan bool) ([]string, error) {
 	entries, err := g.run(ctx, nil, nil, "ls-files", "-v", "-z")
 	if err != nil {
-		return fmt.Errorf("release-pr --commit: cannot inspect index flags: %w", err)
+		return nil, fmt.Errorf("release-pr --commit: cannot inspect index flags: %w", err)
 	}
 	for _, entry := range nulNames(entries) {
 		if !strings.HasPrefix(entry, "H ") {
-			return fmt.Errorf("release-pr --commit: index entry %q can hide changes or is unmerged; use a clean full checkout without assume-unchanged or skip-worktree entries", entry)
+			return nil, fmt.Errorf("release-pr --commit: index entry %q can hide changes or is unmerged; use a clean full checkout without assume-unchanged or skip-worktree entries", entry)
 		}
 	}
 	out, err := g.run(ctx, nil, nil, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
 	if err != nil {
-		return fmt.Errorf("release-pr --commit: cannot inspect working tree: %w", err)
+		return nil, fmt.Errorf("release-pr --commit: cannot inspect working tree: %w", err)
 	}
-	if len(out) != 0 {
-		return fmt.Errorf("release-pr --commit: working tree and index must be clean, including untracked files; use a clean checkout before preparing the release")
+	var outputs []string
+	for _, entry := range nulNames(out) {
+		if len(entry) < 4 || (entry[:3] != " M " && entry[:3] != "?? ") {
+			return nil, fmt.Errorf("release-pr --commit: working tree and index must be clean except for unstaged regular permitted outputs; unexpected status %q", entry)
+		}
+		name := entry[3:]
+		if !intent.SafeReleaseOutput(name) || !releaseOutputAllowed(cfg, name, withPlan) || name == cfg.Changelog {
+			return nil, fmt.Errorf("release-pr --commit: working tree and index must be clean except for protected paths and plan-authorized freeze outputs; unexpected path %q", name)
+		}
+		outputs = append(outputs, name)
 	}
-	return nil
+	return outputs, nil
+}
+
+func releaseOutputAllowed(cfg intent.Config, name string, withPlan bool) bool {
+	return intent.IsProtectedPath(cfg, name) || (withPlan && intent.IsFreezeOutput(cfg, name))
+}
+
+func openExtraReleaseFiles(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip string, names []string, withPlan bool) ([]releaseFile, error) {
+	var files []releaseFile
+	fail := func(err error) ([]releaseFile, error) {
+		for _, f := range files {
+			_ = f.file.Close()
+		}
+		return nil, err
+	}
+	for _, name := range names {
+		if !releaseOutputAllowed(cfg, name, withPlan) || !intent.SafeReleaseOutput(name) {
+			return fail(fmt.Errorf("release-pr --commit: unsafe or unpermitted output path %q", name))
+		}
+		f, err := openConfined(name)
+		if err != nil {
+			return fail(fmt.Errorf("release-pr --commit: cannot open release output %q without symlinks: %w", name, err))
+		}
+		row := releaseFile{name: name, file: f}
+		files = append(files, row)
+		rowPtr := &files[len(files)-1]
+		rowPtr.after, err = io.ReadAll(f)
+		if err != nil {
+			return fail(err)
+		}
+		source, err := r.ReadFile(ctx, tip, name)
+		var absent *NotFoundError
+		switch {
+		case err == nil:
+			rowPtr.before = source
+			rowPtr.mode, _, err = indexEntry(ctx, g, name)
+			if err != nil {
+				return fail(fmt.Errorf("release-pr --commit: release output %q is not a tracked regular file: %w", name, err))
+			}
+			info, err := f.Stat()
+			if err != nil || (info.Mode().Perm()&0o111 != 0) != (rowPtr.mode == "100755") {
+				return fail(fmt.Errorf("release-pr --commit: release output %q changed mode; restore the tracked mode", name))
+			}
+		case errors.As(err, &absent):
+			info, statErr := f.Stat()
+			if statErr != nil {
+				return fail(statErr)
+			}
+			rowPtr.added = true
+			rowPtr.mode = "100644"
+			if info.Mode().Perm()&0o111 != 0 {
+				rowPtr.mode = "100755"
+			}
+		default:
+			return fail(fmt.Errorf("release-pr --commit: cannot read release output %q at source: %w", name, err))
+		}
+	}
+	return files, nil
 }
 
 // update-ref can execute a reference-transaction hook even though commit-tree
@@ -382,16 +491,25 @@ func openReleaseFiles(ctx context.Context, g prepareGit, r GitRunner, cfg intent
 			return nil, fmt.Errorf("release-pr --commit: cannot open source %q as a regular file without symlinks: %w; restore the tracked source file", f.name, err)
 		}
 		f.mode, _, err = indexEntry(ctx, g, f.name)
+		var working []byte
 		if err == nil {
-			f.before, err = io.ReadAll(f.file)
+			var info os.FileInfo
+			info, err = f.file.Stat()
+			if err == nil && (info.Mode().Perm()&0o111 != 0) != (f.mode == "100755") {
+				err = fmt.Errorf("working file mode differs from source")
+			}
+		}
+		if err == nil {
+			working, err = io.ReadAll(f.file)
 		}
 		var source []byte
 		if err == nil {
 			source, err = r.ReadFile(ctx, tip, f.name)
 		}
-		if err == nil && !bytes.Equal(source, f.before) {
+		if err == nil && !bytes.Equal(source, working) {
 			err = fmt.Errorf("working bytes differ from source commit")
 		}
+		f.before = source
 		if err == nil && f.field != "" {
 			var ok bool
 			version, exists := content.Versions[f.name]
@@ -399,7 +517,7 @@ func openReleaseFiles(ctx context.Context, g prepareGit, r GitRunner, cfg intent
 			if !ok {
 				err = fmt.Errorf("generator did not provide a version")
 			} else {
-				f.after, err = intent.WriteVersionField(f.before, f.field, version)
+				f.after, err = intent.WriteVersionField(source, f.field, version)
 			}
 		}
 		if err != nil {
@@ -412,13 +530,21 @@ func openReleaseFiles(ctx context.Context, g prepareGit, r GitRunner, cfg intent
 	return files, nil
 }
 
-func releaseCommitTitle(cfg intent.Config, facts intent.Facts, decision intent.Decision) (string, error) {
+func releaseCommitTitle(cfg intent.Config, facts intent.Facts, decision intent.Decision, plan *intent.FreezePlan) (string, error) {
 	title := intent.Title{Type: intent.TypeRelease, Subject: decision.Full.Tag}
 	for _, pending := range decision.Full.Pending {
 		if pending.Level > title.Level {
 			title.Level = pending.Level
 		}
 		title.Breaking = title.Breaking || pending.Breaking
+	}
+	if plan != nil {
+		for _, surface := range plan.Surfaces {
+			if surface.Freeze {
+				title.Scopes = append(title.Scopes, surface.Name)
+				title.Subject += ", " + surface.Label + " " + surface.To.String()
+			}
+		}
 	}
 	text := intent.FormatTitle(title)
 	_, current, ok := intent.HighestFinalTag(facts.Tags, cfg.TagPrefix)
@@ -434,13 +560,20 @@ func releaseCommitTitle(cfg intent.Config, facts intent.Facts, decision intent.D
 // releaseCommitNeedsPush accepts a no-op only for a readable, mergeable
 // current branch with both fresh content and no changes outside release scope.
 // A missing --current ref is an error: omit the flag for a new branch.
-func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip, current string, content intent.Content) (bool, error) {
+func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip, current, title string, content intent.Content, files []releaseFile, withPlan bool) (bool, error) {
 	if current == "" || strings.HasPrefix(current, "-") {
 		return false, fmt.Errorf("release-pr --commit: invalid current branch %q; omit --current only when no branch exists", current)
 	}
 	currentOID, err := g.text(ctx, "rev-parse", "--verify", "--end-of-options", current+"^{commit}")
 	if err != nil {
 		return false, fmt.Errorf("release-pr --commit: cannot resolve current branch %q: %w; fetch it or omit --current for a new branch", current, err)
+	}
+	currentTitle, err := g.text(ctx, "show", "-s", "--format=%s", "--end-of-options", currentOID)
+	if err != nil {
+		return false, fmt.Errorf("release-pr --commit: cannot inspect the current branch title: %w", err)
+	}
+	if currentTitle != title {
+		return true, nil
 	}
 	got, err := fileContent(func(name string) ([]byte, error) { return r.ReadFile(ctx, currentOID, name) }, cfg, content)
 	if err != nil {
@@ -474,6 +607,50 @@ func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg 
 		return false, fmt.Errorf("release-pr --commit: cannot validate current branch changes: %w", err)
 	}
 	if intent.CheckProtectedPaths(cfg, changes, intent.PRKindRelease) != nil {
+		return true, nil
+	}
+	if !withPlan {
+		for _, name := range paths {
+			if intent.IsFreezeOutput(cfg, name) && !intent.IsProtectedPath(cfg, name) {
+				return true, nil
+			}
+		}
+	}
+	// Compare the entire allowed output set, including bytes and modes:
+	// matching changelog/version fields alone says nothing about a freeze.
+	desired := map[string]releaseFile{}
+	for _, file := range files {
+		if file.name != cfg.Changelog && releaseOutputAllowed(cfg, file.name, withPlan) && (file.added || !bytes.Equal(file.before, file.after)) {
+			desired[file.name] = file
+		}
+	}
+	seen := map[string]bool{}
+	for _, name := range paths {
+		if !releaseOutputAllowed(cfg, name, withPlan) || name == cfg.Changelog {
+			continue
+		}
+		file, ok := desired[name]
+		if !ok {
+			return true, nil
+		}
+		got, err := r.ReadFile(ctx, currentOID, name)
+		if err != nil {
+			var absent *NotFoundError
+			if errors.As(err, &absent) {
+				return true, nil
+			}
+			return false, fmt.Errorf("release-pr --commit: cannot inspect current release output %q: %w", name, err)
+		}
+		mode, err := treeMode(ctx, g, currentOID, name)
+		if err != nil {
+			return false, fmt.Errorf("release-pr --commit: cannot inspect current release output mode %q: %w", name, err)
+		}
+		if mode != file.mode || !bytes.Equal(got, file.after) {
+			return true, nil
+		}
+		seen[name] = true
+	}
+	if len(seen) != len(desired) {
 		return true, nil
 	}
 	// Content comparison alone cannot see a mode change or symlink blob.
@@ -608,7 +785,14 @@ func verifyStagedRelease(ctx context.Context, g prepareGit, files []releaseFile,
 	statusEntries := nulNames(status)
 	wantStatus := make([]string, 0, len(want))
 	for _, name := range want {
-		wantStatus = append(wantStatus, "M  "+name)
+		status := "M  "
+		for _, f := range files {
+			if f.name == name && f.added {
+				status = "A  "
+				break
+			}
+		}
+		wantStatus = append(wantStatus, status+name)
 	}
 	slices.Sort(statusEntries)
 	slices.Sort(wantStatus)

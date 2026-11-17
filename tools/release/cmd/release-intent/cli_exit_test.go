@@ -416,7 +416,11 @@ func setupCurrentBranch(t *testing.T, setup processSetup) *testRepo {
 	}
 	release := r.BotBranch(intent.PRKindRelease)
 	r.CreateBranch(release)
-	r.Commit(releaseTitled(intent.LevelMinor, "release content"))
+	next, err := intent.NextVersion(r.fix.SeedVersion, intent.LevelMinor, false)
+	if err != nil {
+		t.Fatalf("setup current release version: %v", err)
+	}
+	r.Commit(releaseTitled(intent.LevelMinor, r.TagName(next)))
 	r.Checkout(r.Trunk())
 	switch setup {
 	case setupCurrentSame:

@@ -25,7 +25,15 @@ func toolCalls(run string) []shellCommand {
 	var out []shellCommand
 	for _, cmd := range scanCommands(run) {
 		at := commandWord(cmd)
-		if at < 0 || path.Base(cmd[at].bare) != intent.ProgramName {
+		if at >= 0 && len(cmd) > at+2 && cmd[at].bare == "nix" && cmd[at+1].bare == "develop" {
+			switch {
+			case cmd[at+2].bare == "-c":
+				at += 3
+			case len(cmd) > at+3 && cmd[at+3].bare == "-c" && !strings.HasPrefix(cmd[at+2].bare, "-"):
+				at += 4
+			}
+		}
+		if at < 0 || at >= len(cmd) || path.Base(cmd[at].bare) != intent.ProgramName {
 			continue
 		}
 		out = append(out, cmd[at:])
@@ -63,6 +71,9 @@ func toolCallProblems(call shellCommand) []string {
 		}
 	}
 	for _, flag := range command.RequiredFlags() {
+		if command == intent.CommandCheckContract && flag == intent.FlagReport && passed[intent.FlagPrintRangeBase] {
+			continue
+		}
 		if !passed[flag] {
 			problems = append(problems, "missing required flag "+strconv.Quote(flag.String()))
 		}

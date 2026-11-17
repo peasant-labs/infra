@@ -16,7 +16,111 @@ required_names:
   - bot-branch-no-prefix
   - bot-branch-prefix-alone
   - two-documents
+  - surfaces-and-freeze
+  - multiple-stems
+  - freeze-without-surfaces
+  - freeze-while-quiet
+  - empty-surface-stems
+  - duplicated-stem
+  - stem-with-path
+  - stem-with-version
+  - stem-with-extension
+  - scalar-stem-refused
+  - invalid-protected-glob
+  - freeze-outputs-config
+  - freeze-outputs-with-freeze-disabled
+  - freeze-output-traversal
+  - freeze-output-absolute
+  - freeze-output-git-metadata
+  - freeze-output-workflow
+  - freeze-output-invalid-glob
+  - freeze-output-pathspec
+  - freeze-output-duplicate
+  - freeze-output-changelog
+  - freeze-output-changelog-glob
+  - freeze-output-version-literal
+  - freeze-output-version-glob
+  - freeze-output-wrong-type
+  - freeze-output-empty-entry
+  - freeze-dir-required
+  - freeze-dir-absolute
+  - freeze-dir-traversal
+  - freeze-dir-git-metadata
+  - freeze-dir-workflow
+  - freeze-dir-trailing-slash
+  - freeze-dir-glob
+  - protected-changelog-literal
+  - protected-changelog-glob
+  - protected-version-literal
+  - protected-version-glob
 cases:
+  - name: freeze-outputs-config
+    input:
+      document: |
+        releases: true
+        tag_prefix: v
+        automation_author: bot
+        changelog: CHANGELOG.md
+        version_files: [{path: package.json, field: version}]
+        surfaces: {api: [api, publish-request]}
+        spec_freeze: true
+        freeze_dir: generated
+        freeze_outputs: [generated/api.json, 'generated/working-*.json', registry.yaml, mirrors/api.json]
+    expected:
+      releases: true
+      tag_prefix: v
+      automation_author: bot
+      changelog: CHANGELOG.md
+      version_files: [{path: package.json, field: version}]
+      surfaces: {api: [api, publish-request]}
+      surface_order: [api]
+      spec_freeze: true
+      freeze_dir: generated
+      freeze_outputs: [generated/api.json, 'generated/working-*.json', registry.yaml, mirrors/api.json]
+    classification: must-pass
+    provenance: &freeze_outputs_p {source: requirement, ref: "configured freeze writer outputs"}
+    mutation: &freeze_outputs_m {description: "Change one freeze output boundary."}
+  - {name: freeze-outputs-with-freeze-disabled, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nfreeze_outputs: [registry.yaml]\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-traversal, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: ['generated/../outside']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-absolute, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: ['/tmp/output']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-git-metadata, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: ['generated/.git/config']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-workflow, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: ['.github/workflows/*']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-invalid-glob, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: ['generated/[']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-pathspec, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: [':(glob)*']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-duplicate, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: [registry.yaml, registry.yaml]\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-changelog, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: [CHANGELOG.md]\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-changelog-glob, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: ['CHANGELOG.*']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-version-literal, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nversion_files: [{path: package.json, field: version}]\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: [package.json]\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-version-glob, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nversion_files: [{path: package.json, field: version}]\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: ['*.json']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-wrong-type, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: registry.yaml\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-output-empty-entry, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated\nfreeze_outputs: ['']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-dir-required, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-dir-absolute, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: /tmp/generated\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-dir-traversal, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: ../generated\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-dir-git-metadata, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated/.git\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-dir-workflow, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: .github/workflows\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-dir-trailing-slash, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: generated/\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: freeze-dir-glob, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {api: [api]}\nspec_freeze: true\nfreeze_dir: 'generated/*'\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: freeze-outputs-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: protected-changelog-literal, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nprotected_paths: [CHANGELOG.md]\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: full-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: protected-changelog-glob, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nprotected_paths: ['CHANGELOG.*']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: full-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: protected-version-literal, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nversion_files: [{path: package.json, field: version}]\nprotected_paths: [package.json]\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: full-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - {name: protected-version-glob, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nversion_files: [{path: package.json, field: version}]\nprotected_paths: ['*.json']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: full-config, provenance: *freeze_outputs_p, mutation: *freeze_outputs_m}
+  - name: surfaces-and-freeze
+    input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {segmented-read: [segmented-read]}\nspec_freeze: true\nfreeze_dir: generated\n"}
+    expected: {releases: true, tag_prefix: v, automation_author: bot, changelog: CHANGELOG.md, surfaces: {segmented-read: [segmented-read]}, surface_order: [segmented-read], spec_freeze: true, freeze_dir: generated}
+    classification: must-pass
+    provenance: &surface_provenance {source: requirement, ref: "surface config and spec freeze"}
+    mutation: &surface_mutation {description: "Change one surface config boundary."}
+  - {name: multiple-stems, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {village-api: [village-api, publish-request]}\n"}, expected: {releases: true, tag_prefix: v, automation_author: bot, changelog: CHANGELOG.md, surfaces: {village-api: [village-api, publish-request]}, surface_order: [village-api]}, classification: must-pass, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: freeze-without-surfaces, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nspec_freeze: true\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: freeze-while-quiet, input: {document: "releases: false\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nspec_freeze: true\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: minimal-quiet-config, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: empty-surface-stems, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: []}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: duplicated-stem, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: [types], other: [types]}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: multiple-stems, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: stem-with-path, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: [generated/types]}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: stem-with-version, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: [types-1]}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: stem-with-extension, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: [types.json]}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: scalar-stem-refused, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nsurfaces: {types: types}\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: surfaces-and-freeze, provenance: *surface_provenance, mutation: *surface_mutation}
+  - {name: invalid-protected-glob, input: {document: "releases: true\ntag_prefix: v\nautomation_author: bot\nchangelog: CHANGELOG.md\nprotected_paths: ['generated/[']\n"}, expected: {code: config-invalid}, classification: must-fail, sibling: full-config, provenance: *surface_provenance, mutation: *surface_mutation}
   - name: full-config
     input:
       document: |
@@ -94,7 +198,7 @@ cases:
         automation_author: peasant-labs-releaser[bot]
         changelog: CHANGELOG.md
         surfaces:
-          types: types
+          types: [types]
     expected: {code: "config-invalid"}
     classification: must-fail
     sibling: minimal-quiet-config

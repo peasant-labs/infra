@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -94,7 +96,71 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := checkConfig(cfg, "release config bytes, parsed by intent.ParseConfig"); err != nil {
 		return Config{}, err
 	}
+	cfg.SurfaceOrder = configSurfaceOrder(data, cfg.Surfaces)
 	return cfg, nil
+}
+
+// configSurfaceOrder retains YAML map order for the release title and freeze
+// plan. Merged map entries not explicitly present are appended in name order.
+func configSurfaceOrder(data []byte, surfaces map[string][]string) []string {
+	if len(surfaces) == 0 {
+		return nil
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return nil // ParseConfig has already validated the same document.
+	}
+	root := doc.Content[0]
+	var mapping *yaml.Node
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "surfaces" {
+			mapping = root.Content[i+1]
+			break
+		}
+	}
+	if mapping != nil && mapping.Kind == yaml.AliasNode {
+		mapping = mapping.Alias
+	}
+	seen := map[string]bool{}
+	var names []string
+	if mapping != nil && mapping.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			name := mapping.Content[i].Value
+			if _, ok := surfaces[name]; ok && !seen[name] {
+				names = append(names, name)
+				seen[name] = true
+			}
+		}
+	}
+	var remaining []string
+	for name := range surfaces {
+		if !seen[name] {
+			remaining = append(remaining, name)
+		}
+	}
+	sort.Strings(remaining)
+	return append(names, remaining...)
+}
+
+// SurfaceNames returns config order, falling back to sorted names for a
+// programmatically constructed Config that has no source document.
+func (cfg Config) SurfaceNames() []string {
+	names := make([]string, 0, len(cfg.Surfaces))
+	seen := map[string]bool{}
+	for _, name := range cfg.SurfaceOrder {
+		if _, ok := cfg.Surfaces[name]; ok && !seen[name] {
+			names = append(names, name)
+			seen[name] = true
+		}
+	}
+	var remaining []string
+	for name := range cfg.Surfaces {
+		if !seen[name] {
+			remaining = append(remaining, name)
+		}
+	}
+	sort.Strings(remaining)
+	return append(names, remaining...)
 }
 
 // checkConfig validates the loaded values beyond their YAML shape. where
@@ -125,17 +191,85 @@ func checkConfig(cfg Config, where string) error {
 				"set both path and field to the version file and its top-level version key")
 		}
 	}
-	for name, stem := range cfg.Surfaces {
-		if name == "" || stem == "" {
-			return fail("a surfaces entry names an empty surface or stem",
-				"each surface maps a closed scope name to the file stem it versions",
-				"drop the empty entry or give both the surface name and its stem")
+	reservedPaths := append([]string{cfg.Changelog}, configVersionPaths(cfg)...)
+	for _, glob := range cfg.ProtectedPaths {
+		if glob == "" {
+			return fail("protected_paths contains an empty pattern", "each protected path must name a path or a glob", "remove the empty entry or name a protected path")
+		}
+		if _, err := path.Match(glob, ""); err != nil {
+			return fail("protected_paths contains invalid pattern "+strconv.Quote(glob), "an invalid glob cannot reliably protect its paths", "correct the path glob")
+		}
+		for _, reserved := range reservedPaths {
+			if matchesPathPattern(glob, reserved) {
+				return fail("protected_paths pattern "+strconv.Quote(glob)+" matches reserved path "+strconv.Quote(reserved),
+					"the changelog and version files have their own release rules",
+					"narrow or remove the pattern so it excludes the changelog and every version file")
+			}
+		}
+	}
+	if len(cfg.FreezeOutputs) > 0 && !cfg.SpecFreeze {
+		return fail("freeze_outputs is non-empty while spec_freeze is disabled",
+			"freeze outputs are authorized only for a repository that freezes surfaces",
+			"enable spec_freeze with releasing surfaces, or remove freeze_outputs")
+	}
+	seenOutputs := map[string]bool{}
+	for _, glob := range cfg.FreezeOutputs {
+		if !safeReleasePattern(glob) {
+			return fail("freeze_outputs contains unsafe or invalid pattern "+strconv.Quote(glob),
+				"freeze outputs must be confined repository-relative paths or valid globs",
+				"use a safe path or glob outside Git metadata and workflow configuration")
+		}
+		if seenOutputs[glob] {
+			return fail("freeze_outputs contains duplicate pattern "+strconv.Quote(glob),
+				"each configured freeze output pattern must be listed once",
+				"remove the duplicate pattern")
+		}
+		seenOutputs[glob] = true
+		for _, reserved := range reservedPaths {
+			if matchesPathPattern(glob, reserved) {
+				return fail("freeze_outputs pattern "+strconv.Quote(glob)+" matches reserved path "+strconv.Quote(reserved),
+					"the changelog and version files have their own release rules",
+					"narrow or remove the pattern so it excludes the changelog and every version file")
+			}
+		}
+	}
+	seenStems := map[string]string{}
+	for name, stems := range cfg.Surfaces {
+		if !scopePattern.MatchString(name) || len(stems) == 0 {
+			return fail("surface "+strconv.Quote(name)+" has an invalid scope name or no stems",
+				"each surface must be nameable in a title and own at least one generated file stem",
+				"use a lowercase title scope and list its file stems")
+		}
+		for _, stem := range stems {
+			if stem == "" || strings.ContainsAny(stem, `/\.`) || strings.IndexFunc(stem, func(r rune) bool {
+				return (r < 'a' || r > 'z') && r != '-'
+			}) >= 0 {
+				return fail("surface "+strconv.Quote(name)+" has invalid stem "+strconv.Quote(stem),
+					"file stems contain lowercase letters and hyphens, not paths, versions or extensions",
+					"list only unversioned generated file stems")
+			}
+			if previous, ok := seenStems[stem]; ok {
+				return fail("stem "+strconv.Quote(stem)+" is claimed by "+strconv.Quote(previous)+" and "+strconv.Quote(name),
+					"each generated file stem belongs to exactly one surface",
+					"list the stem once under its owning surface")
+			}
+			seenStems[stem] = name
 		}
 	}
 	if !cfg.Releases && len(cfg.Surfaces) > 0 {
 		return fail("a repo that does not release names surfaces",
 			"surfaces drive bumps, and nothing bumps where releases are off",
 			"either set releases to true or drop the surfaces map")
+	}
+	if cfg.SpecFreeze && (!cfg.Releases || len(cfg.Surfaces) == 0) {
+		return fail("spec_freeze is enabled without releasing surfaces",
+			"freezing needs releases and at least one configured surface",
+			"enable releases and list the surfaces, or disable spec_freeze")
+	}
+	if (cfg.SpecFreeze || cfg.FreezeDir != "") && !SafeReleaseOutput(cfg.FreezeDir) {
+		return fail("freeze_dir is missing or unsafe: "+strconv.Quote(cfg.FreezeDir),
+			"freezing needs a literal, confined repository-relative directory for numbered documents",
+			"set freeze_dir to a safe relative directory without a trailing slash, traversal, Git metadata, workflow paths or glob characters")
 	}
 	seenBranches := map[string]PRKind{}
 	for kind, branch := range cfg.BotBranches {
