@@ -510,9 +510,8 @@ const (
 	ErrReleaseContentStale ErrorCode = "release-content-stale"
 	ErrConfigInvalid       ErrorCode = "config-invalid"
 	ErrPolicyViolation     ErrorCode = "policy-violation"
-	// ErrReleaseContentScope rejects a release PR that changes anything but
-	// the changelog and the protected version fields, or a cut-release PR
-	// that changes any path.
+	// ErrReleaseContentScope rejects a release PR that changes paths outside
+	// its configured release scope, or a cut-release PR that changes any path.
 	ErrReleaseContentScope ErrorCode = "release-content-scope"
 	// ErrTagUnverified rejects a release tag whose name is not the release
 	// prefix plus a version, or whose commit the default branch does not
@@ -522,6 +521,7 @@ const (
 	ErrSpecChangeNeedsBump   ErrorCode = "spec-change-needs-bump"
 	ErrSurfaceMismatch       ErrorCode = "surface-mismatch"
 	ErrSurfaceUndeclared     ErrorCode = "surface-undeclared"
+	ErrFreezeOutputMissing   ErrorCode = "freeze-output-missing"
 )
 
 // AllErrorCodes is the canonical closed set of typed error codes.
@@ -546,6 +546,7 @@ var AllErrorCodes = []ErrorCode{
 	ErrSpecChangeNeedsBump,
 	ErrSurfaceMismatch,
 	ErrSurfaceUndeclared,
+	ErrFreezeOutputMissing,
 }
 
 func (c ErrorCode) String() string { return string(c) }
@@ -619,6 +620,7 @@ type Config struct {
 	Changelog        string              `yaml:"changelog"`
 	VersionFiles     []VersionFile       `yaml:"version_files"`
 	ProtectedPaths   []string            `yaml:"protected_paths"`
+	FreezeOutputs    []string            `yaml:"freeze_outputs,omitempty"`
 	Surfaces         map[string][]string `yaml:"surfaces"`
 	// SurfaceOrder retains the config document's surface-map order. It is
 	// derived when loading, never a separate configuration key.

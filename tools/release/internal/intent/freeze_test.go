@@ -3,6 +3,7 @@ package intent_test
 import (
 	_ "embed"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
@@ -14,6 +15,37 @@ var freezeCorpusYAML []byte
 
 //go:embed testdata/freeze_documents.yaml
 var freezeDocumentsYAML []byte
+
+//go:embed testdata/freeze_outputs.yaml
+var freezeOutputCorpusYAML []byte
+
+type freezeOutputInput struct {
+	Config intent.Config     `yaml:"config"`
+	Plan   intent.FreezePlan `yaml:"plan"`
+	Dirty  []string          `yaml:"dirty"`
+}
+
+type freezeOutputExpected struct {
+	Code    intent.ErrorCode `yaml:"code"`
+	Surface string           `yaml:"surface"`
+	Prefix  string           `yaml:"prefix"`
+}
+
+func TestFrozenPrimaryOutputs(t *testing.T) {
+	for _, c := range loadNamedCorpus[freezeOutputInput, freezeOutputExpected](t, freezeOutputCorpusYAML).Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			err := intent.CheckFrozenPrimaryOutputs(c.Input.Config, c.Input.Plan, c.Input.Dirty)
+			if c.Classification == testcase.MustFail {
+				requireSixParts(t, err, c.Expected.Code)
+				if !strings.Contains(err.Error(), c.Expected.Surface) || !strings.Contains(err.Error(), c.Expected.Prefix) {
+					t.Fatalf("error %q does not name surface %q and prefix %q", err, c.Expected.Surface, c.Expected.Prefix)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 type freezeDocumentInput struct {
 	Kind     string `yaml:"kind"`

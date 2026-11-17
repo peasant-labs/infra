@@ -39,6 +39,23 @@ required_names:
   - protected-current-unchanged
   - protected-current-changed
   - protected-current-title-changed
+  - freeze-outputs-and-multiple-surfaces
+  - freeze-output-without-plan
+  - freeze-output-outside-declared-set
+  - freeze-output-missing-primary
+  - freeze-output-secondary-not-primary
+  - freeze-output-wrong-version
+  - freeze-output-unchanged-primary
+  - freeze-output-missing-second-surface
+  - freeze-output-staged-refused
+  - freeze-output-symlink-refused
+  - freeze-output-forged-plan-refused
+  - freeze-current-unchanged
+  - freeze-current-working-file-changed
+  - freeze-current-removed-output
+  - freeze-current-missing-primary
+  - freeze-current-without-plan-rebuilt
+  - freeze-current-same-title-without-plan-rebuilt
   - wrong-checked-out-branch
   - bot-branch-at-wrong-tip
   - commit-plus-write-refused
@@ -133,7 +150,7 @@ cases:
         <<: *initial-output
         title: "release(local-api)[minor]: v0.2.0, Local API 0.2.0"
         changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- freeze changes\n"
-        paths: "CHANGELOG.md\ngenerated/types-0.2.0.json\npackage.json\nversions.go"
+        paths: "CHANGELOG.md\ngenerated/local-0.2.0.json\npackage.json\nversions.go"
       classification: must-pass
       provenance: *protect_p
       mutation: *protect_m
@@ -154,7 +171,7 @@ cases:
         <<: *initial-output
         title: "release(local-api)[minor]: v0.2.0, Local API 0.2.0"
         changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- freeze changes\n"
-        paths: "CHANGELOG.md\ngenerated/types-0.2.0.json\npackage.json\nversions.go"
+        paths: "CHANGELOG.md\ngenerated/local-0.2.0.json\npackage.json\nversions.go"
       classification: must-pass
       provenance: *protect_p
       mutation: *protect_m
@@ -170,6 +187,200 @@ cases:
       classification: must-fail
       provenance: *protect_p
       mutation: *protect_m
+    - name: freeze-outputs-and-multiple-surfaces
+      input:
+        scenario: freeze-outputs
+        plan: &multi_plan |
+          plan: 1
+          surfaces:
+            - {name: api, label: API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}
+            - {name: types, label: Types, from: 0.1.0, to: 0.1.1, level: patch, breaking: false, freeze: true}
+        files: &freeze_files
+          generated/api.json: "working after\n"
+          generated/api-0.2.0.json: "frozen api\n"
+          generated/types-0.1.1.yaml: "frozen types\n"
+          registry.yaml: "registry after\n"
+          mirrors/api.json: "mirror after\n"
+      expected: &freeze_output
+        <<: *initial-output
+        title: "release(api,types)[minor]: v0.2.0, API 0.2.0, Types 0.1.1"
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- freeze api\n- freeze types\n"
+        paths: "CHANGELOG.md\ngenerated/api-0.2.0.json\ngenerated/api.json\ngenerated/types-0.1.1.yaml\nmirrors/api.json\npackage.json\nregistry.yaml"
+      classification: must-pass
+      provenance: &freeze_p {source: requirement, ref: "plan-gated freeze writer outputs and numbered primary documents"}
+      mutation: &freeze_m {description: "Change the plan, dirty outputs, or current branch."}
+    - name: freeze-output-without-plan
+      input: {scenario: freeze-outputs, files: *freeze_files}
+      expected: {exit: 1, error: "unexpected path"}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-outside-declared-set
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        files:
+          <<: *freeze_files
+          other.txt: "unexpected\n"
+      expected: {exit: 1, error: "unexpected path", details: [other.txt]}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-missing-primary
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        files: {generated/api.json: "working after\n", generated/types-0.1.1.yaml: "frozen types\n"}
+      expected: {exit: 2, error: "freeze-output-missing", code: freeze-output-missing, details: [api, "generated/api-0.2.0."]}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-secondary-not-primary
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        files: {generated/request-0.2.0.json: "secondary\n", generated/types-0.1.1.yaml: "frozen types\n"}
+      expected: {exit: 2, error: "freeze-output-missing", code: freeze-output-missing, details: [api, "generated/api-0.2.0."]}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-wrong-version
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        files: {generated/api-0.1.0.json: "old\n", generated/types-0.1.1.yaml: "frozen types\n"}
+      expected: {exit: 2, error: "freeze-output-missing", code: freeze-output-missing, details: [api, "generated/api-0.2.0."]}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-unchanged-primary
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        base_files: {generated/api-0.2.0.json: "already present\n"}
+        files: {generated/api-0.2.0.json: "already present\n", generated/types-0.1.1.yaml: "frozen types\n"}
+      expected: {exit: 2, error: "freeze-output-missing", code: freeze-output-missing, details: [api, "generated/api-0.2.0."]}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-missing-second-surface
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        files: {generated/api-0.2.0.json: "frozen api\n"}
+      expected: {exit: 2, error: "freeze-output-missing", code: freeze-output-missing, details: [types, "generated/types-0.1.1."]}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-staged-refused
+      input: {scenario: freeze-outputs, plan: *multi_plan, files: *freeze_files, stage: [registry.yaml]}
+      expected: {exit: 1, error: "clean"}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-symlink-refused
+      input: {scenario: freeze-outputs, plan: *multi_plan, files: *freeze_files, symlinks: {mirrors/new.json: ../registry.yaml}}
+      expected: {exit: 1, error: "symlink"}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-output-forged-plan-refused
+      input:
+        scenario: freeze-outputs
+        files: *freeze_files
+        plan: |
+          plan: 1
+          surfaces:
+            - {name: api, label: API, from: 0.1.0, to: 0.1.1, level: patch, breaking: false, freeze: true}
+            - {name: types, label: Types, from: 0.1.0, to: 0.1.1, level: patch, breaking: false, freeze: true}
+      expected: {exit: 1, error: "does not match"}
+      classification: must-fail
+      sibling: freeze-outputs-and-multiple-surfaces
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-current-unchanged
+      input: {scenario: freeze-outputs, plan: *multi_plan, files: *freeze_files, current: true, current_files: *freeze_files}
+      expected: {exit: 0, push: false, version: "0.2.0"}
+      classification: must-pass
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-current-working-file-changed
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        files: *freeze_files
+        current: true
+        current_files:
+          <<: *freeze_files
+          generated/api.json: "newer working output\n"
+      expected: *freeze_output
+      classification: must-pass
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-current-removed-output
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        files: *freeze_files
+        current: true
+        current_files:
+          generated/api.json: "working after\n"
+          generated/api-0.2.0.json: "frozen api\n"
+          generated/types-0.1.1.yaml: "frozen types\n"
+          mirrors/api.json: "mirror after\n"
+      expected:
+        <<: *freeze_output
+        paths: "CHANGELOG.md\ngenerated/api-0.2.0.json\ngenerated/api.json\ngenerated/types-0.1.1.yaml\nmirrors/api.json\npackage.json"
+      classification: must-pass
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-current-missing-primary
+      input:
+        scenario: freeze-outputs
+        plan: *multi_plan
+        files: *freeze_files
+        current: true
+        current_files: {generated/api.json: "working after\n", generated/types-0.1.1.yaml: "frozen types\n"}
+      expected: {exit: 2, error: "freeze-output-missing", code: freeze-output-missing, details: [api, "generated/api-0.2.0."]}
+      classification: must-fail
+      sibling: freeze-current-unchanged
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-current-without-plan-rebuilt
+      input: {scenario: freeze-outputs, plan: *multi_plan, files: *freeze_files, current: true, current_files: {}, no_current_plan: true}
+      expected:
+        <<: *initial-output
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- freeze api\n- freeze types\n"
+      classification: must-pass
+      provenance: *freeze_p
+      mutation: *freeze_m
+    - name: freeze-current-same-title-without-plan-rebuilt
+      input:
+        scenario: freeze-outputs
+        plan: |
+          plan: 1
+          surfaces:
+            - {name: api, label: API, from: 0.1.0, to: 0.1.0, level: none, breaking: false, freeze: false}
+            - {name: types, label: Types, from: 0.1.0, to: 0.1.0, level: none, breaking: false, freeze: false}
+        files: {generated/api.json: "working after\n", registry.yaml: "registry after\n"}
+        current: true
+        current_files: {}
+        no_current_plan: true
+      expected:
+        <<: *initial-output
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- add facet\n- freeze api\n- freeze types\n"
+      classification: must-pass
+      provenance: *freeze_p
+      mutation: *freeze_m
     - {name: wrong-checked-out-branch, input: {scenario: wrong-branch}, expected: {exit: 1, error: "branch"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "the operation never creates a default-branch commit"}, mutation: {description: "Run with the ordinary branch checked out."}}
     - {name: bot-branch-at-wrong-tip, input: {scenario: wrong-tip}, expected: {exit: 1, error: "source tip"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "the single commit must have the source tip as its parent"}, mutation: {description: "Check out the bot branch at an older commit."}}
     - {name: commit-plus-write-refused, input: {scenario: mixed-write}, expected: {exit: 1, error: "separate mode"}, classification: must-fail, sibling: initial-commit-and-bundle, provenance: {source: requirement, ref: "write-only mode stays distinct from commit mode"}, mutation: {description: "Pass both write and commit switches."}}

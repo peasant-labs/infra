@@ -111,13 +111,16 @@ release-intent release-pr --branch <source-ref> --commit [--freeze-plan <file>] 
 ```
 
 `--commit` is an alternative to `--write` and `--check`, not an additional
-switch. It requires a clean index and permits only unstaged regular files
-covered by the source config's `protected_paths` in the worktree. It
+switch. It requires a clean index and permits unstaged regular files
+covered by the source config's `protected_paths`, plus `freeze_outputs` only
+when a validated `--freeze-plan` is supplied. Each frozen surface must have a
+dirty numbered primary document, as described in the
+[freeze handoff reference](tools/release/README.md). It
 uses the source commit's config and refuses unsafe or duplicate output paths,
 symlinks, multiply linked files, non-regular or missing source files, and an
 active Git reference hook.
 It stages only the generated changelog, named JSON version-field changes, and
-permitted protected paths,
+permitted protected and plan-authorized freeze paths,
 verifies the staged paths and bytes, then creates one local commit with the fixed
 releaser-bot author and committer and the source commit's timestamp. The JSON
 bytes outside the named field stay unchanged unless the whole version file is
@@ -445,9 +448,11 @@ bot branch can name the default branch.
 
 **What the bot PRs may contain.** The release and cut-release branches are
 built by the job without a credential and land unreviewed, so `check-title`
-judges each bot PR by what that bot writes. The release PR may change only the
-changelog and the protected field of each version file; any other path, or
-any other change inside a version file, is `release-content-scope`. The
-cut-release PR is one empty commit and may change no path. A path in
-`protected_paths` is release content for no PR: unlist it in a reviewed config
-change before editing it.
+judges each bot PR by what that bot writes. The release PR may change the
+changelog, `protected_paths`, `freeze_outputs`, and the protected field of each
+version file. A version file that is not itself protected may change only in
+its protected field. Other paths are `release-content-scope`. The title guard
+cannot see the freeze plan; commit preparation requires it before carrying
+`freeze_outputs`. The cut-release PR is one empty commit and may change no
+path. A `protected_paths` entry is forbidden to content PRs; `freeze_outputs`
+alone does not protect a path.

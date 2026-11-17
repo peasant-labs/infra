@@ -199,6 +199,32 @@ func checkConfig(cfg Config, where string) error {
 			return fail("protected_paths contains invalid pattern "+strconv.Quote(glob), "an invalid glob cannot reliably protect its paths", "correct the path glob")
 		}
 	}
+	if len(cfg.FreezeOutputs) > 0 && !cfg.SpecFreeze {
+		return fail("freeze_outputs is non-empty while spec_freeze is disabled",
+			"freeze outputs are authorized only for a repository that freezes surfaces",
+			"enable spec_freeze with releasing surfaces, or remove freeze_outputs")
+	}
+	seenOutputs := map[string]bool{}
+	for _, glob := range cfg.FreezeOutputs {
+		if !safeReleasePattern(glob) {
+			return fail("freeze_outputs contains unsafe or invalid pattern "+strconv.Quote(glob),
+				"freeze outputs must be confined repository-relative paths or valid globs",
+				"use a safe path or glob outside Git metadata and workflow configuration")
+		}
+		if seenOutputs[glob] {
+			return fail("freeze_outputs contains duplicate pattern "+strconv.Quote(glob),
+				"each configured freeze output pattern must be listed once",
+				"remove the duplicate pattern")
+		}
+		seenOutputs[glob] = true
+		for _, reserved := range append([]string{cfg.Changelog}, configVersionPaths(cfg)...) {
+			if matchesPathPattern(glob, reserved) {
+				return fail("freeze_outputs pattern "+strconv.Quote(glob)+" matches reserved path "+strconv.Quote(reserved),
+					"the changelog and version files have their own release rules",
+					"narrow or remove the pattern so it excludes the changelog and every version file")
+			}
+		}
+	}
 	seenStems := map[string]string{}
 	for name, stems := range cfg.Surfaces {
 		if !scopePattern.MatchString(name) || len(stems) == 0 {

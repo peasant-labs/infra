@@ -183,6 +183,38 @@ func PlanFreeze(cfg Config, states SurfaceStates, subjects []Title) (FreezePlan,
 
 func strconvQuote(s string) string { return fmt.Sprintf("%q", s) }
 
+// CheckFrozenPrimaryOutputs verifies a validated plan against the actual dirty
+// output paths. The first configured stem is the primary document.
+func CheckFrozenPrimaryOutputs(cfg Config, plan FreezePlan, dirty []string) error {
+	for _, surface := range plan.Surfaces {
+		if !surface.Freeze {
+			continue
+		}
+		stems := cfg.Surfaces[surface.Name]
+		if len(stems) == 0 {
+			return stateSetError("frozen surface "+strconvQuote(surface.Name)+" has no configured stem", "intent.CheckFrozenPrimaryOutputs")
+		}
+		prefix := "generated/" + stems[0] + "-" + surface.To.String() + "."
+		found := false
+		for _, name := range dirty {
+			if strings.HasPrefix(name, prefix) && !strings.Contains(name[len(prefix):], "/") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return &Error{Code: ErrFreezeOutputMissing,
+				What:  "frozen surface " + strconvQuote(surface.Name) + " has no dirty primary document with prefix " + strconvQuote(prefix),
+				Why:   "each frozen surface must write its numbered primary document",
+				Where: "freeze plan and dirty outputs, judged by intent.CheckFrozenPrimaryOutputs",
+				When:  "preparing the release commit",
+				Means: "the incomplete freeze cannot be committed",
+				Fix:   "run the freeze writer for " + surface.Name + " and include its numbered primary document"}
+		}
+	}
+	return nil
+}
+
 // ParseFreezePlan rejects incomplete or incoherent handoffs before they can
 // influence a release commit title.
 func ParseFreezePlan(data []byte, cfg Config) (FreezePlan, error) {

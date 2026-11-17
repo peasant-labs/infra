@@ -14,7 +14,22 @@ surfaces:
   types: [types]
   api: [api, publish-request]
 spec_freeze: true
+protected_paths:
+  - 'generated/*-[0-9]*'
+freeze_outputs:
+  - 'generated/*.json'
+  - registry.yaml
+  - 'mirrors/*.json'
 ```
+
+The first stem in each surface's list is its primary stem. `freeze_outputs`
+is optional and must be empty unless `spec_freeze` is enabled. Entries are
+unique repository-relative paths or `path.Match` globs (where `*` does not
+cross `/`). They cannot traverse, use Git pathspec characters, name Git
+metadata or workflow paths, or match the changelog or a version file. Concrete
+matches are checked again for safety, including when a glob is broad. Paths
+that happen to be listed in both `protected_paths` and `freeze_outputs` remain
+protected; `freeze_outputs` by itself does not protect a file from content PRs.
 
 ## Contract report
 
@@ -100,19 +115,34 @@ appended to `GITHUB_OUTPUT` when set.
 ## Release-branch preparation
 
 `release-pr --commit --branch REF [--freeze-plan FILE] [--current REF]
-[--floor SHA]` may carry unstaged regular files named by `protected_paths`
-from the worktree, including new files. It still refuses unrelated dirty or
-untracked files, staged changes, symlinks and unsafe paths. It verifies the
-staged and committed bytes. A supplied plan is strict and must match the
-releasing titles; the exact generated title and source commit are printed as
-`title=` and `source=`. Only `--commit` accepts `--freeze-plan`.
-An existing `--current` branch is a no-op only when its title, protected bytes,
-modes and generated release content all match.
+[--floor SHA]` generates the changelog and version-field changes, and may carry
+unstaged regular files named by `protected_paths` from the worktree, including
+new files. With a validated `--freeze-plan` it may also carry paths named by
+`freeze_outputs`; without a plan those entries grant no write allowance. It
+still refuses unrelated dirty or untracked files, staged changes, symlinks and
+unsafe paths. It verifies the staged and committed bytes.
 
-The release PR may change the changelog, configured protected paths and the
-protected version fields. Other paths are still outside its allowed scope.
-In particular, this tool does not currently authorize or carry unprotected
-working files or registries written by an external freeze command.
+A supplied plan is strict and must match the releasing titles. For every
+surface with `freeze: true`, a dirty path must match
+`generated/<primary-stem>-<to>.*`, where the primary stem is the first stem
+configured for that surface and `to` is its plan version. A missing primary
+document is a `freeze-output-missing` typed rejection naming the surface and
+expected prefix. The generated changelog must also change when a commit is
+needed. Only `--commit` accepts `--freeze-plan`; it prints the exact generated
+title and source commit as `title=` and `source=`. An existing `--current`
+branch is a no-op only when its title, permitted output bytes and modes, and
+generated release content all match; primary-document validation still runs.
+
+The title guard checks release PR paths against the changelog, protected
+paths, freeze outputs and protected version fields. It cannot inspect a freeze
+plan, so the commit command enforces the plan gate. Other paths remain outside
+the release PR's allowed scope.
+
+Schema's freeze-writer adoption must include a repository-side coverage test
+that runs or imports the real freeze writer and asserts that every path it
+writes is covered by the configured changelog, version fields,
+`protected_paths`, or `freeze_outputs`. This guards the hand-written list
+against drifting when the writer changes.
 
 ## Pre-tag policy
 

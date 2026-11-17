@@ -95,6 +95,7 @@ func TestClosedSets(t *testing.T) {
 		intent.ErrSpecChangeNeedsBump,
 		intent.ErrSurfaceMismatch,
 		intent.ErrSurfaceUndeclared,
+		intent.ErrFreezeOutputMissing,
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllErrorCodes = %v, want %v", got, want)
 	}
@@ -116,7 +117,7 @@ func TestErrorCodeCoverage(t *testing.T) {
 		queueDecodeCorpusYAML, queueGateCorpusYAML,
 		highestTagCorpusYAML, versionFieldCorpusYAML,
 		contentCorpusYAML, policyCorpusYAML, verifyTagCorpusYAML,
-		contractCorpusYAML, freezeCorpusYAML,
+		contractCorpusYAML, freezeCorpusYAML, freezeOutputCorpusYAML,
 	} {
 		var doc struct {
 			Cases []struct {

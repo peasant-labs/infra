@@ -51,6 +51,9 @@ const (
 	titleSetupCutReleaseEmpty titleSetup = "cut-release-empty"
 	// titleSetupCutReleaseFileEdit is a cut-release commit that adds a file.
 	titleSetupCutReleaseFileEdit titleSetup = "cut-release-file-edit"
+	// titleSetupFreezeOutput changes a fixture-selected file after the base
+	// config declares working and numbered freeze paths.
+	titleSetupFreezeOutput titleSetup = "freeze-output"
 )
 
 var allTitleSetups = []titleSetup{
@@ -59,6 +62,7 @@ var allTitleSetups = []titleSetup{
 	titleSetupGroupShapedBase, titleSetupOrdinaryScriptsEdit, titleSetupAdopting,
 	titleSetupRawVersionDocument, titleSetupReleaseContent, titleSetupReleaseSourceEdit,
 	titleSetupCutReleaseEmpty, titleSetupCutReleaseFileEdit,
+	titleSetupFreezeOutput,
 }
 
 func (s *titleSetup) UnmarshalYAML(node *yaml.Node) error {
@@ -77,6 +81,7 @@ type checkTitleInput struct {
 	Setup      titleSetup `yaml:"setup"`
 	// RawVersionDocument is corrupt on purpose; only a must-fail row carries it.
 	RawVersionDocument string `yaml:"rawVersionDocument"`
+	ChangedPath        string `yaml:"changedPath"`
 }
 
 type checkTitleExpected struct {
@@ -265,6 +270,17 @@ func buildTitleScene(t *testing.T, in checkTitleInput) titleScene {
 		return sceneOf(r, base, head)
 	case titleSetupReleaseContent, titleSetupReleaseSourceEdit, titleSetupCutReleaseEmpty, titleSetupCutReleaseFileEdit:
 		r, base, head := buildBotPRRepo(t, in.Setup)
+		return sceneOf(r, base, head)
+	case titleSetupFreezeOutput:
+		r := newSeededRepo(t, repoAllBots)
+		r.cfg.Surfaces = map[string][]string{"api": {"api"}}
+		r.cfg.SpecFreeze = true
+		r.cfg.ProtectedPaths = []string{"generated/*-[0-9]*"}
+		r.cfg.FreezeOutputs = []string{"generated/api.json", "registry.yaml"}
+		r.WriteConfig(r.cfg)
+		base := r.Commit(titleDocs)
+		r.WriteFile(in.ChangedPath, "changed\n")
+		head := r.Commit(titleDocs)
 		return sceneOf(r, base, head)
 	case titleSetupAdopting:
 		// The adopting PR adds the config: the base commit has none and the

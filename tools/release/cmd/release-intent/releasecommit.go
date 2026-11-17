@@ -13,8 +13,6 @@ import (
 	"reflect"
 	"slices"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
@@ -128,10 +126,6 @@ func runReleaseCommit(flags flagValues) error {
 	if err != nil || headRef != botRef.String() {
 		return fmt.Errorf("release-pr --commit: checked-out branch must be the configured release bot branch %q; check it out at the source tip first", botRef)
 	}
-	protected, err := releaseProtectedChanges(ctx, g, cfg)
-	if err != nil {
-		return err
-	}
 	if err := requireNoReferenceHook(ctx, g); err != nil {
 		return err
 	}
@@ -162,30 +156,6 @@ func runReleaseCommit(flags flagValues) error {
 		return err
 	}
 
-	files, err := openReleaseFiles(ctx, g, r, cfg, content, tip)
-	if err != nil {
-		return err
-	}
-	var extraProtected []string
-	for _, name := range protected {
-		if !slices.Contains(versionPaths(cfg), name) {
-			extraProtected = append(extraProtected, name)
-		}
-	}
-	extra, err := openProtectedFiles(ctx, g, r, cfg, tip, extraProtected)
-	if err != nil {
-		for i := range files {
-			_ = files[i].file.Close()
-		}
-		return err
-	}
-	files = append(files, extra...)
-	defer func() {
-		for i := range files {
-			_ = files[i].file.Close()
-		}
-	}()
-
 	var freezePlan *intent.FreezePlan
 	if flags.Has(intent.FlagFreezePlan) {
 		data, err := os.ReadFile(flags.Value(intent.FlagFreezePlan))
@@ -213,6 +183,45 @@ func runReleaseCommit(flags flagValues) error {
 		}
 		freezePlan = &plan
 	}
+	dirtyOutputs, err := releaseOutputChanges(ctx, g, cfg, freezePlan != nil)
+	if err != nil {
+		return err
+	}
+	files, err := openReleaseFiles(ctx, g, r, cfg, content, tip)
+	if err != nil {
+		return err
+	}
+	var extraOutputs []string
+	for _, name := range dirtyOutputs {
+		if !slices.Contains(versionPaths(cfg), name) {
+			extraOutputs = append(extraOutputs, name)
+		}
+	}
+	extra, err := openExtraReleaseFiles(ctx, g, r, cfg, tip, extraOutputs, freezePlan != nil)
+	if err != nil {
+		for i := range files {
+			_ = files[i].file.Close()
+		}
+		return err
+	}
+	files = append(files, extra...)
+	defer func() {
+		for i := range files {
+			_ = files[i].file.Close()
+		}
+	}()
+
+	if freezePlan != nil {
+		var dirty []string
+		for _, file := range files {
+			if slices.Contains(dirtyOutputs, file.name) && (file.added || !bytes.Equal(file.before, file.after)) {
+				dirty = append(dirty, file.name)
+			}
+		}
+		if err := intent.CheckFrozenPrimaryOutputs(cfg, *freezePlan, dirty); err != nil {
+			return rejectAsMode(intent.CommandReleasePR, intent.FlagCommit, err)
+		}
+	}
 	title, err := releaseCommitTitle(cfg, facts, decision, freezePlan)
 	if err != nil {
 		return err
@@ -224,7 +233,7 @@ func runReleaseCommit(flags flagValues) error {
 	}
 	push := true
 	if flags.Has(intent.FlagCurrent) {
-		push, err = releaseCommitNeedsPush(ctx, g, r, cfg, tip, flags.Value(intent.FlagCurrent), title, content, files)
+		push, err = releaseCommitNeedsPush(ctx, g, r, cfg, tip, flags.Value(intent.FlagCurrent), title, content, files, freezePlan != nil)
 		if err != nil {
 			return err
 		}
@@ -325,13 +334,8 @@ func validateReleasePaths(cfg intent.Config) error {
 	}
 	seen := map[string]bool{}
 	for _, name := range paths {
-		if name == "" || !utf8.ValidString(name) || path.Clean(name) != name || strings.HasPrefix(name, "/") || strings.ContainsAny(name, ":*?[]\\") || strings.IndexFunc(name, unicode.IsControl) >= 0 {
-			return fmt.Errorf("release-pr --commit: unsafe configured output path %q; use a literal repository-relative file path without pathspec characters", name)
-		}
-		for _, part := range strings.Split(name, "/") {
-			if part == "" || part == "." || part == ".." || strings.HasPrefix(part, "-") || strings.EqualFold(part, ".git") || strings.EqualFold(part, ".github") {
-				return fmt.Errorf("release-pr --commit: unsafe configured output path %q; do not target Git metadata, workflow configuration, or traversing paths", name)
-			}
+		if !intent.SafeReleaseOutput(name) {
+			return fmt.Errorf("release-pr --commit: unsafe configured output path %q; use a literal repository-relative file path outside Git metadata and workflow configuration", name)
 		}
 		if seen[name] {
 			return fmt.Errorf("release-pr --commit: unsafe duplicate configured output path %q; each output must have one role", name)
@@ -344,10 +348,9 @@ func validateReleasePaths(cfg intent.Config) error {
 	return nil
 }
 
-// releaseProtectedChanges accepts only unstaged modifications or new files
-// explicitly covered by protected_paths. The index remains clean and the
-// changelog remains exclusively owned by the generator.
-func releaseProtectedChanges(ctx context.Context, g prepareGit, cfg intent.Config) ([]string, error) {
+// releaseOutputChanges accepts only unstaged modifications or new files
+// covered by protected_paths or, when a validated plan is supplied, freeze_outputs.
+func releaseOutputChanges(ctx context.Context, g prepareGit, cfg intent.Config, withPlan bool) ([]string, error) {
 	entries, err := g.run(ctx, nil, nil, "ls-files", "-v", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("release-pr --commit: cannot inspect index flags: %w", err)
@@ -361,33 +364,25 @@ func releaseProtectedChanges(ctx context.Context, g prepareGit, cfg intent.Confi
 	if err != nil {
 		return nil, fmt.Errorf("release-pr --commit: cannot inspect working tree: %w", err)
 	}
-	var protected []string
+	var outputs []string
 	for _, entry := range nulNames(out) {
 		if len(entry) < 4 || (entry[:3] != " M " && entry[:3] != "?? ") {
-			return nil, fmt.Errorf("release-pr --commit: working tree and index must be clean except for unstaged regular protected files; unexpected status %q", entry)
+			return nil, fmt.Errorf("release-pr --commit: working tree and index must be clean except for unstaged regular permitted outputs; unexpected status %q", entry)
 		}
 		name := entry[3:]
-		if !safeProtectedOutput(name) || !intent.IsProtectedPath(cfg, name) || name == cfg.Changelog {
-			return nil, fmt.Errorf("release-pr --commit: working tree and index must be clean except for protected paths; unexpected path %q", name)
+		if !intent.SafeReleaseOutput(name) || !releaseOutputAllowed(cfg, name, withPlan) || name == cfg.Changelog {
+			return nil, fmt.Errorf("release-pr --commit: working tree and index must be clean except for protected paths and plan-authorized freeze outputs; unexpected path %q", name)
 		}
-		protected = append(protected, name)
+		outputs = append(outputs, name)
 	}
-	return protected, nil
+	return outputs, nil
 }
 
-func safeProtectedOutput(name string) bool {
-	if name == "" || !utf8.ValidString(name) || path.Clean(name) != name || strings.HasPrefix(name, "/") || strings.ContainsAny(name, ":*?[]\\") || strings.IndexFunc(name, unicode.IsControl) >= 0 {
-		return false
-	}
-	for _, part := range strings.Split(name, "/") {
-		if part == "" || part == "." || part == ".." || strings.HasPrefix(part, "-") || strings.EqualFold(part, ".git") || strings.EqualFold(part, ".github") {
-			return false
-		}
-	}
-	return true
+func releaseOutputAllowed(cfg intent.Config, name string, withPlan bool) bool {
+	return intent.IsProtectedPath(cfg, name) || (withPlan && intent.IsFreezeOutput(cfg, name))
 }
 
-func openProtectedFiles(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip string, names []string) ([]releaseFile, error) {
+func openExtraReleaseFiles(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip string, names []string, withPlan bool) ([]releaseFile, error) {
 	var files []releaseFile
 	fail := func(err error) ([]releaseFile, error) {
 		for _, f := range files {
@@ -396,12 +391,12 @@ func openProtectedFiles(ctx context.Context, g prepareGit, r GitRunner, cfg inte
 		return nil, err
 	}
 	for _, name := range names {
-		if !intent.IsProtectedPath(cfg, name) || !safeProtectedOutput(name) {
-			return fail(fmt.Errorf("release-pr --commit: unsafe protected path %q", name))
+		if !releaseOutputAllowed(cfg, name, withPlan) || !intent.SafeReleaseOutput(name) {
+			return fail(fmt.Errorf("release-pr --commit: unsafe or unpermitted output path %q", name))
 		}
 		f, err := openConfined(name)
 		if err != nil {
-			return fail(fmt.Errorf("release-pr --commit: cannot open protected path %q without symlinks: %w", name, err))
+			return fail(fmt.Errorf("release-pr --commit: cannot open release output %q without symlinks: %w", name, err))
 		}
 		row := releaseFile{name: name, file: f}
 		files = append(files, row)
@@ -417,11 +412,11 @@ func openProtectedFiles(ctx context.Context, g prepareGit, r GitRunner, cfg inte
 			rowPtr.before = source
 			rowPtr.mode, _, err = indexEntry(ctx, g, name)
 			if err != nil {
-				return fail(fmt.Errorf("release-pr --commit: protected file %q is not a tracked regular file: %w", name, err))
+				return fail(fmt.Errorf("release-pr --commit: release output %q is not a tracked regular file: %w", name, err))
 			}
 			info, err := f.Stat()
 			if err != nil || (info.Mode().Perm()&0o111 != 0) != (rowPtr.mode == "100755") {
-				return fail(fmt.Errorf("release-pr --commit: protected file %q changed mode; restore the tracked mode", name))
+				return fail(fmt.Errorf("release-pr --commit: release output %q changed mode; restore the tracked mode", name))
 			}
 		case errors.As(err, &absent):
 			info, statErr := f.Stat()
@@ -434,7 +429,7 @@ func openProtectedFiles(ctx context.Context, g prepareGit, r GitRunner, cfg inte
 				rowPtr.mode = "100755"
 			}
 		default:
-			return fail(fmt.Errorf("release-pr --commit: cannot read protected file %q at source: %w", name, err))
+			return fail(fmt.Errorf("release-pr --commit: cannot read release output %q at source: %w", name, err))
 		}
 	}
 	return files, nil
@@ -565,7 +560,7 @@ func releaseCommitTitle(cfg intent.Config, facts intent.Facts, decision intent.D
 // releaseCommitNeedsPush accepts a no-op only for a readable, mergeable
 // current branch with both fresh content and no changes outside release scope.
 // A missing --current ref is an error: omit the flag for a new branch.
-func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip, current, title string, content intent.Content, files []releaseFile) (bool, error) {
+func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg intent.Config, tip, current, title string, content intent.Content, files []releaseFile, withPlan bool) (bool, error) {
 	if current == "" || strings.HasPrefix(current, "-") {
 		return false, fmt.Errorf("release-pr --commit: invalid current branch %q; omit --current only when no branch exists", current)
 	}
@@ -614,17 +609,24 @@ func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg 
 	if intent.CheckProtectedPaths(cfg, changes, intent.PRKindRelease) != nil {
 		return true, nil
 	}
-	// Compare the entire protected output set, including bytes and modes:
+	if !withPlan {
+		for _, name := range paths {
+			if intent.IsFreezeOutput(cfg, name) && !intent.IsProtectedPath(cfg, name) {
+				return true, nil
+			}
+		}
+	}
+	// Compare the entire allowed output set, including bytes and modes:
 	// matching changelog/version fields alone says nothing about a freeze.
 	desired := map[string]releaseFile{}
 	for _, file := range files {
-		if file.name != cfg.Changelog && intent.IsProtectedPath(cfg, file.name) && (file.added || !bytes.Equal(file.before, file.after)) {
+		if file.name != cfg.Changelog && releaseOutputAllowed(cfg, file.name, withPlan) && (file.added || !bytes.Equal(file.before, file.after)) {
 			desired[file.name] = file
 		}
 	}
 	seen := map[string]bool{}
 	for _, name := range paths {
-		if !intent.IsProtectedPath(cfg, name) || name == cfg.Changelog {
+		if !releaseOutputAllowed(cfg, name, withPlan) || name == cfg.Changelog {
 			continue
 		}
 		file, ok := desired[name]
@@ -637,11 +639,11 @@ func releaseCommitNeedsPush(ctx context.Context, g prepareGit, r GitRunner, cfg 
 			if errors.As(err, &absent) {
 				return true, nil
 			}
-			return false, fmt.Errorf("release-pr --commit: cannot inspect current protected path %q: %w", name, err)
+			return false, fmt.Errorf("release-pr --commit: cannot inspect current release output %q: %w", name, err)
 		}
 		mode, err := treeMode(ctx, g, currentOID, name)
 		if err != nil {
-			return false, fmt.Errorf("release-pr --commit: cannot inspect current protected path mode %q: %w", name, err)
+			return false, fmt.Errorf("release-pr --commit: cannot inspect current release output mode %q: %w", name, err)
 		}
 		if mode != file.mode || !bytes.Equal(got, file.after) {
 			return true, nil
