@@ -225,14 +225,18 @@ func checkEmbeddedSet() error {
 
 // document is the part of an ast-grep rule document the registry checks.
 type document struct {
-	ID       string    `yaml:"id"`
-	Language string    `yaml:"language"`
-	Severity string    `yaml:"severity"`
-	Message  string    `yaml:"message"`
-	Metadata metadata  `yaml:"metadata"`
-	Files    []string  `yaml:"files"`
-	Utils    yaml.Node `yaml:"utils"`
-	Rule     yaml.Node `yaml:"rule"`
+	ID       string   `yaml:"id"`
+	Language string   `yaml:"language"`
+	Severity string   `yaml:"severity"`
+	Message  string   `yaml:"message"`
+	Metadata metadata `yaml:"metadata"`
+	Files    []string `yaml:"files"`
+	// Ignores are globs ast-grep excludes from this document. The mount-file
+	// document lists **/*_test.go. The field is declared so KnownFields does
+	// not reject that key when the document is rendered.
+	Ignores []string  `yaml:"ignores"`
+	Utils   yaml.Node `yaml:"utils"`
+	Rule    yaml.Node `yaml:"rule"`
 }
 
 // metadata carries the rest of the message contract. ast-grep accepts and

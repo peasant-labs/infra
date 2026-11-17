@@ -74,6 +74,9 @@ required:
     - flags-any-slash-argument-in-configured-router-file
     - passes-same-call-in-another-file
     - passes-repos-path-outside-router-files
+    - passes-listed-test-file-slash-arguments
+    - flags-listed-production-router-mount
+    - flags-prefix-literal-in-test-file
   data-path-literal:
     - flags-path-through-a-data-directory
     - flags-bare-data-directory-segment
