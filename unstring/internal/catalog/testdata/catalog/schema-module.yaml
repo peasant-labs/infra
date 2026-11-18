@@ -175,42 +175,21 @@ cases:
     members: *schema-members
 
   - name: ts-type-position-unions-are-not-sets
-    # A literal union that is only a type argument (Omit, Extract, a generic)
-    # or an indexed-access operand has no name, so no same-named const table
-    # can own it: both generated ClosedSet helper shapes contribute nothing.
-    # A named alias paired with a literal-value const table is still a set,
-    # also when the alias is then used as a type argument, and an unnamed
-    # property union stays an inline member.
+    # Utility keys are excluded; ordinary generic arguments remain members.
     lang: ts
     files:
       package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
-    schema:
-      module: example.test/schema
-      version: v0.0.1
-      files:
-        go.mod: 'module example.test/schema'
-        typescript/src/index.ts: |
-          export * from "./internal/generated/enums.gen.js";
-        typescript/src/internal/generated/enums.gen.ts: |
-          export type Stage = "draft" | "final";
-          export const Stage = Object.freeze({
-            Draft: "draft",
-            Final: "final",
-          } as const);
-        typescript/src/internal/generated/contract/zod.gen.ts: |
-          type ClosedSet<S extends z.ZodType, T> = Omit<S, "_zod"> & { _zod: Omit<S["_zod"], "input" | "output"> & { input: T; output: T } };
-          type WrappedClosedSet<S extends z.ZodType, T> = Omit<S, "_zod" | "optional" | "nullable" | "nullish"> & { _zod: Omit<S["_zod"], "input" | "output"> & { input: T; output: T }; optional(): z.ZodOptional<Extract<WrappedClosedSet<S, T>, z.ZodType>>; nullable(): z.ZodNullable<Extract<WrappedClosedSet<S, T>, z.ZodType>>; nullish(): z.ZodOptional<z.ZodNullable<Extract<WrappedClosedSet<S, T>, z.ZodType>>> };
-          type Indexed<S> = S["indexed-a" | ("indexed-b")];
-          type HiddenKeys = "hidden-a" | "hidden-b";
-          type WithoutHidden<S> = Omit<S, HiddenKeys>;
-          export interface Query { view?: "grouped" | "home"; }
+    schema: { module: example.test/schema, version: v0.0.1, tree: schema-type-positions }
     members:
-      - { value: draft, source: schema-module, set: Stage, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/enums.gen.ts, line: 1 }
-      - { value: final, source: schema-module, set: Stage, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/enums.gen.ts, line: 1 }
-      - { value: hidden-a, source: schema-module, set: HiddenKeys, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 4 }
-      - { value: hidden-b, source: schema-module, set: HiddenKeys, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 4 }
-      - { value: grouped, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 6 }
-      - { value: home, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 6 }
+      - { value: draft, source: schema-module, set: Stage, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/enums.gen.ts, line: 2 }
+      - { value: final, source: schema-module, set: Stage, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/enums.gen.ts, line: 2 }
+      - { value: hidden-a, source: schema-module, set: HiddenKeys, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 10 }
+      - { value: hidden-b, source: schema-module, set: HiddenKeys, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 10 }
+      - { value: grouped, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 15 }
+      - { value: home, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 15 }
+
+      - { value: tag-a, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 16 }
+      - { value: tag-b, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/contract/zod.gen.ts, line: 16 }
 
   - name: ts-range-version-is-refused
     lang: ts

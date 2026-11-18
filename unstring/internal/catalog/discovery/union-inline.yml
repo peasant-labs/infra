@@ -1,3 +1,4 @@
+# Keep the common rule body in sync with schema-union-inline.yml.
 # A string member of a union type anywhere else: an interface or object-type
 # property, a parameter, a generic argument, a nested union.
 id: unstring-discover-union-inline

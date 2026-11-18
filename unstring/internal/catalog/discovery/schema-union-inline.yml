@@ -1,11 +1,5 @@
-# A string member of an unnamed union in the schema module's generated TS: an
-# interface or object-type property, a parameter, a nested union. Unlike
-# union-inline.yml it skips a union that is a type argument (Omit<S, "a" | "b">,
-# Pick<…>, Array<…>) or the index of an indexed access type (S["a" | "b"]).
-# Such a union is type manipulation, not a vocabulary: it has no name, so no
-# same-named const table can own it, which is what the TypeScript typed rule
-# requires of a set. A named alias used in those positions is still found by
-# union-alias.yml.
+# Keep this rule in sync with union-inline.yml except for its final exclusion.
+# Utility-type keys and indexed-access keys are not value vocabularies.
 id: unstring-discover-schema-union-inline
 language: tsx
 severity: hint
@@ -28,4 +22,11 @@ rule:
       - not:
           inside:
             stopBy: { not: { matches: union-chain } }
-            any: [{ kind: type_arguments }, { kind: lookup_type }]
+            any:
+              - kind: lookup_type
+              - kind: type_arguments
+                inside:
+                  kind: generic_type
+                  has:
+                    field: name
+                    regex: '^(Omit|Pick|Exclude|Extract)$'

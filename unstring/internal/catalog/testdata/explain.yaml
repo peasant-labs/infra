@@ -167,7 +167,7 @@ cases:
     value: input
     files:
       package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
-    schema: *schema
+    schema: { module: example.test/schema, version: v0.0.1, tree: schema-type-positions }
     fix: ["compare with the typed member"]
     fix_not: ["the unnamed schema set", "no TypeScript member"]
 
@@ -177,6 +177,6 @@ cases:
     value: nullish
     files:
       package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
-    schema: *schema
+    schema: { module: example.test/schema, version: v0.0.1, tree: schema-type-positions }
     fix: ["compare with the typed member"]
     fix_not: ["the unnamed schema set", "no TypeScript member"]

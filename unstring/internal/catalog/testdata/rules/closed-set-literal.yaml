@@ -113,7 +113,7 @@ cases:
     # The generated ClosedSet helpers' Omit keys and indexed-access operands
     # are no vocabulary, so a comparison with one of those words is not
     # attributed to the schema; the real schema member on the last line still is.
-    schema: { module: example.test/schema, version: v0.0.1, tree: schema-module }
+    schema: { module: example.test/schema, version: v0.0.1, tree: schema-type-positions }
     files:
       package.json: |
         { "dependencies": { "@peasant-labs/schema": "0.0.1" } }
@@ -121,7 +121,7 @@ cases:
         export const isInput = (k: string) => k === "input" || k === 'output';
         export const isWrapper = (k: string) => k === "optional" || k === "nullable" || k === "nullish" || k === "_zod";
         export const isIndexed = (k: string) => k === "indexed-a" || k === "indexed-b";
-        export const queued = (s: string) => s === "queued";
+        export const draft = (s: string) => s === "draft";
     hits:
       src/use.ts: [4]
 

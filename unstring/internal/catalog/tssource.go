@@ -32,7 +32,7 @@ var (
 	discoverUnionInline = discoveryRule{"unstring-discover-union-inline", "union-inline.yml", SourceTSUnion, false}
 	discoverJSDocUnion  = discoveryRule{"unstring-discover-jsdoc-union", "jsdoc-union.yml", SourceJSDocUnion, false}
 	// discoverSchemaUnionInline is union-inline without the unions that are a
-	// type argument or an indexed-access operand, which name no set.
+	// utility-type key argument or an indexed-access operand.
 	discoverSchemaUnionInline = discoveryRule{"unstring-discover-schema-union-inline", "schema-union-inline.yml", SourceTSUnion, false}
 )
 
@@ -43,7 +43,7 @@ var allTSDiscovery = []discoveryRule{
 
 // unionDiscovery is what the schema module's generated TS contributes: named
 // unions, and unnamed ones that type a value. A literal union that is only a
-// type argument (Omit<S, "a" | "b">) or an indexed-access operand is type
+// utility-type key (Omit<S, "a" | "b">) or an indexed-access operand is type
 // manipulation in the generated helpers; it has no name, so it can never be
 // paired with a same-named const table, which is what the TypeScript typed
 // rule requires of a set, and no consumer value can belong to it.
