@@ -2,6 +2,10 @@
 
 The release automation generates this file from landed release intents.
 
+## [0.2.0]
+
+- add the Go typed closed-set-literal pass (#97)
+
 ## [0.1.0]
 
 - publish eslint-plugin-unstring on the release tag (#91)
