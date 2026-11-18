@@ -17,21 +17,10 @@ type assetGateCase struct {
 	Sibling   string `yaml:"sibling"`
 }
 
-type assetOutcomeCase struct {
-	Name    string `yaml:"name"`
-	View    string `yaml:"view"`
-	Create  string `yaml:"create"`
-	Asset   string `yaml:"asset"`
-	Upload  bool   `yaml:"upload"`
-	Publish bool   `yaml:"publish"`
-}
-
 func TestReleaseAssetGates(t *testing.T) {
 	var fx struct {
-		RequiredNames        []string           `yaml:"required_names"`
-		Cases                []assetGateCase    `yaml:"cases"`
-		OutcomeRequiredNames []string           `yaml:"outcome_required_names"`
-		Outcomes             []assetOutcomeCase `yaml:"outcomes"`
+		RequiredNames []string        `yaml:"required_names"`
+		Cases         []assetGateCase `yaml:"cases"`
 	}
 	if err := strictUnmarshal(releaseAssetGateFixtureYAML, &fx); err != nil {
 		t.Fatal(err)
@@ -61,19 +50,4 @@ func TestReleaseAssetGates(t *testing.T) {
 		})
 	}
 
-	// This models GitHub's implicit success() guard for the fixture's create,
-	// upload and edit steps; the policy corpus also checks the actual workflow
-	// conditions and their order. No GitHub API calls are made.
-	names = nil
-	for _, row := range fx.Outcomes {
-		names = append(names, row.Name)
-		t.Run(row.Name, func(t *testing.T) {
-			upload := row.View == "failure" && row.Create == "success"
-			publish := row.Create == "success" && row.Asset != "failure"
-			if upload != row.Upload || publish != row.Publish {
-				t.Fatalf("upload, publish = %v, %v; want %v, %v", upload, publish, row.Upload, row.Publish)
-			}
-		})
-	}
-	manifestNames(t, "release asset outcomes", fx.OutcomeRequiredNames, names)
 }

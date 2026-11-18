@@ -613,13 +613,23 @@ repository and triggering tag:
   and must pass literal `draft: true` to keep the release draft during upload.
   Omit `make_latest` from the action: a draft cannot be marked latest. The
   checker also allows that input when it reads a needed job's output, but does
-  not guarantee GitHub will accept it. After the action, exactly one
-  `gh release edit ... --draft=false --prerelease="$PRERELEASE"
-  --latest="$LATEST"` publishes the draft, gated on `create.success` (or the
-  same two-outcome gate) without a status function. An upload failure skips
-  publication. On a rerun where the release already exists, create, upload and
-  publish do nothing and the job succeeds. A failed draft is a burned release:
-  fix forward with a new release, never retry or edit the old one.
+  not guarantee GitHub will accept it. The action's `prerelease` must read the
+  `prerelease` output of a needed release-kind job. After the action, exactly
+  one `gh release edit` must name the triggering tag and exactly one of
+  `--repo "$GITHUB_REPOSITORY"` or `-R "$GITHUB_REPOSITORY"`, pass
+  `--draft=false`, and pass `--prerelease` and `--latest` as quoted environment
+  values. Those values must read that same needed job's declared `prerelease`
+  and `latest` outputs, respectively. They may instead compare another output
+  of that job when the comparison exactly matches how the job declares the
+  corresponding output; schema's release workflow uses this form with its
+  guard's `kind` output. The checker binds the values to the declared outputs;
+  it does not verify how the job computes them.
+
+  The publish edit is gated on `create.success` (or the same two-outcome gate)
+  without a status function. An upload failure skips publication. On a rerun
+  where the release already exists, create, upload and publish do nothing and
+  the job succeeds. A failed draft is a burned release: fix forward with a new
+  release, never retry or edit the old one.
 
 The checker validates the action inputs; it does not inspect an action's code.
 Before pinning a release-assets action for the immutable flow, verify that the

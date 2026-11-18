@@ -22,6 +22,7 @@ var (
 	releaseAssetGate      = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'success'\s*\|\|\s*steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'success'$`)
 	draftReleaseAssetGate = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'failure'\s*&&\s*steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'success'$`)
 	stepOutcomeGate       = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'(success|failure)'$`)
+	releaseOutputCompare  = regexp.MustCompile(`^(needs|steps)\.(` + stepIDPattern + `)\.outputs\.([A-Za-z0-9_-]+)\s*==\s*'([^']*)'$`)
 )
 
 // assetGate binds the two referenced steps. The older success-or-success
@@ -181,13 +182,7 @@ func (c *queueChecker) releaseAssetsFault(file, jobName string, doc, job, action
 		if why != "" {
 			return "gates on an invalid release command: " + why
 		}
-		repo, long := flags.flags["--repo"]
-		shortRepo, short := flags.flags["-R"]
-		if short {
-			repo = shortRepo
-		}
-		_, overridden := env[runnerEnvRepository]
-		if long == short || !repo.params("", runnerEnvRepository, "") || overridden {
+		if !namesCurrentReleaseRepository(flags, env) {
 			return "gates on a release command that does not name the current repository"
 		}
 		if gate.draft {
@@ -220,6 +215,18 @@ func (c *queueChecker) releaseAssetsFault(file, jobName string, doc, job, action
 	return ""
 }
 
+// namesCurrentReleaseRepository requires exactly one repo flag and the
+// runner's unmodified repository value, for every release in an asset gate.
+func namesCurrentReleaseRepository(flags parsedFlags, env map[string]string) bool {
+	repo, long := flags.flags["--repo"]
+	shortRepo, short := flags.flags["-R"]
+	if short {
+		repo = shortRepo
+	}
+	_, overridden := env[runnerEnvRepository]
+	return long != short && repo.params("", runnerEnvRepository, "") && !overridden
+}
+
 func matchesStepOutcome(condition, id, outcome string) bool {
 	condition = trimOuterParens(stripIfExpression(condition))
 	m := stepOutcomeGate.FindStringSubmatch(condition)
@@ -229,6 +236,16 @@ func matchesStepOutcome(condition, id, outcome string) bool {
 // draftPublishFault binds the final write to the same successful creation and
 // leaves the default success() guard intact, so a failed upload cannot publish.
 func (c *queueChecker) draftPublishFault(file, jobName string, doc, job, action *yaml.Node, gate assetGate) string {
+	prerelease := soleExpression(valueOf(mappingValue(mappingValue(action, "with"), InputPrerelease.String())))
+	source := outputRead.FindStringSubmatch(prerelease)
+	if source == nil || source[1] != "needs" || source[3] != "prerelease" {
+		return "the draft action prerelease must read a needed job's prerelease output"
+	}
+	producer := jobNode(doc, source[2])
+	outputs := mappingValue(producer, "outputs")
+	if soleExpression(valueOf(mappingValue(outputs, "prerelease"))) == "" {
+		return "the draft action prerelease output must be declared by the needed job"
+	}
 	afterAction, edits := false, 0
 	for _, step := range stepsOf(job) {
 		if step == action {
@@ -269,28 +286,50 @@ func (c *queueChecker) draftPublishFault(file, jobName string, doc, job, action 
 			return "the publish edit must run a valid release-edit template for the triggering tag"
 		}
 		flags, _ := reader.parseFlags(words[3:], releaseFlags())
-		repo, long := flags.flags["--repo"]
-		shortRepo, short := flags.flags["-R"]
-		if short {
-			repo = shortRepo
-		}
-		if long && short {
-			return "the publish edit must not name two repositories"
-		}
-		if long || short {
-			_, overridden := reader.env[runnerEnvRepository]
-			if !repo.params("", runnerEnvRepository, "") || overridden {
-				return "the publish edit must name the current repository"
-			}
+		if !namesCurrentReleaseRepository(flags, reader.env) {
+			return "the publish edit must name the current repository with exactly one --repo or -R flag"
 		}
 		draft, present := flags.flags[ghFlagDraft]
 		lit, literal := draft.literal()
 		if !present || !literal || lit != ghFlagDraft+"=false" {
 			return "the publish edit must pass --draft=false"
 		}
+		for _, name := range []string{"prerelease", "latest"} {
+			flag := "--" + name
+			word, present := flags.flags[flag]
+			if !present || !publishFlagReadsOutput(word, flag, reader.env, source[2], name, outputs) {
+				return "the publish edit " + flag + " must read the needed release-kind job's " + name + " output"
+			}
+		}
 	}
 	if edits != 1 {
 		return "requires exactly one publish edit after the assets action"
 	}
 	return ""
+}
+
+// publishFlagReadsOutput accepts the named output directly, or a comparison
+// of another output that matches the producer's own declared comparison.
+// The latter admits a consumer comparing guard.kind only when that is exactly
+// how the guard declared its corresponding prerelease/latest output.
+func publishFlagReadsOutput(word templateWord, flag string, env map[string]string, job, output string, outputs *yaml.Node) bool {
+	if len(word.parts) != 2 || word.parts[0] != (wordPart{partLiteral, flag + "="}) || word.parts[1].kind != partParam {
+		return false
+	}
+	declared := soleExpression(valueOf(mappingValue(outputs, output)))
+	if declared == "" {
+		return false
+	}
+	expr := soleExpression(env[word.parts[1].text])
+	if m := outputRead.FindStringSubmatch(expr); m != nil {
+		return m[1] == "needs" && m[2] == job && m[3] == output
+	}
+	actual := releaseOutputCompare.FindStringSubmatch(expr)
+	expected := releaseOutputCompare.FindStringSubmatch(declared)
+	if actual == nil || expected == nil || actual[1] != "needs" || actual[2] != job || expected[1] != "steps" || actual[4] != expected[4] {
+		return false
+	}
+	other := soleExpression(valueOf(mappingValue(outputs, actual[3])))
+	m := outputRead.FindStringSubmatch(other)
+	return m != nil && m[1] == "steps" && m[2] == expected[2] && m[3] == expected[3]
 }

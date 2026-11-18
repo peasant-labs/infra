@@ -29,6 +29,28 @@ required_names:
   - accept-reviewed-script
   - accept-release-assets
   - accept-draft-release-assets
+  - accept-draft-assets-publish-short-repo
+  - accept-schema-draft-direct-guard-outputs
+  - accept-unrelated-release-edit-without-repo
+  - reject-draft-assets-publish-no-repo
+  - reject-draft-assets-publish-two-repos
+  - reject-draft-assets-publish-overridden-repo
+  - reject-draft-assets-publish-latest-missing
+  - reject-draft-assets-publish-latest-literal
+  - reject-draft-assets-publish-latest-wrong-output
+  - reject-draft-assets-publish-latest-other-job
+  - reject-draft-assets-publish-latest-undeclared
+  - reject-draft-assets-publish-latest-bare
+  - reject-draft-assets-action-prerelease-wrong-output
+  - reject-draft-assets-publish-prerelease-missing
+  - reject-draft-assets-publish-prerelease-literal
+  - reject-draft-assets-publish-prerelease-wrong-output
+  - reject-schema-draft-latest-wrong-comparison
+  - reject-schema-draft-latest-guard-mismatch
+  - reject-schema-draft-prerelease-guard-mismatch
+  - reject-schema-draft-kind-source-mismatch
+  - reject-schema-draft-asset-gate
+  - reject-schema-draft-publish-gate
   - accept-draft-release-assets-quoted-input
   - accept-published-assets-draft-false
   - accept-published-assets-quoted-draft-false
@@ -468,6 +490,267 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "immutable release assets" }
     mutation: { description: "Create a draft, upload only on creation, and publish after the upload." }
+  - name: accept-draft-assets-publish-short-repo
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"'
+          new: 'gh release edit "$TAG" -R "$GITHUB_REPOSITORY"'
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "draft publish repository" }
+    mutation: { description: "Name the current repository with the short flag." }
+  - name: accept-schema-draft-direct-guard-outputs
+    input:
+      overlay: accept-schema-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}\n          LATEST: ${{ needs.guard.outputs.kind == 'final' }}"
+          new: "          PRERELEASE: ${{ needs.guard.outputs.prerelease }}\n          LATEST: ${{ needs.guard.outputs.latest }}"
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "draft publish guard outputs" }
+    mutation: { description: "Publish with direct reads of the guard's prerelease and latest outputs." }
+  - name: accept-unrelated-release-edit-without-repo
+    input:
+      overlay: accept-tag-publish
+      edits:
+        - file: workflows/release.yml
+          old: 'run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --latest'
+          new: 'run: gh release edit "$TAG" --latest'
+    expected: { rule: credential-steps-run-one-template }
+    classification: must-pass
+    provenance: { source: requirement, ref: "unrelated release edit compatibility" }
+    mutation: { description: "Preserve optional repository selection on unrelated release edits." }
+  - name: reject-draft-assets-publish-no-repo
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"'
+          new: 'gh release edit "$TAG"'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["publish edit", "current repository"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish repository" }
+    mutation: { description: "Omit the repository from the artifact-only publisher." }
+  - name: reject-draft-assets-publish-two-repos
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"'
+          new: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" -R "$GITHUB_REPOSITORY"'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["publish edit", "current repository"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish repository" }
+    mutation: { description: "Pass two repository flags instead of one." }
+  - name: reject-draft-assets-publish-overridden-repo
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          LATEST: ${{ needs.build.outputs.latest }}\n"
+          new: "          LATEST: ${{ needs.build.outputs.latest }}\n          GITHUB_REPOSITORY: other/repository\n"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["current repository"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish repository" }
+    mutation: { description: "Override the runner's repository value in the publish edit." }
+  - name: reject-draft-assets-publish-latest-missing
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: ' --latest="$LATEST"'
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--latest", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish latest" }
+    mutation: { description: "Omit the explicit latest decision from the publish edit." }
+  - name: reject-draft-assets-publish-latest-literal
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: '--latest="$LATEST"'
+          new: "--latest=true"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--latest", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish latest" }
+    mutation: { description: "Replace the guard's latest decision with a literal." }
+  - name: reject-draft-assets-publish-latest-wrong-output
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "LATEST: ${{ needs.build.outputs.latest }}"
+          new: "LATEST: ${{ needs.build.outputs.prerelease }}"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--latest", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish latest" }
+    mutation: { description: "Use the prerelease decision as the latest decision." }
+  - name: reject-draft-assets-publish-latest-other-job
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "LATEST: ${{ needs.build.outputs.latest }}"
+          new: "LATEST: ${{ needs.verify.outputs.latest }}"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--latest", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish latest" }
+    mutation: { description: "Take the latest decision from a different needed job." }
+  - name: reject-draft-assets-publish-latest-undeclared
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      latest: ${{ steps.flags.outputs.latest }}\n"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--latest", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish latest" }
+    mutation: { description: "Read a latest output the needed job never declares." }
+  - name: reject-draft-assets-publish-latest-bare
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: '--latest="$LATEST"'
+          new: "--latest"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--latest", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish latest" }
+    mutation: { description: "Use a bare latest switch instead of the needed job's decision." }
+  - name: reject-draft-assets-action-prerelease-wrong-output
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          prerelease: ${{ needs.build.outputs.prerelease }}\n      - id: publish"
+          new: "          prerelease: ${{ needs.build.outputs.latest }}\n      - id: publish"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["prerelease", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft action prerelease" }
+    mutation: { description: "Point the action's prerelease input at the latest output." }
+  - name: reject-draft-assets-publish-prerelease-missing
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: ' --draft=false --prerelease="$PRERELEASE"'
+          new: ' --draft=false'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--prerelease", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish prerelease" }
+    mutation: { description: "Omit the explicit prerelease decision from the publish edit." }
+  - name: reject-draft-assets-publish-prerelease-literal
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: '--draft=false --prerelease="$PRERELEASE"'
+          new: '--draft=false --prerelease=false'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--prerelease", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish prerelease" }
+    mutation: { description: "Replace the guard's prerelease decision with a literal." }
+  - name: reject-draft-assets-publish-prerelease-wrong-output
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n          LATEST:"
+          new: "          PRERELEASE: ${{ needs.build.outputs.latest }}\n          LATEST:"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--prerelease", "output"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish prerelease" }
+    mutation: { description: "Use the latest decision as the prerelease decision." }
+  - name: reject-schema-draft-latest-wrong-comparison
+    input:
+      overlay: accept-schema-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "LATEST: ${{ needs.guard.outputs.kind == 'final' }}"
+          new: "LATEST: ${{ needs.guard.outputs.kind == 'rc' }}"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--latest", "output"] }
+    sibling: accept-schema-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "guard comparison binding" }
+    mutation: { description: "Use the prerelease comparison for the latest flag." }
+  - name: reject-schema-draft-latest-guard-mismatch
+    input:
+      overlay: accept-schema-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "latest: ${{ steps.parse.outputs.kind == 'final' }}"
+          new: "latest: ${{ steps.parse.outputs.kind == 'rc' }}"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--latest", "output"] }
+    sibling: accept-schema-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "guard comparison binding" }
+    mutation: { description: "Change the declared latest decision without changing the publish comparison." }
+  - name: reject-schema-draft-prerelease-guard-mismatch
+    input:
+      overlay: accept-schema-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "prerelease: ${{ steps.parse.outputs.kind == 'rc' }}"
+          new: "prerelease: ${{ steps.parse.outputs.kind == 'final' }}"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--prerelease", "output"] }
+    sibling: accept-schema-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "guard comparison binding" }
+    mutation: { description: "Change the declared prerelease decision without changing the publish comparison." }
+  - name: reject-schema-draft-kind-source-mismatch
+    input:
+      overlay: accept-schema-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "kind: ${{ steps.parse.outputs.kind }}"
+          new: "kind: ${{ steps.other.outputs.kind }}"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--prerelease", "output"] }
+    sibling: accept-schema-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "guard comparison binding" }
+    mutation: { description: "Have the compared kind output originate from a different step." }
+  - name: reject-schema-draft-asset-gate
+    input:
+      overlay: accept-schema-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Upload the release assets\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'"
+          new: "      - name: Upload the release assets\n        if: steps.create.outcome == 'success'"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["view.failure"] }
+    sibling: accept-schema-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "schema release upload gate" }
+    mutation: { description: "Remove view failure from the schema upload gate." }
+  - name: reject-schema-draft-publish-gate
+    input:
+      overlay: accept-schema-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Publish the release\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n"
+          new: "      - name: Publish the release\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["publish edit must be gated"] }
+    sibling: accept-schema-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "schema release publish gate" }
+    mutation: { description: "Remove the schema publish gate." }
   - name: accept-draft-release-assets-quoted-input
     input:
       overlay: accept-draft-release-assets
@@ -598,34 +881,11 @@ cases:
     provenance: { source: requirement, ref: "action input scope" }
     mutation: { description: "Pass the release-assets draft input to checkout." }
   - name: accept-schema-draft-release-assets
-    input:
-      overlay: accept-tag-publish
-      edits:
-        - file: workflows/release.yml
-          old: "  notes:\n    name: release notes\n"
-          new: "  build:\n    name: release notes and assets\n    outputs:\n      prerelease: ${{ steps.flags.outputs.prerelease }}\n      latest: ${{ steps.flags.outputs.latest }}\n"
-        - file: workflows/release.yml
-          old: "      - name: Write the notes\n"
-          new: "      - id: flags\n        run: echo 'classify release'\n      - name: Write the notes\n"
-        - file: workflows/release.yml
-          old: "          mkdir -p notes\n          ./scripts/release-notes.sh \"$TAG\" > notes/notes.md"
-          new: "          mkdir -p dist\n          ./scripts/release-notes.sh \"$TAG\" > dist/notes.md"
-        - file: workflows/release.yml
-          old: "      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n        with:\n          name: release-notes\n          path: notes\n"
-          new: "      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n        with:\n          name: release-dist\n          path: dist\n"
-        - file: workflows/release.yml
-          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: release-notes\n          path: notes\n"
-          new: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: release-dist\n          path: dist\n"
-        - file: workflows/release.yml
-          old: "needs: [guard, contract-gates, notes, verify]"
-          new: "needs: [guard, contract-gates, build, verify]"
-        - file: workflows/release.yml
-          old: "      - name: Create the GitHub Release\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --title \"$TAG\" --notes-file notes/notes.md --prerelease=\"$PRERELEASE\"\n      - name: Mark the Release as latest\n        if: needs.guard.outputs.kind == 'final'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release edit \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --latest\n"
-          new: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --draft --title \"$TAG\" --notes-file dist/notes.md --prerelease=\"$PRERELEASE\"\n      - name: Upload assets\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          tag_name: ${{ github.ref_name }}\n          repository: ${{ github.repository }}\n          files: dist/*\n          fail_on_unmatched_files: true\n          overwrite_files: true\n          draft: true\n          prerelease: ${{ needs.build.outputs.prerelease }}\n      - name: Publish the draft\n        if: steps.create.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n          LATEST: ${{ needs.build.outputs.latest }}\n        run: gh release edit \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --draft=false --prerelease=\"$PRERELEASE\" --latest=\"$LATEST\"\n"
+    input: { overlay: accept-schema-draft-release-assets }
     expected: { rule: credential-jobs-use-pinned-actions }
     classification: must-pass
     provenance: { source: requirement, ref: "schema-style release workflow" }
-    mutation: { description: "Apply the immutable draft flow to the schema-style tag, contract, and package workflow." }
+    mutation: { description: "Accept the sanitized schema release graph and its guard-owned draft publication." }
   - name: accept-draft-release-assets-explicit-true
     input:
       overlay: accept-draft-release-assets
