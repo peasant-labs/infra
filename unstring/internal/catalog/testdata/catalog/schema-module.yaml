@@ -146,6 +146,13 @@ cases:
       - { value: alpha, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 5 }
       - { value: beta, source: schema-module, module: example.test/schema@v0.0.1, file: typescript/src/internal/generated/types.gen.ts, line: 5 }
 
+  - name: ts-pin-from-package-json-literal-exports
+    lang: ts
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *fixture-module
+    members: *schema-members
+
   - name: ts-range-version-is-refused
     lang: ts
     files:

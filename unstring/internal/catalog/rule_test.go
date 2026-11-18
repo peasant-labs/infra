@@ -32,6 +32,44 @@ type ruleCase struct {
 	Hits map[string][]int `yaml:"hits"`
 }
 
+func TestSchemaExportDiscoveryMembership(t *testing.T) {
+	data, err := os.ReadFile("testdata/schema-export-members.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Members []struct {
+			Set   string `yaml:"set"`
+			Name  string `yaml:"name"`
+			Value string `yaml:"value"`
+		} `yaml:"members"`
+	}
+	decodeStrict(t, "testdata/schema-export-members.yaml", data, &fixture)
+	body, err := os.ReadFile("discovery/schema-export.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, err := newRunner(t).Scan(context.Background(), astgrep.ScanRequest{
+		Dir: "testdata/schema-module", Roots: []string{"typescript/src/internal/generated/enums.gen.ts"},
+		Rules: []astgrep.RuleFile{{Name: "schema-export.yml", Body: body}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want []string
+	for _, m := range matches {
+		got = append(got, fmt.Sprintf("%s.%s=%s", m.Vars["SET"], m.Vars["NAME"], m.Text))
+	}
+	for _, m := range fixture.Members {
+		want = append(want, fmt.Sprintf("%s.%s=%s", m.Set, m.Name, m.Value))
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("discovered members = %v, want exactly %v", got, want)
+	}
+}
+
 // generatedRuleIDs are the rule ids built from the catalog.
 func generatedRuleIDs() []rules.RuleID {
 	var ids []rules.RuleID

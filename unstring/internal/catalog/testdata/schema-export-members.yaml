@@ -1,0 +1,6 @@
+members:
+  - { set: OtherVisibility, name: Public, value: '"public"' }
+  - { set: TranscriptVisibility, name: Public, value: '"public"' }
+  - { set: TranscriptVisibility, name: Private, value: '"private"' }
+  - { set: RepositoryRole, name: Owner, value: '"owner"' }
+  - { set: RepositoryRole, name: ReadOnly, value: '"reader"' }

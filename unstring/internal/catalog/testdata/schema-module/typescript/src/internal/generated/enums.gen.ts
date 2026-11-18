@@ -6,3 +6,10 @@ export const TranscriptVisibility = Object.freeze({
   Public: zTranscriptVisibility.parse("public"),
   Private: zTranscriptVisibility.parse("private"),
 } as const);
+export const RepositoryRole = Object.freeze({
+  Owner: "owner",
+  ReadOnly: "reader",
+} as const);
+const Hidden = Object.freeze({
+  Secret: "hidden",
+} as const);
