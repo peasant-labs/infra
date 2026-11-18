@@ -8,12 +8,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/peasant-labs/infra/unstring/internal/astgrep"
 	"github.com/peasant-labs/infra/unstring/internal/config"
 	"github.com/peasant-labs/infra/unstring/internal/failure"
 	"github.com/peasant-labs/infra/unstring/internal/ratchet"
 	"github.com/peasant-labs/infra/unstring/internal/rules"
+	"github.com/peasant-labs/infra/unstring/internal/typed"
 )
 
 // flags are the options a command accepts. Each command registers only its
@@ -181,6 +183,27 @@ func (p process) runCheck(args []string) int {
 	out, err := ratchet.Check(sc.scan, base, s.options(ratchet.CommandCheck, langs, lang != "", p.version))
 	if err != nil {
 		return failErr(p.stderr, err, "unstring check, placing allow markers.")
+	}
+	if s.cfg.Typed.GoClosedSetLiteral && slices.Contains(langs, rules.LangGo) {
+		hits, err := typed.ScanGo(s.ctx, s.dir, s.cfg.RootsFor(rules.LangGo), s.environ)
+		if err != nil {
+			return environmentFailure(p.stderr, "the typed Go scan failed.",
+				err.Error(), "loading Go packages during unstring check; the baseline was not changed.",
+				"fix the reported Go package errors and retry.")
+		}
+		for _, hit := range hits {
+			message := fmt.Sprintf("use %s.%s instead of '%s'", hit.Set, hit.Member, hit.Literal)
+			out.Findings = append(out.Findings, ratchet.Finding{
+				Kind: ratchet.KindNewFile, Rule: hit.Hit.Rule, File: hit.Hit.File,
+				Line: hit.Hit.Line, Text: hit.Hit.Text, What: message,
+				Why:   "a string literal duplicates a named closed-set member.",
+				Where: "typed Go scan; this finding is not baselined.",
+				Fix:   message,
+			})
+		}
+		if len(hits) > 0 {
+			out.Exit = exitFindings
+		}
 	}
 	ratchet.WriteReport(p.stdout, format, ratchet.CommandCheck, out.Findings)
 	return out.Exit

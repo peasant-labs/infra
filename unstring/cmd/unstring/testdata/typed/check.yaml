@@ -1,0 +1,12 @@
+module: |
+  module example.test/typed
+  go 1.26
+source: |
+  package example
+  type Role string
+  const User Role = "user"
+  func Check(role Role) bool { return role == "user" }
+config: |
+  version: 1
+  go:
+    roots: [src]

@@ -34,6 +34,8 @@ type Config struct {
 	TS *Roots `yaml:"ts"`
 	// Go lists the Go roots; nil when the repository has none.
 	Go *Roots `yaml:"go"`
+	// Typed enables optional type-aware checks, independently of the baseline.
+	Typed Typed `yaml:"typed"`
 	// Schema names the contract module whose sets join the catalog.
 	Schema Schema `yaml:"schema"`
 	// Endpoints shapes the endpoint rules.
@@ -42,6 +44,11 @@ type Config struct {
 	DataDirs []string `yaml:"dataDirs"`
 	// Exempt lists the definition-site exemptions, each with a reason.
 	Exempt []Exempt `yaml:"exempt"`
+}
+
+// Typed configures opt-in type-aware checks.
+type Typed struct {
+	GoClosedSetLiteral bool `yaml:"goClosedSetLiteral"`
 }
 
 // Roots are the directories scanned for one language.

@@ -1,0 +1,78 @@
+- name: direct comparison
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r Role) bool { return r == "user" }
+  expect: [{set: Role, member: User, literal: user, line: 4}]
+- name: reversed comparison
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r Role) bool { return "user" != r }
+  expect: [{set: Role, member: User, literal: user, line: 4}]
+- name: switch case
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r Role) { switch r { case "user": } }
+  expect: [{set: Role, member: User, literal: user, line: 4}]
+- name: untyped literal
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    const result = "user" == "user"
+  expect: []
+- name: string receiver
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r string) bool { return r == "user" }
+  expect: []
+- name: interface receiver
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r any) bool { return r == "user" }
+  expect: []
+- name: named type without constants
+  code: |
+    package fixture
+    type Role string
+    func test(r Role) bool { return r == "user" }
+  expect: []
+- name: ambiguous value
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    const Other Role = "user"
+    func test(r Role) bool { return r == "user" }
+  expect: []
+- name: non-string named type
+  code: |
+    package fixture
+    type Role int
+    const User Role = 1
+    func test(r Role) bool { return r == 1 }
+  expect: []
+- name: alias receiver
+  code: |
+    package fixture
+    type Role string
+    type Alias = Role
+    const User Role = "user"
+    func test(r Alias) bool { return r == "user" }
+  expect: [{set: Role, member: User, literal: user, line: 5}]
+- name: nonmember
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r Role) bool { return r == "other" }
+  expect: []
