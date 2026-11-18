@@ -47,6 +47,8 @@ required_names:
   - later-docs-keeps-candidate-fresh
   - later-chore-keeps-candidate-fresh
   - later-unbracketed-feat-rejected
+  - later-docs-before-releasing-fix
+  - later-breaking-minor-stales-candidate
 cases:
   - name: tag-mode-off-gives-none
     input:
@@ -1564,3 +1566,58 @@ cases:
     sibling: later-docs-keeps-candidate-fresh
     provenance: {source: requirement, ref: "release-enabled grammar rejects an unbracketed feature"}
     mutation: {description: "Accept a feature without a bump in a releasing repository."}
+  - name: later-docs-before-releasing-fix
+    input:
+      config: *release_config
+      facts:
+        <<: *nonreleasing_facts
+        commits:
+          - {sha: "d33", subject: "docs(x): latest (#33)", changes_changelog: false}
+          - {sha: "f22", subject: "fix(x)[patch]: later (#22)", changes_changelog: false}
+          - {sha: "r11", subject: "release[patch]: v0.1.1 (#12)", changes_changelog: true}
+          - {sha: "f11", subject: "fix[patch]: one (#11)", changes_changelog: false}
+          - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
+    expected:
+      action: "open-pr"
+      range_base: "v0.1.0"
+      version_base: "v0.1.0"
+      candidate: "r11"
+      candidate_fresh: "stale"
+      pending: *both_patches
+      level: "patch"
+      breaking: false
+      version: "0.1.1"
+      tag: "v0.1.1"
+      before: *earlier_patch
+      full: {pending: *both_patches, version: "0.1.1", tag: "v0.1.1"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "scan past newer non-releasing commits to find a newer release"}
+    mutation: {description: "Stop scanning after the first non-releasing commit and incorrectly tag the candidate."}
+  - name: later-breaking-minor-stales-candidate
+    input:
+      config: *release_config
+      facts:
+        <<: *nonreleasing_facts
+        commits:
+          - {sha: "k22", subject: "feat(x)![minor]: breaking change (#22)", changes_changelog: false}
+          - {sha: "r11", subject: "release[patch]: v0.1.1 (#12)", changes_changelog: true}
+          - {sha: "f11", subject: "fix[patch]: one (#11)", changes_changelog: false}
+          - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
+    expected:
+      action: "open-pr"
+      range_base: "v0.1.0"
+      version_base: "v0.1.0"
+      candidate: "r11"
+      candidate_fresh: "stale"
+      pending: &breaking_pending
+        - {type: "feat", scopes: ["x"], breaking: true, level: "minor", subject: "breaking change", pr: 22}
+        - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
+      level: "minor"
+      breaking: true
+      version: "0.2.0"
+      tag: "v0.2.0"
+      before: *earlier_patch
+      full: {pending: *breaking_pending, version: "0.2.0", tag: "v0.2.0"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "newer breaking release stales the candidate and stays in the full batch"}
+    mutation: {description: "Ignore newer breaking releases or drop their breaking flag from the batch."}
