@@ -203,17 +203,6 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 		parsed = append(parsed, parsedCommit{commit: commit, title: title})
 	}
 
-	// A candidate cannot contain release content for a subject that landed
-	// after it, even if its own content comparison reported fresh.
-	if candidateIdx >= 0 {
-		for _, p := range parsed[:candidateIdx] {
-			if p.title.Level != LevelNone {
-				freshness = FreshnessStale
-				break
-			}
-		}
-	}
-
 	// accumulate reduces parsed commits to a pending set, its high level,
 	// whether it breaks, and the committer date of its newest commit. A
 	// repeated request for one release folds to the newest request, so two
@@ -253,8 +242,9 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 	fullPending, fullLevel, fullBreaking, fullDate := accumulate(parsed)
 
 	// The sub-range the candidate covers: the range commits older than the
-	// candidate, without changelog-changing commits. verify and tag judge
-	// this set, never the subjects that landed after the candidate.
+	// candidate, without changelog-changing commits. The release commit is
+	// the batch boundary: verify and tag judge this snapshot, and later
+	// subjects belong to the next release.
 	beforeList := []parsedCommit(nil)
 	if candidateIdx >= 0 {
 		beforeList = parsed[candidateIdx+1:]

@@ -185,14 +185,15 @@ func TestFreshness(t *testing.T) {
 				assertKeysAbsent(t, c.Name, result.Stdout, plainKeys(c.Expected.AbsentKeys))
 			case freshRejectedLaterMinor, freshLaterSubjectChecksFull:
 				candidate := r.Commit(titleCut, at(dateRelease))
-				// A later minor stales the candidate even when it touches no
-				// changelog file; the rebuilt content uses the full set.
+				// The candidate is the batch boundary; a later minor stays in
+				// the full set without changing the candidate's snapshot.
 				commitLater(r, titleLaterMinor)
 				plan := r.Run(argvPlan...)
 				output := outputValues(t, c.Name, plan.Stdout)
-				if plan.Exit != exitAccepted || output[intent.OutputCandidateFresh] != strconv.FormatBool(false) ||
-					output[intent.OutputAction] != intent.ActionOpenPR.String() || output[intent.OutputCandidate] != candidate {
-					t.Fatalf("%s: newer release must stale the candidate and rebuild, got exit=%d stdout=%q", c.Name, plan.Exit, plan.Stdout)
+				if plan.Exit != exitAccepted || output[intent.OutputCandidateFresh] != strconv.FormatBool(true) ||
+					output[intent.OutputAction] != intent.ActionTag.String() || output[intent.OutputCandidate] != candidate ||
+					output[intent.OutputVersion] != "0.1.1" || output[intent.OutputTag] != "v0.1.1" {
+					t.Fatalf("%s: the candidate must tag its snapshot, got exit=%d stdout=%q", c.Name, plan.Exit, plan.Stdout)
 				}
 				write := r.Run(argvWrite...)
 				assertRunLines(t, c.Name, write, c.Expected.Exit.Status, c.Expected.Lines)
