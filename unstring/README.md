@@ -97,11 +97,10 @@ rules apply to subsequent releases.
 - Only the `peasant-labs-releaser` App (Integration 3988034) can bypass the
   `Protect release tags` ruleset to create release tags. Human tag pushes are
   refused; do not change the ruleset to work around a failed batch.
-- A release PR behind the current tip is not taggable. If a non-releasing fix
-  lands after the release PR merges, the batch can return `action=none` for
-  that release commit. Do not move or recreate the tag; land a new
-  `feat(unstring)[minor]` or `fix(unstring)[patch]` content PR so the next
-  release is cut at the current tip and includes the fix.
+- If a plan returns `action=none` while a release is expected, confirm
+  `RELEASE_BATCH_MODE=tag` and whether a later non-releasing fix moved the tip.
+  Do not treat `none` as success and do not move a tag; if the release cannot
+  be tagged at the intended commit, cut a new release that includes the fix.
 - npm publishing uses Trusted Publishing (OIDC). The `npm-publish` environment
   and Trusted Publisher registration are one-time maintainer setup; steady
   state needs no long-lived `NPM_TOKEN`. The version file is
