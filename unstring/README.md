@@ -45,12 +45,38 @@ and a merge-group build, set it to `tag`. `RELEASE_BATCH_FLOOR` is reserved
 for recovery from an unparseable landed subject. A forced release uses the
 `cut-release` dispatch with `patch` or `minor`, never a direct branch push.
 
-The npm package and its version mirror are not part of this release workflow.
-After the package lands, add its `package.json` version field to the stream
-and add npm publication in a separately reviewed change.
+The same `unstring/vX.Y.Z` tag publishes `eslint-plugin-unstring`. The release
+PR writes `unstring/CHANGELOG.md` and the version field in
+`unstring/eslint-plugin/package.json`, the npm version mirror of the computed
+tag; the Go module takes its version from the tag. The npm workflow verifies
+the tag against the default branch and checks that the package version matches.
 
-The release-tool SHA appears in four checkouts across `release-batch.yml`,
-`release.yml`, and `title-guard.yml`; all four must move together.
+### First npm publish
+
+Before enabling the first release, the maintainer must complete these gates:
+
+1. Ensure the required schema release is available, and create the GitHub
+   Actions environment `npm-publish` in `peasant-labs/infra`.
+2. The npm package owner checks that `eslint-plugin-unstring` is available
+   and creates a granular npm token permitted to create and publish that
+   package, with package read/write access restricted to that package if npm
+   supports it, bypass 2FA for CI, and the shortest available expiry (seven
+   days). Never use a classic or organization-wide token. If npm cannot scope a
+   token to the not-yet-created package, the owner must use the narrowest
+   creation permission npm permits, and revoke it immediately after bootstrap.
+3. Store the token as the `NPM_TOKEN` Actions secret. The tag-triggered
+   `npm-publish.yml` uses it only when present; a tag publishes both the Go
+   module and the npm package. Do not create or move a tag manually.
+4. After the first successful publish, the npm package owner registers a
+   Trusted Publisher for repository `peasant-labs/infra`, workflow
+   `npm-publish.yml`, and environment `npm-publish`.
+5. Delete the GitHub `NPM_TOKEN` secret and revoke the npm token immediately.
+   Subsequent releases use OIDC only; do not restore a token as a fallback.
+   Verify the package version and provenance with `npm view
+   eslint-plugin-unstring@X.Y.Z version dist.attestations`.
+
+The release-tool SHA appears in five checkouts across `release-batch.yml`,
+`release.yml`, `npm-publish.yml`, and `title-guard.yml`; all five must move together.
 `cut-release.yml` is the fourth release workflow but does not check out the tool.
 
 ### Exercise the planner without a tag

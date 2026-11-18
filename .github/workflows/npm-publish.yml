@@ -1,0 +1,105 @@
+name: Publish eslint-plugin-unstring
+
+on:
+  push:
+    tags: ['unstring/v*']
+
+concurrency:
+  group: unstring-npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Check out the repository (full history and tags)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Check out the release-intent tool
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: peasant-labs/infra
+          ref: 43394587177062bec422a727db44d3bdb1c4df5e
+          path: infra-tool
+          sparse-checkout: |
+            tools/release
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+          cache: false
+      - name: Build release-intent
+        env:
+          GOWORK: "off"
+        run: go build -C infra-tool/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent
+      - name: Verify the tag is a release tag on the default branch
+        run: '"${RUNNER_TEMP}/release-intent" verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"'
+
+  npm-publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: unstring/eslint-plugin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 26
+      - name: Verify package version matches the release tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#unstring/v}"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$version" != "$package_version" ]; then
+            echo "::error::${TAG} does not match package.json version ${package_version}; do not move the tag, fix forward"
+            exit 1
+          fi
+      - name: Install dependencies
+        run: npm ci
+      - name: Detect the first-publish token
+        id: bootstrap
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Configure npm for the first publish
+        if: steps.bootstrap.outputs.enabled == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 26
+          registry-url: https://registry.npmjs.org
+      - name: Publish with the first-publish token
+        if: steps.bootstrap.outputs.enabled == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
+      - name: Publish with npm Trusted Publishing
+        if: steps.bootstrap.outputs.enabled == 'false'
+        run: npm publish --provenance --access public
