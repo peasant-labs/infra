@@ -1,5 +1,6 @@
 # Keep this rule in sync with union-inline.yml except for its final exclusion.
 # Utility-type keys and indexed-access keys are not value vocabularies.
+# Qualified or aliased utility names are not excluded; neither schema 0.57.0 nor 0.57.1 uses them in its helper.
 id: unstring-discover-schema-union-inline
 language: tsx
 severity: hint
