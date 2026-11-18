@@ -345,3 +345,13 @@
       var _ chi.Router
   error: "the router package github.com/example/missing is not imported"
   expect: []
+- name: router imported only by excluded test
+  files:
+    router.go: |
+      package fixture
+    router_test.go: |
+      package fixture
+      import "github.com/go-chi/chi/v5"
+      var _ chi.Router
+  error: "the router package github.com/go-chi/chi/v5 is not imported"
+  expect: []

@@ -58,6 +58,7 @@ var requiredMountFixtures = []string{
 	"test directive names production file",
 	"overlapping roots",
 	"router package not imported",
+	"router imported only by excluded test",
 }
 
 func loadMountFixtures(t *testing.T) []mountFixture {

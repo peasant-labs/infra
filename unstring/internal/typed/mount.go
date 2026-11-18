@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"regexp"
 	"sort"
+	"strconv"
 
 	"github.com/peasant-labs/infra/unstring/internal/rules"
 	"golang.org/x/tools/go/packages"
@@ -73,9 +74,11 @@ func (p *Program) MountLiterals(opts MountOptions) ([]MountFinding, error) {
 		routers[r] = true
 	}
 	loaded := map[string]bool{}
-	packages.Visit(p.pkgs, nil, func(pkg *packages.Package) {
-		if routers[pkg.PkgPath] {
-			loaded[pkg.PkgPath] = true
+	p.eachFile(opts.IncludeTests, func(_ *packages.Package, file *ast.File) {
+		for _, imp := range file.Imports {
+			if path, err := strconv.Unquote(imp.Path.Value); err == nil && routers[path] {
+				loaded[path] = true
+			}
 		}
 	})
 	for _, r := range opts.Routers {
