@@ -54,9 +54,8 @@ func Gather(ctx context.Context, r GitRunner, command intent.Command, branch, co
 	return base, cfg, nil
 }
 
-// baseRevForRange returns the revision the release content is generated from:
-// the range-base tag commit, or the epoch commit when the epoch is newer than
-// the range base on the branch history.
+// baseRevForRange returns the range-base tag commit, or the epoch commit when
+// the epoch is newer. It is the fallback when a candidate has no known parent.
 func baseRevForRange(shas []string, tags map[string]string, rangeBaseTag, epoch string) string {
 	index := map[string]int{}
 	for i, sha := range shas {
@@ -79,15 +78,25 @@ func baseRevForRange(shas []string, tags map[string]string, rangeBaseTag, epoch 
 }
 
 // candidateFresh compares the candidate's changelog and version fields with
-// what Generate produces for the candidate's own sub-range, which the planner
-// reports in Before. Any unreadable input is an error (exit 1, no
-// candidate_fresh), never stale.
+// what Generate produces from the candidate's first parent for its own
+// sub-range, which the planner reports in Before. Any unreadable input is an
+// error (exit 1, no candidate_fresh), never stale.
 func candidateFresh(ctx context.Context, r GitRunner, command intent.Command, cfg intent.Config, commits []intent.Commit, tags map[string]string, dec intent.Decision, epoch string) (bool, error) {
 	shas := make([]string, 0, len(commits))
-	for _, c := range commits {
+	candidateIndex := -1
+	for i, c := range commits {
 		shas = append(shas, c.SHA)
+		if c.SHA == dec.Candidate {
+			candidateIndex = i
+		}
+	}
+	if candidateIndex < 0 {
+		return false, fmt.Errorf("%s: cannot compare release candidate %q: it is absent from the first-parent history. Fetch the candidate and branch history before planning", command, dec.Candidate)
 	}
 	baseRev := baseRevForRange(shas, tags, dec.RangeBase, epoch)
+	if candidateIndex+1 < len(commits) {
+		baseRev = commits[candidateIndex+1].SHA
+	}
 	baseData, err := r.ReadFile(ctx, baseRev, cfg.Changelog)
 	if err != nil {
 		var nf *NotFoundError

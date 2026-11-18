@@ -178,12 +178,13 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   `[Unreleased]` entries from its input into the new section. Peasant's
   [0.18.0](https://github.com/peasant-labs/peasant/tree/v0.18.0) and
   [0.18.1](https://github.com/peasant-labs/peasant/tree/v0.18.1) were tagged
-  but never published; 0.18.2 followed. **Current limitation:** release
-  preparation reads the changelog at the latest tag or grammar epoch, not the
-  current tip, so it can overwrite later corrections. The planner also treats
-  every changelog-changing commit as a release candidate and omits its
-  subject from the pending set. Do not rely on this allowance until release
-  preparation, freshness, and planning handle reviewed corrections.
+  but never published; 0.18.2 followed. Release preparation reads the source
+  tip and preserves reviewed corrections; candidate freshness reads that
+  candidate's first parent. Only a changelog-changing release-titled commit
+  can be a candidate, and changelog-changing subjects stay out of the pending
+  set, so keep releasing code changes separate from corrections. The title
+  and changelog predicate identifies a candidate; it does not authenticate
+  the PR's author.
 - **The queue policy file is `.github/release-queue.policy.yml`, top-level key
   `queue:` only.** `policy.DefaultPath` owns that path. Job-graph rules for a
   tag-triggered release workflow stay in schema's release-guard and its own

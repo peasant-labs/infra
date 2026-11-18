@@ -115,14 +115,14 @@ and [0.18.1](https://github.com/peasant-labs/peasant/tree/v0.18.1) were tagged
 but never published; 0.18.2 followed. Their prose and reference links are
 corrections for a reviewed PR, not new release headings.
 
-**Current limitation:** although the generator preserves the changelog passed
-to it, `release-pr` currently reads that base at the latest tag (or grammar
-epoch), not the current branch tip. A later correction or `[Unreleased]` edit
-can therefore be overwritten by the next release. The planner also treats a
-changelog-changing commit as a release candidate and excludes its subject
-from the pending set, so a releasing change combined with a correction can
-be omitted. Do not rely on this allowance until release preparation,
-candidate freshness, and release planning handle reviewed corrections.
+The release PR is generated from the source tip's changelog: it preserves
+reviewed corrections and adds the new section. Candidate freshness regenerates
+from that candidate's first parent. An ordinary correction is not a release
+candidate, and changelog-changing subjects are excluded from the pending set;
+keep a releasing code change in a separate PR so its release intent is counted.
+Only a fresh release candidate is eligible for tagging. The planner recognizes
+that candidate by a release title and a changelog change; those facts do not by
+themselves authenticate who opened the PR.
 
 ### Prepare a release branch locally
 
@@ -156,7 +156,7 @@ same validated title and fresh, in-scope content and merges
 cleanly; no commit is made. Omit `--current` when there is no existing branch.
 An unreadable current ref, a required push with no generated changes, or a
 version-only result with no changelog change is an error, not a no-op. The
-planner identifies release candidates by their changelog change. After an
+planner identifies release candidates by their release title and changelog change. After an
 interrupted or failed staging operation, discard
 the incomplete checkout and retry from a clean one. The new mode requires a
 Unix runner; existing `--write` remains a working-tree-only operation.

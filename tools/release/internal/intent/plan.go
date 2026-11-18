@@ -168,25 +168,6 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 	}
 	rng := facts.Commits[:end]
 
-	candidate := ""
-	candidateIdx := -1
-	freshness := FreshnessUnknown
-	for i, commit := range rng {
-		if commit.SHA == facts.Epoch || !commit.ChangesChangelog {
-			continue
-		}
-		candidate = commit.SHA
-		candidateIdx = i
-		if fresh, ok := facts.Fresh[commit.SHA]; ok {
-			if fresh {
-				freshness = FreshnessFresh
-			} else {
-				freshness = FreshnessStale
-			}
-		}
-		break
-	}
-
 	// Every subject in the range parses; one bad subject fails the whole
 	// plan with a recovery that names the floor, since the commit has
 	// already landed and no retitle can fix it.
@@ -201,6 +182,28 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 			return Decision{}, landedError(commit, facts.Branch, err)
 		}
 		parsed = append(parsed, parsedCommit{commit: commit, title: title})
+	}
+
+	// Only a release-titled changelog commit can be a candidate. A reviewed
+	// changelog correction is still excluded from pending release subjects,
+	// but must never displace the actual release commit.
+	candidate := ""
+	candidateIdx := -1
+	freshness := FreshnessUnknown
+	for i, p := range parsed {
+		if p.commit.SHA == facts.Epoch || !p.commit.ChangesChangelog || p.title.Type != TypeRelease {
+			continue
+		}
+		candidate = p.commit.SHA
+		candidateIdx = i
+		if fresh, ok := facts.Fresh[p.commit.SHA]; ok {
+			if fresh {
+				freshness = FreshnessFresh
+			} else {
+				freshness = FreshnessStale
+			}
+		}
+		break
 	}
 
 	// accumulate reduces parsed commits to a pending set, its high level,

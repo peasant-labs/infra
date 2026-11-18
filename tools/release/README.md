@@ -87,7 +87,7 @@ is checked using its HEAD config; a failed base read never triggers fallback.
 The range form reads the first-parent range ending
 at `--until`, excluding a final tag at that revision, and requires both report
 endpoints to equal the computed commit SHAs. The grammar epoch and optional
-floor bound the subjects, and changelog-changing release commits are excluded.
+floor bound the subjects, and changelog-changing commits are excluded.
 The range-base-only form prints `range_base=<tag>` without judging a report or
 parsing titles.
 
@@ -172,14 +172,16 @@ appended to `GITHUB_OUTPUT` when set.
 
 Ordinary reviewed PRs may edit changelog prose, previous sections, reference
 links, and `[Unreleased]`; they may not change the ordered release headings or
-protected version fields. The generator inserts a new section into the base it
-receives, carrying `[Unreleased]` entries with it. Currently the command reads
-that base at the latest tag or grammar epoch rather than the branch tip, so
-later human corrections can be overwritten. Release preparation and candidate
-freshness must both use the corrected base. The planner also treats every
-changelog-changing commit as a release candidate and omits its subject from
-the pending set; it must distinguish reviewed corrections before this
-allowance is safe to rely on.
+protected version fields. The generator reads the source tip, inserts a new
+section and carries `[Unreleased]` entries, preserving reviewed corrections.
+When rebuilding an untagged version already in the file, it updates that
+section without dropping existing prose or duplicating the heading. Candidate
+freshness regenerates from the candidate's first parent. A normal correction
+is not a candidate; only a changelog-changing release-titled commit can be
+selected, and only a fresh candidate is eligible for tagging. The predicate
+does not authenticate PR authorship. All changelog-changing subjects remain
+outside the pending set, so keep releasing code changes separate from
+corrections.
 
 `release-pr --commit --branch REF [--freeze-plan FILE] [--current REF]
 [--floor SHA]` generates the changelog and version-field changes, and may carry

@@ -1,0 +1,66 @@
+required_names:
+  - reviewed-correction-write-and-tag
+  - reviewed-correction-commit-and-tag
+  - corrected-release-tamper-rejected
+cases:
+  cases:
+    - name: reviewed-correction-write-and-tag
+      input: &correction
+        mode: write
+        seed_version: "0.18.1"
+        correction_title: "docs(changelog): correct historical notes"
+        pending_title: "fix(core)[patch]: repair behavior"
+        release_title: "release[patch]: v0.18.2"
+        expected_version: "0.18.2"
+        after_candidate: "A later reviewed note."
+        base_changelog: |
+          # Changelog
+
+          ## [0.18.1] - 2020-01-01
+          - Incorrectly described as published.
+
+          ## [0.18.0] - 2019-12-01
+          - Incorrectly described as published.
+
+          [0.18.1]: https://example.test/old-1
+          [0.18.0]: https://example.test/old-0
+        corrected_changelog: |
+          # Changelog
+
+          ## [Unreleased]
+          - Human-written release note.
+
+          ## [0.18.1] - 2020-01-01
+          - Tagged but never published (0.18.1).
+
+          ## [0.18.0] - 2019-12-01
+          - Tagged but never published (0.18.0).
+
+          [0.18.1]: https://github.com/peasant-labs/peasant/tree/v0.18.1
+          [0.18.0]: https://github.com/peasant-labs/peasant/tree/v0.18.0
+        contains:
+          - "## [0.18.2] - 2020-01-04"
+          - "- repair behavior"
+          - "- Human-written release note."
+          - "- Tagged but never published (0.18.1)."
+          - "- Tagged but never published (0.18.0)."
+          - "[0.18.1]: https://github.com/peasant-labs/peasant/tree/v0.18.1"
+          - "[0.18.0]: https://github.com/peasant-labs/peasant/tree/v0.18.0"
+        absent: ["## [Unreleased]", "Incorrectly described as published."]
+      expected: {check_exit: 0}
+      classification: must-pass
+      provenance: &p {source: requirement, ref: "reviewed historical corrections survive writing and candidate verification"}
+      mutation: &m {description: "vary the release writer or change its generated content"}
+    - name: reviewed-correction-commit-and-tag
+      input: {<<: *correction, mode: commit}
+      expected: {check_exit: 0}
+      classification: must-pass
+      provenance: *p
+      mutation: *m
+    - name: corrected-release-tamper-rejected
+      input: {<<: *correction, mode: stale, tamper_find: "Tagged but never published (0.18.0).", tamper_replace: "Tampered historical note."}
+      expected: {check_exit: 2}
+      classification: must-fail
+      sibling: reviewed-correction-write-and-tag
+      provenance: *p
+      mutation: *m
