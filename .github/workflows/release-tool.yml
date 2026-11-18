@@ -9,6 +9,7 @@ on:
   # required check never reports on a pull request outside the listed paths,
   # which would leave that pull request blocked forever.
   pull_request:
+  merge_group:
   push:
     branches:
       - main
