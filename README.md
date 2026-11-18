@@ -369,7 +369,9 @@ operator step per repository; it does not replace any check above.
 The read-only `release-view` may pass `--json` with a literal, non-repeating
 comma-separated selection of `isDraft` and `assets`, and optionally `--jq`
 with a literal filter, for example `'.isDraft, (.assets | length)'` to inspect
-draft state and asset count. The filter cannot read the environment or input,
+draft state and asset count. This form must name the current repository with
+`--repo "$GITHUB_REPOSITORY"` (or `-R`) without overriding that runner variable.
+The filter cannot read the environment or input,
 run system commands, use variables, or import jq modules. `--jq` requires
 `--json`. The plain view remains an existence check.
 

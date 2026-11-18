@@ -1003,6 +1003,9 @@ func (s templateStep) matchReleaseView(words []templateWord) string {
 	f, _ := s.parseFlags(words, spec)
 	jsonWord, hasJSON := f.flags["--json"]
 	if hasJSON {
+		if !namesCurrentReleaseRepository(f, s.env) {
+			return "release-state view must name the current repository exactly once with --repo or -R and \"$GITHUB_REPOSITORY\""
+		}
 		fields, _ := jsonWord.literal()
 		seen := map[string]bool{}
 		for _, field := range strings.Split(fields, ",") {
