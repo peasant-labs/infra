@@ -1,3 +1,12 @@
+tables:
+  - { name: OtherVisibility, exported: true }
+  - { name: TranscriptVisibility, exported: true }
+  - { name: RepositoryRole, exported: true }
+  # Hidden must stay private to exercise the unexported-table negative.
+  - { name: Hidden, exported: false }
+  - { name: NestedObjectValues, exported: true }
+  - { name: ArrayValues, exported: true }
+  - { name: TemplateStringValues, exported: true }
 members:
   - { set: OtherVisibility, name: Public, value: '"public"' }
   - { set: TranscriptVisibility, name: Public, value: '"public"' }

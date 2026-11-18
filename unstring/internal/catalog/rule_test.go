@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -38,6 +39,10 @@ func TestSchemaExportDiscoveryMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	var fixture struct {
+		Tables []struct {
+			Name     string `yaml:"name"`
+			Exported bool   `yaml:"exported"`
+		} `yaml:"tables"`
 		Members []struct {
 			Set   string `yaml:"set"`
 			Name  string `yaml:"name"`
@@ -67,6 +72,38 @@ func TestSchemaExportDiscoveryMembership(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("discovered members = %v, want exactly %v", got, want)
+	}
+
+	source, err := os.ReadFile("testdata/schema-module/typescript/src/internal/generated/enums.gen.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaration := regexp.MustCompile(`(?m)^(export )?const ([A-Za-z_$][A-Za-z0-9_$]*) = Object\.freeze\(\{`)
+	tables := map[string]bool{}
+	for _, match := range declaration.FindAllStringSubmatch(string(source), -1) {
+		name, exported := match[2], match[1] != ""
+		if _, exists := tables[name]; exists {
+			t.Errorf("duplicate frozen table declaration %q", name)
+		}
+		tables[name] = exported
+	}
+	required := map[string]bool{}
+	for _, table := range fixture.Tables {
+		if _, exists := required[table.Name]; exists {
+			t.Errorf("duplicate required frozen table %q", table.Name)
+		}
+		required[table.Name] = table.Exported
+		exported, exists := tables[table.Name]
+		if !exists {
+			t.Errorf("missing required frozen table %q", table.Name)
+		} else if exported != table.Exported {
+			t.Errorf("frozen table %q exported = %t, want %t", table.Name, exported, table.Exported)
+		}
+	}
+	for name := range tables {
+		if _, exists := required[name]; !exists {
+			t.Errorf("frozen table %q is missing from the required table list", name)
+		}
 	}
 }
 
