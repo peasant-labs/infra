@@ -76,6 +76,37 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 			where,
 			"correct the key or value on the line named above; the keys are version, baseline, ts, go, typed, schema, endpoints, dataDirs and exempt.")
 	}
+	// Preserve presence independently of the boolean value: even an explicit
+	// false is a misplaced option when the pass is disabled.
+	var presence struct {
+		Typed struct {
+			Mount struct {
+				Routers      yaml.Node `yaml:"routers"`
+				IncludeTests yaml.Node `yaml:"includeTests"`
+			} `yaml:"goMountLiteral"`
+		} `yaml:"typed"`
+	}
+	if err := yaml.Unmarshal(data, &presence); err != nil {
+		return Config{}, fmt.Errorf("read mount option presence in %s: %w", name, err)
+	}
+	if !c.Typed.GoMountLiteral.Enabled && (presence.Typed.Mount.Routers.Kind != 0 || presence.Typed.Mount.IncludeTests.Kind != 0) {
+		return Config{}, failure.New(
+			fmt.Sprintf("%s sets typed.goMountLiteral.routers or typed.goMountLiteral.includeTests without `enabled: true`.", name),
+			"the mount pass runs only when it is enabled, so these settings would silently do nothing.",
+			where, "add `enabled: true` under typed.goMountLiteral, or remove the options.")
+	}
+	if presence.Typed.Mount.Routers.Tag == "!!null" {
+		return Config{}, failure.New(
+			fmt.Sprintf("typed.goMountLiteral.routers in %s is null.", name),
+			"a null router list would silently select the default instead of the intended packages.",
+			where, "set typed.goMountLiteral.routers to a list of import paths, or omit it to use the default.")
+	}
+	if presence.Typed.Mount.IncludeTests.Tag == "!!null" {
+		return Config{}, failure.New(
+			fmt.Sprintf("typed.goMountLiteral.includeTests in %s is null.", name),
+			"a null test setting would silently exclude test files.",
+			where, "set typed.goMountLiteral.includeTests to true or false, or omit it to exclude test files.")
+	}
 	fail := func(what, why, fix string) (Config, error) {
 		return Config{}, failure.New(what, why, where, fix)
 	}
@@ -161,6 +192,9 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 				"mount files are paths or globs relative to the config's directory, with `/` separators.",
 				"write the router file's path or glob relative to the config, for example backend/internal/router/*.go.")
 		}
+	}
+	if ferr := c.Typed.GoMountLiteral.normalize(name, where); ferr != nil {
+		return Config{}, ferr
 	}
 	if len(c.DataDirs) == 0 {
 		c.DataDirs = DefaultDataDirs()
@@ -366,4 +400,36 @@ func (c Config) Exempted(id rules.RuleID, file string) bool {
 		}
 	}
 	return false
+}
+
+// routerPath is the shape of a Go import path: slash-separated elements with
+// no empty, `.` or `..` element.
+var routerPath = regexp.MustCompile(`^[A-Za-z0-9_.~+-]+(/[A-Za-z0-9_.~+-]+)*$`)
+
+// normalize applies the mount pass defaults and validates its keys.
+func (m *GoMountLiteral) normalize(name, where string) error {
+	key := "typed.goMountLiteral"
+	if !m.Enabled {
+		return nil
+	}
+	if len(m.Routers) == 0 {
+		m.Routers = DefaultMountRouters()
+	}
+	for i, r := range m.Routers {
+		if !routerPath.MatchString(r) || slices.Contains(strings.Split(r, "/"), ".") || slices.Contains(strings.Split(r, "/"), "..") {
+			return failure.New(
+				fmt.Sprintf("the router package %q in %s is not a Go import path.", r, name),
+				"the mount pass matches a method by the import path of the package that declares it.",
+				where,
+				fmt.Sprintf("write the package's import path under %s.routers, for example %s or net/http.", key, DefaultMountRouters()[0]))
+		}
+		if slices.Contains(m.Routers[:i], r) {
+			return failure.New(
+				fmt.Sprintf("the router package %q is listed twice under %s.routers in %s.", r, key, name),
+				"a repeated entry hides a typo in the entry that was meant.",
+				where,
+				"remove the repeated entry.")
+		}
+	}
+	return nil
 }

@@ -1,0 +1,368 @@
+# Cases for the typed mount pass. Each case writes `files` into a fresh module
+# whose go.mod requires github.com/go-chi/chi/v5 and replaces it with the
+# offline stub in testdata/chi, then runs the pass.
+#
+# routers  router packages; omitted means the default (chi v5 only).
+# includeTests  true scans _test.go files too; omitted means they are excluded.
+# roots    the roots; omitted means ".".
+# error    a substring the load or pass error must contain.
+# expect   every finding, in report order: file, line, receiver, method,
+#          pattern (the literal's value) and, when given, text (the source).
+- name: mount on chi mux
+  files:
+    router.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc) *chi.Mux {
+      	r := chi.NewRouter()
+      	r.Get("/health", h)
+      	return r
+      }
+  expect: [{file: router.go, line: 8, receiver: "*chi.Mux", method: Get, pattern: /health, text: '"/health"'}]
+- name: router interface in route callback
+  files:
+    router.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func mountAuth(r chi.Router, h http.HandlerFunc) {
+      	r.Get("/auth/me", h)
+      	r.Delete(`/auth/me`, h)
+      }
+  expect:
+    - {file: router.go, line: 7, receiver: chi.Router, method: Get, pattern: /auth/me}
+    - {file: router.go, line: 8, receiver: chi.Router, method: Delete, pattern: /auth/me, text: '`/auth/me`'}
+- name: mount after with
+  files:
+    router.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc, mw func(http.Handler) http.Handler) {
+      	r := chi.NewRouter()
+      	r.With(mw).Post("/auth/logout", h)
+      }
+  expect: [{file: router.go, line: 8, receiver: chi.Router, method: Post, pattern: /auth/logout}]
+- name: route and mount group literals
+  files:
+    router.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc, admin http.Handler) {
+      	r := chi.NewRouter()
+      	r.Route("/api/v1", func(r chi.Router) {
+      		r.Get("/users/{username}", h)
+      	})
+      	r.Mount("/admin", admin)
+      }
+  expect:
+    - {file: router.go, line: 8, receiver: "*chi.Mux", method: Route, pattern: /api/v1}
+    - {file: router.go, line: 9, receiver: chi.Router, method: Get, pattern: "/users/{username}"}
+    - {file: router.go, line: 11, receiver: "*chi.Mux", method: Mount, pattern: /admin}
+- name: method pattern argument
+  files:
+    router.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc, hh http.Handler) {
+      	r := chi.NewRouter()
+      	r.MethodFunc("GET", "/x", h)
+      	r.Method(http.MethodPost, "/y", hh)
+      	r.HandleFunc("/z", h)
+      }
+  expect:
+    - {file: router.go, line: 8, receiver: "*chi.Mux", method: MethodFunc, pattern: /x}
+    - {file: router.go, line: 9, receiver: "*chi.Mux", method: Method, pattern: /y}
+    - {file: router.go, line: 10, receiver: "*chi.Mux", method: HandleFunc, pattern: /z}
+- name: mount outside router file
+  files:
+    internal/handler/extra.go: |
+      package handler
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func Register(r chi.Router, h http.HandlerFunc) { r.Put("/extra", h) }
+  expect: [{file: internal/handler/extra.go, line: 6, receiver: chi.Router, method: Put, pattern: /extra}]
+- name: string helpers
+  files:
+    path.go: |
+      package fixture
+      import (
+      	"strings"
+      	"github.com/go-chi/chi/v5"
+      )
+      var _ chi.Router
+      func Split(pattern, path string) (bool, []string) {
+      	return strings.HasPrefix(pattern, "/"), strings.Split(path, "/")
+      }
+  expect: []
+- name: test helper in test file excluded by default
+  files:
+    router.go: |
+      package fixture
+      import "github.com/go-chi/chi/v5"
+      var _ chi.Router
+    router_test.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func newTestRouter(h http.HandlerFunc) *chi.Mux {
+      	r := chi.NewRouter()
+      	r.Get("/fixture", h)
+      	return r
+      }
+    external_test.go: |
+      package fixture_test
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func mount(r chi.Router, h http.HandlerFunc) { r.Get("/external", h) }
+  expect: []
+- name: test file included on opt-in
+  includeTests: true
+  files:
+    router.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc) { chi.NewRouter().Get("/health", h) }
+    router_test.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func newTestRouter(h http.HandlerFunc) *chi.Mux {
+      	r := chi.NewRouter()
+      	r.Get("/fixture", h)
+      	return r
+      }
+    external_test.go: |
+      package fixture_test
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func mount(r chi.Router, h http.HandlerFunc) { r.Get("/external", h) }
+  expect:
+    - {file: external_test.go, line: 6, receiver: chi.Router, method: Get, pattern: /external}
+    - {file: router.go, line: 6, receiver: "*chi.Mux", method: Get, pattern: /health}
+    - {file: router_test.go, line: 8, receiver: "*chi.Mux", method: Get, pattern: /fixture}
+- name: wrapper embedding a router
+  files:
+    api.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      type API struct{ chi.Router }
+      type Server struct{ *chi.Mux }
+      func New(h http.HandlerFunc) {
+      	a := &API{Router: chi.NewRouter()}
+      	a.Get("/promoted", h)
+      	s := Server{Mux: chi.NewRouter()}
+      	s.Post("/promoted-mux", h)
+      }
+  expect:
+    - {file: api.go, line: 10, receiver: "*fixture.API", method: Get, pattern: /promoted}
+    - {file: api.go, line: 12, receiver: fixture.Server, method: Post, pattern: /promoted-mux}
+- name: wrapper forwarding a parameter
+  files:
+    api.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      type API struct{ r chi.Router }
+      func (a *API) Get(path string, h http.HandlerFunc) { a.r.Get(path, h) }
+      func mount(r chi.Router, path string, h http.HandlerFunc) { r.Route(path, func(chi.Router) {}) }
+      func New(h http.HandlerFunc) {
+      	a := &API{r: chi.NewRouter()}
+      	a.Get("/wrapped", h)
+      	mount(chi.NewRouter(), "/forwarded", h)
+      }
+  expect: []
+- name: non-router receiver with mount method names
+  files:
+    cache.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      var _ chi.Router
+      type Cache struct{}
+      func (Cache) Get(key string, fallback http.HandlerFunc) string { return key }
+      func (Cache) Route(key string, fn func(chi.Router)) {}
+      type Getter interface{ Get(key string, fallback http.HandlerFunc) string }
+      func use(c Cache, g Getter, h http.HandlerFunc) {
+      	c.Get("/cache/key", h)
+      	c.Route("/cache/route", nil)
+      	g.Get("/interface/key", h)
+      }
+  expect: []
+- name: serve mux not configured
+  files:
+    mux.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      var _ chi.Router
+      func New(h http.HandlerFunc) *http.ServeMux {
+      	mux := http.NewServeMux()
+      	mux.HandleFunc("GET /x", h)
+      	mux.Handle("/y", h)
+      	return mux
+      }
+  expect: []
+- name: serve mux configured
+  routers: [net/http]
+  files:
+    mux.go: |
+      package fixture
+      import "net/http"
+      func New(h http.HandlerFunc, req *http.Request, c *http.Client) *http.ServeMux {
+      	mux := http.NewServeMux()
+      	mux.HandleFunc("GET /x", h)
+      	mux.Handle("/y", h)
+      	_ = req.Header.Get("Accept")
+      	_, _ = c.Get("/relative")
+      	return mux
+      }
+  expect:
+    - {file: mux.go, line: 5, receiver: "*http.ServeMux", method: HandleFunc, pattern: GET /x}
+    - {file: mux.go, line: 6, receiver: "*http.ServeMux", method: Handle, pattern: /y}
+- name: non-literal patterns
+  files:
+    router.go: |
+      package fixture
+      import (
+      	"fmt"
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      const healthPath = "/health"
+      type route struct{ pattern string }
+      func (r route) Pattern() string { return r.pattern }
+      func New(h http.HandlerFunc, id string, rt route) {
+      	r := chi.NewRouter()
+      	r.Get(healthPath, h)
+      	r.Get(fmt.Sprintf("/items/%s", id), h)
+      	r.Get("/items/"+id, h)
+      	r.Get(rt.Pattern(), h)
+      	r.Get("health", h)
+      }
+  expect: []
+- name: literal concatenation
+  files:
+    router.go: |
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc) {
+      	chi.NewRouter().Get("/api" + ("/v1"), h)
+      }
+  expect: [{file: router.go, line: 7, receiver: "*chi.Mux", method: Get, pattern: /api/v1, text: '"/api" + ("/v1")'}]
+- name: production directive names test file
+  files:
+    router.go: |
+      //line router_test.go:1
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc) { chi.NewRouter().Get("/health", h) }
+  expect: [{file: router.go, line: 7, receiver: "*chi.Mux", method: Get, pattern: /health}]
+- name: test directive names production file
+  files:
+    router.go: |
+      package fixture
+      import "github.com/go-chi/chi/v5"
+      var _ chi.Router
+    router_test.go: |
+      //line router.go:10
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func newTestRouter(h http.HandlerFunc) { chi.NewRouter().Get("/fixture", h) }
+  expect: []
+- name: directive preserves physical location
+  files:
+    router.go: |
+      //line other.go:100
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc) { chi.NewRouter().Get("/physical", h) }
+  expect: [{file: router.go, line: 7, receiver: "*chi.Mux", method: Get, pattern: /physical}]
+- name: overlapping roots
+  roots: [., sub]
+  files:
+    sub/router.go: |
+      package sub
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc) { chi.NewRouter().Get("/health", h) }
+  expect: [{file: sub/router.go, line: 6, receiver: "*chi.Mux", method: Get, pattern: /health}]
+- name: router package not imported
+  routers: [github.com/go-chi/chi/v5, github.com/example/missing]
+  files:
+    router.go: |
+      package fixture
+      import "github.com/go-chi/chi/v5"
+      var _ chi.Router
+  error: "the router package github.com/example/missing is not imported"
+  expect: []
+- name: router imported only by excluded test
+  files:
+    router.go: |
+      package fixture
+    router_test.go: |
+      package fixture
+      import "github.com/go-chi/chi/v5"
+      var _ chi.Router
+  error: "the router package github.com/go-chi/chi/v5 is not imported"
+  expect: []
+- name: package level http functions are not mounts
+  routers: [net/http]
+  files:
+    router.go: |
+      package fixture
+      import "net/http"
+      func New(h http.HandlerFunc) {
+        http.Handle("/one", h)
+        http.HandleFunc("/two", h)
+      }
+  expect: []

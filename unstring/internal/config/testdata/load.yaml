@@ -267,6 +267,115 @@ cases:
           reason: old code we do not want to look at
     error: ["hand-written file server/legacy/old.go"]
 
+  - name: typed-mount-defaults-applied
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {enabled: true}
+    want:
+      mountEnabled: true
+      mountRouters: [github.com/go-chi/chi/v5]
+      mountIncludeTests: false
+
+  - name: typed-mount-explicit-settings-kept
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral:
+          enabled: true
+          routers: [github.com/go-chi/chi/v5, net/http]
+          includeTests: true
+    want:
+      mountEnabled: true
+      mountRouters: [github.com/go-chi/chi/v5, net/http]
+      mountIncludeTests: true
+
+  - name: typed-mount-off-by-default
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+    want:
+      mountEnabled: false
+      mountRouters: []
+      mountIncludeTests: false
+
+  - name: refuses-mount-settings-without-enabled
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {routers: [net/http]}
+    error: ["without `enabled: true`", "add `enabled: true`"]
+
+  - name: refuses-include-tests-without-enabled
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {includeTests: true}
+    error: ["includeTests without `enabled: true`"]
+
+  - name: refuses-false-include-tests-without-enabled
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {includeTests: false}
+    error: ["includeTests without `enabled: true`"]
+
+  - name: refuses-null-router-setting-without-enabled
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {routers: null}
+    error: ["routers or typed.goMountLiteral.includeTests without `enabled: true`"]
+
+  - name: refuses-null-router-setting-when-enabled
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {enabled: true, routers: null}
+    error: ["typed.goMountLiteral.routers", "is null", "list of import paths", "omit"]
+
+  - name: refuses-null-include-tests-when-enabled
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {enabled: true, includeTests: null}
+    error: ["typed.goMountLiteral.includeTests", "is null", "true or false", "omit"]
+
+  - name: refuses-mount-router-not-import-path
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {enabled: true, routers: ["github.com/go-chi/chi/v5@v5.3.2"]}
+    error: ["is not a Go import path", "typed.goMountLiteral.routers"]
+
+  - name: refuses-repeated-mount-router
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {enabled: true, routers: [net/http, net/http]}
+    error: ["listed twice"]
+
 # MatchPath cases: pattern, file, and whether it matches.
 globs:
   - {pattern: web/gen/**, file: web/gen/a.ts, match: true}

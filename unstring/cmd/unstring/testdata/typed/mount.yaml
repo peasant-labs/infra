@@ -1,0 +1,44 @@
+# The typed mount pass through the real command. The router is net/http's
+# ServeMux so the module needs no dependency and loads offline.
+module: |
+  module example.test/mount
+  go 1.26
+# A mount in a file no mountFiles entry lists: only the typed pass sees it.
+source: |
+  package example
+
+  import "net/http"
+
+  func New(h http.HandlerFunc) *http.ServeMux {
+  	mux := http.NewServeMux()
+  	mux.HandleFunc("/health", h)
+  	return mux
+  }
+config: |
+  version: 1
+  go:
+    roots: [src]
+testsource: |
+  package example
+  import "net/http"
+  func testMount(h http.HandlerFunc) { http.NewServeMux().HandleFunc("/test-only", h) }
+testWant: 'go-typed-mount-literal  src/router_test.go:3  "/test-only"'
+typed: |
+  typed:
+    goMountLiteral:
+      enabled: true
+      routers: [net/http]
+# The finding's first line and its fix, as check prints them.
+want:
+  - 'go-typed-mount-literal  src/router.go:7  "/health"'
+  - '(*http.ServeMux).HandleFunc mounts the route pattern "/health" as a literal'
+  - 'take the pattern from the route''s single owner'
+# A router package no root imports is refused, never silently matched.
+missingRouter: |
+  typed:
+    goMountLiteral:
+      enabled: true
+      routers: [github.com/go-chi/chi/v5]
+missingRouterWant:
+  - 'the router package github.com/go-chi/chi/v5 is not imported'
+  - 'typed.goMountLiteral.routers'

@@ -25,14 +25,17 @@ type loadCase struct {
 	Files  map[string]string `yaml:"files"`
 	Config string            `yaml:"config"`
 	Want   *struct {
-		Baseline     string   `yaml:"baseline"`
-		TSRoots      []string `yaml:"tsRoots"`
-		GoRoots      []string `yaml:"goRoots"`
-		Prefixes     []string `yaml:"prefixes"`
-		Callees      []string `yaml:"callees"`
-		MountFiles   []string `yaml:"mountFiles"`
-		DataDirs     []string `yaml:"dataDirs"`
-		SchemaModule string   `yaml:"schemaModule"`
+		Baseline          string   `yaml:"baseline"`
+		TSRoots           []string `yaml:"tsRoots"`
+		GoRoots           []string `yaml:"goRoots"`
+		Prefixes          []string `yaml:"prefixes"`
+		Callees           []string `yaml:"callees"`
+		MountFiles        []string `yaml:"mountFiles"`
+		DataDirs          []string `yaml:"dataDirs"`
+		SchemaModule      string   `yaml:"schemaModule"`
+		MountEnabled      *bool    `yaml:"mountEnabled"`
+		MountRouters      []string `yaml:"mountRouters"`
+		MountIncludeTests *bool    `yaml:"mountIncludeTests"`
 	} `yaml:"want"`
 	Exempted []struct {
 		Rule string `yaml:"rule"`
@@ -71,6 +74,17 @@ var requiredLoadCases = []string{
 	"refuses-exempt-without-paths",
 	"refuses-closed-set-exempt-on-hand-written-file",
 	"refuses-all-rules-exempt-on-hand-written-file",
+	"typed-mount-defaults-applied",
+	"typed-mount-explicit-settings-kept",
+	"typed-mount-off-by-default",
+	"refuses-mount-settings-without-enabled",
+	"refuses-include-tests-without-enabled",
+	"refuses-false-include-tests-without-enabled",
+	"refuses-null-router-setting-without-enabled",
+	"refuses-null-router-setting-when-enabled",
+	"refuses-null-include-tests-when-enabled",
+	"refuses-mount-router-not-import-path",
+	"refuses-repeated-mount-router",
 }
 
 func loadLoadFixture(t *testing.T) loadFixture {
@@ -157,6 +171,16 @@ func TestLoad(t *testing.T) {
 				check("endpoint callees", p.EndpointCallees, w.Callees)
 				check("mount files", p.MountFiles, w.MountFiles)
 				check("data dirs", p.DataDirs, w.DataDirs)
+				m := got.Typed.GoMountLiteral
+				if w.MountEnabled != nil && m.Enabled != *w.MountEnabled {
+					t.Errorf("mount pass enabled = %v, want %v", m.Enabled, *w.MountEnabled)
+				}
+				if w.MountRouters != nil && !slices.Equal(m.Routers, w.MountRouters) && (len(m.Routers) != 0 || len(w.MountRouters) != 0) {
+					t.Errorf("mount routers = %q, want %q", m.Routers, w.MountRouters)
+				}
+				if w.MountIncludeTests != nil && m.IncludeTests != *w.MountIncludeTests {
+					t.Errorf("mount includeTests = %v, want %v", m.IncludeTests, *w.MountIncludeTests)
+				}
 				if w.SchemaModule != "" && got.Schema.Module != w.SchemaModule {
 					t.Errorf("schema module = %q, want %q", got.Schema.Module, w.SchemaModule)
 				}

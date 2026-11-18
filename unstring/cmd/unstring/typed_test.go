@@ -16,6 +16,9 @@ import (
 //go:embed testdata/typed/check.yaml
 var typedCheckFixture []byte
 
+//go:embed testdata/typed/mount.yaml
+var typedMountFixture []byte
+
 func TestTypedCheckIsOptInAndNotBaselined(t *testing.T) {
 	var f struct {
 		Module, Source, Config, Exemption string
@@ -96,5 +99,99 @@ func TestTypedCheckIsOptInAndNotBaselined(t *testing.T) {
 	out, err = run("check")
 	if err == nil || !strings.Contains(out, "go-typed-closed-set-literal") {
 		t.Fatalf("fabricated baseline: %v\n%s", err, out)
+	}
+}
+
+func TestTypedMountCheckIsOptInAndNotBaselined(t *testing.T) {
+	var f struct {
+		Module, Source, TestSource, Config, Typed string
+		Want                                      []string
+		TestWant                                  string   `yaml:"testWant"`
+		MissingRouter                             string   `yaml:"missingRouter"`
+		MissingRouterWant                         []string `yaml:"missingRouterWant"`
+	}
+	if err := yaml.Unmarshal(typedMountFixture, &f); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", f.Module)
+	write("src/router.go", f.Source)
+	write("src/router_test.go", f.TestSource)
+	bin := unstringBinary(t)
+	ag := astgreptest.Require(t)
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		c := exec.Command(bin, append(args, "--ast-grep", ag)...)
+		c.Dir = dir
+		c.Env = append(os.Environ(), "GOPROXY=off", "GOWORK=off")
+		var output bytes.Buffer
+		c.Stdout = &output
+		c.Stderr = &output
+		err := c.Run()
+		return output.String(), err
+	}
+	const rule = "go-typed-mount-literal"
+	write(".unstring.yaml", f.Config+f.Typed)
+	if out, err := run("init"); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	if out, err := run("update"); err != nil {
+		t.Fatalf("update: %v\n%s", err, out)
+	}
+	baseline := filepath.Join(dir, ".unstring-baseline.yaml")
+	before, err := os.ReadFile(baseline)
+	if err != nil || bytes.Contains(before, []byte(rule)) {
+		t.Fatalf("init or update wrote a typed entry: %s (%v)", before, err)
+	}
+	write(".unstring.yaml", f.Config)
+	if out, err := run("check"); err != nil || strings.Contains(out, rule) {
+		t.Fatalf("default check: %v\n%s", err, out)
+	}
+	write(".unstring.yaml", f.Config+f.Typed)
+	out, err := run("check")
+	if err == nil {
+		t.Fatalf("typed mount check passed:\n%s", out)
+	}
+	for _, want := range f.Want {
+		if !strings.Contains(out, want) {
+			t.Errorf("typed mount check output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, f.TestWant) {
+		t.Fatalf("default scan included test mount:\n%s", out)
+	}
+	write(".unstring.yaml", f.Config+f.Typed+"    includeTests: true\n")
+	out, err = run("check")
+	if err == nil || !strings.Contains(out, f.TestWant) {
+		t.Fatalf("included test mount missing: %v\n%s", err, out)
+	}
+	write(".unstring.yaml", f.Config+f.Typed)
+	if after, err := os.ReadFile(baseline); err != nil || !bytes.Equal(before, after) {
+		t.Fatal("check changed the baseline")
+	}
+	// A fabricated typed rule entry is rejected, never used to suppress the hit.
+	write(".unstring-baseline.yaml", strings.Replace(string(before), "rules:\n", "rules:\n  "+rule+":\n    src/router.go: 1\n", 1))
+	if out, err := run("check"); err == nil || !strings.Contains(out, rule) {
+		t.Fatalf("fabricated baseline: %v\n%s", err, out)
+	}
+	write(".unstring-baseline.yaml", string(before))
+	write(".unstring.yaml", f.Config+f.MissingRouter)
+	out, err = run("check")
+	if err == nil {
+		t.Fatalf("check accepted a router no root imports:\n%s", out)
+	}
+	for _, want := range f.MissingRouterWant {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing-router output lacks %q:\n%s", want, out)
+		}
 	}
 }

@@ -189,6 +189,9 @@ refused.
 | `ts.roots` | none; the `ts` section is omitted when there are no TypeScript or JavaScript roots |
 | `go.roots` | none; the `go` section is omitted when there are no Go roots |
 | `typed.goClosedSetLiteral` | `false` |
+| `typed.goMountLiteral.enabled` | `false` |
+| `typed.goMountLiteral.routers` | `github.com/go-chi/chi/v5` |
+| `typed.goMountLiteral.includeTests` | `false` |
 | `schema.module` | none; the catalog is the repository only |
 | `endpoints.prefixes` | `/api/v1` |
 | `endpoints.callees` | none |
@@ -237,7 +240,8 @@ A route-mounting file has to be listed. A group-relative argument such as
 `"/auth/me"` carries no API prefix, so the prefix rule does not see it. The
 mount-file rule flags every `"/…"` string argument in the listed files. The
 mount-file rule ignores `_test.go` files, including those a glob lists. The
-same call in a file that is not listed is not a mount.
+same call in a file that is not listed is not a mount. The optional typed
+mount check below finds mounts by the router's type instead, in every file.
 
 ## Baseline
 
@@ -303,3 +307,37 @@ These `go-typed-closed-set-literal` findings are not structural baseline
 entries and cannot be suppressed by baseline edits or markers. `init` and
 `update` only manage the structural baseline; enabling this check requires
 fixing typed findings before `check` passes.
+
+## Optional typed Go mount check
+
+To opt in, add:
+
+```yaml
+typed:
+  goMountLiteral:
+    enabled: true
+    routers: [github.com/go-chi/chi/v5]  # the default
+    includeTests: false                  # the default
+```
+
+On `check`, this reports literal route patterns passed to methods declared in
+listed router packages, resolved by Go type information. Chi v5 is the default;
+`net/http` also covers `(*http.ServeMux).Handle` and `HandleFunc` when listed.
+Package-level `http.Handle` and `http.HandleFunc` are not matched. Chi interface
+receivers and promoted methods match; similarly named methods on other types do
+not. Supported methods are `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`,
+`Options`, `Connect`, `Query`, `Trace`, `Handle`, `HandleFunc`, `Method`,
+`MethodFunc`, `Route` and `Mount`.
+
+Patterns must start with `/` or an HTTP method and `/` (such as `GET /x`);
+host-qualified ServeMux patterns are not matched. Literal concatenations are
+reported, but constants, variables and calls are not. Group prefixes and
+relative patterns are reported separately, as written. Files and locations
+are physical even with `//line` directives. `_test.go` files are skipped unless
+`includeTests: true`. A listed router not directly imported by any scanned file
+fails the check, rather than silently matching nothing.
+
+Like the closed-set check, these findings are not structural baseline entries
+and cannot be suppressed by baseline edits or markers. Both typed checks share
+one package load. The structural `go-endpoint-literal` mount-file rule stays
+in place; this check does not replace it.

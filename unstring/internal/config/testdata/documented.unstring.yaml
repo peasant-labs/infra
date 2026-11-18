@@ -6,6 +6,12 @@ ts:
   roots: [frontend]
 go:
   roots: [backend]
+typed:
+  goClosedSetLiteral: true
+  goMountLiteral:
+    enabled: true
+    routers: [github.com/go-chi/chi/v5]
+    includeTests: false
 schema:
   module: github.com/peasant-labs/schema
 endpoints:
