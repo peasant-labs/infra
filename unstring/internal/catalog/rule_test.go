@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -30,6 +31,80 @@ type ruleCase struct {
 	// Hits maps each file to its exact hit lines; a file with no hit is
 	// absent.
 	Hits map[string][]int `yaml:"hits"`
+}
+
+func TestSchemaExportDiscoveryMembership(t *testing.T) {
+	data, err := os.ReadFile("testdata/schema-export-members.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Tables []struct {
+			Name     string `yaml:"name"`
+			Exported bool   `yaml:"exported"`
+		} `yaml:"tables"`
+		Members []struct {
+			Set   string `yaml:"set"`
+			Name  string `yaml:"name"`
+			Value string `yaml:"value"`
+		} `yaml:"members"`
+	}
+	decodeStrict(t, "testdata/schema-export-members.yaml", data, &fixture)
+	body, err := os.ReadFile("discovery/schema-export.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, err := newRunner(t).Scan(context.Background(), astgrep.ScanRequest{
+		Dir: "testdata/schema-module", Roots: []string{"typescript/src/internal/generated/enums.gen.ts"},
+		Rules: []astgrep.RuleFile{{Name: "schema-export.yml", Body: body}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want []string
+	for _, m := range matches {
+		got = append(got, fmt.Sprintf("%s.%s=%s", m.Vars["SET"], m.Vars["NAME"], m.Text))
+	}
+	for _, m := range fixture.Members {
+		want = append(want, fmt.Sprintf("%s.%s=%s", m.Set, m.Name, m.Value))
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("discovered members = %v, want exactly %v", got, want)
+	}
+
+	source, err := os.ReadFile("testdata/schema-module/typescript/src/internal/generated/enums.gen.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaration := regexp.MustCompile(`(?m)^(export )?const ([A-Za-z_$][A-Za-z0-9_$]*) = Object\.freeze\(\{`)
+	tables := map[string]bool{}
+	for _, match := range declaration.FindAllStringSubmatch(string(source), -1) {
+		name, exported := match[2], match[1] != ""
+		if _, exists := tables[name]; exists {
+			t.Errorf("duplicate frozen table declaration %q", name)
+		}
+		tables[name] = exported
+	}
+	required := map[string]bool{}
+	for _, table := range fixture.Tables {
+		if _, exists := required[table.Name]; exists {
+			t.Errorf("duplicate required frozen table %q", table.Name)
+		}
+		required[table.Name] = table.Exported
+		exported, exists := tables[table.Name]
+		if !exists {
+			t.Errorf("missing required frozen table %q", table.Name)
+		} else if exported != table.Exported {
+			t.Errorf("frozen table %q exported = %t, want %t", table.Name, exported, table.Exported)
+		}
+	}
+	for name := range tables {
+		if _, exists := required[name]; !exists {
+			t.Errorf("frozen table %q is missing from the required table list", name)
+		}
+	}
 }
 
 // generatedRuleIDs are the rule ids built from the catalog.

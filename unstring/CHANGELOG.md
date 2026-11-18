@@ -2,7 +2,17 @@
 
 The release automation generates this file from landed release intents.
 
-## [Unreleased]
+## [0.2.1]
+
+- discover schema members from literal enum values (#99)
+
+## [0.2.0]
+
+- add the Go typed closed-set-literal pass (#97)
+
+## [0.1.0]
+
+- publish eslint-plugin-unstring on the release tag (#91)
 
 ## [0.0.4]
 

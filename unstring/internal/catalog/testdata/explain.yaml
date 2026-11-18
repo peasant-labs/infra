@@ -78,14 +78,23 @@ cases:
     fix: ["schema.VisibilityPublic from example.test/schema@v0.0.1"]
     fix_not: ['TranscriptVisibility.Public from "@peasant-labs/schema"']
 
-  - name: built-schema-ts-missing-member-names-set
+  - name: built-schema-ts-literal-member-uses-value-not-name
     lang: ts
     value: reader
     files:
       package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
     schema: *schema
-    fix: ["no TypeScript member", "schema.RepositoryRole"]
-    fix_not: ["schema.RoleReader"]
+    fix: ['RepositoryRole.ReadOnly from "@peasant-labs/schema"']
+    fix_not: ["schema.RoleReader", "RepositoryRole.reader"]
+
+  - name: built-schema-ts-literal-member-owner
+    lang: ts
+    value: owner
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *schema
+    fix: ['RepositoryRole.Owner from "@peasant-labs/schema"']
+    fix_not: ["schema.RoleOwner"]
 
   - name: built-schema-ts-union-without-member
     lang: ts
@@ -101,7 +110,25 @@ cases:
     value: owner
     files:
       package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
-    schema: *schema
+    schema:
+      module: example.test/schema
+      version: v0.0.1
+      files:
+        go.mod: 'module example.test/schema'
+        role.go: |
+          package schema
+          type RepositoryRole string
+          const (
+            RoleOwner RepositoryRole = "owner"
+            RoleReader RepositoryRole = "reader"
+          )
+        typescript/src/index.ts: |
+          export * from "./internal/generated/enums.gen.js";
+        typescript/src/internal/generated/enums.gen.ts: |
+          const RepositoryRole = Object.freeze({
+            Owner: "owner",
+            Reader: "reader",
+          } as const);
     fix: ["no TypeScript member", "schema.RepositoryRole"]
     fix_not: ["RepositoryRole.Owner from", "schema.RoleOwner"]
 

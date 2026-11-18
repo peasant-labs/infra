@@ -89,6 +89,23 @@ The release-tool SHA appears in five checkouts across `release-batch.yml`,
 `release.yml`, `npm-publish.yml`, and `title-guard.yml`; all five must move together.
 `cut-release.yml` is the fourth release workflow but does not check out the tool.
 
+### Recovery
+
+`unstring/v0.1.0` is published as the first plugin release. These recovery
+rules apply to subsequent releases.
+
+- Only the `peasant-labs-releaser` App (Integration 3988034) can bypass the
+  `Protect release tags` ruleset to create release tags. Human tag pushes are
+  refused; do not change the ruleset to work around a failed batch.
+- If a plan returns `action=none` while a release is expected, confirm
+  `RELEASE_BATCH_MODE=tag` and whether a later non-releasing fix moved the tip.
+  Do not treat `none` as success and do not move a tag; if the release cannot
+  be tagged at the intended commit, cut a new release that includes the fix.
+- npm publishing uses Trusted Publishing (OIDC). The `npm-publish` environment
+  and Trusted Publisher registration are one-time maintainer setup; steady
+  state needs no long-lived `NPM_TOKEN`. The version file is
+  `unstring/eslint-plugin/package.json`.
+
 ### Exercise the planner without a tag
 
 Run from the repository root with Go and Git installed. This clones into a
@@ -166,6 +183,7 @@ refused.
 | `baseline` | `.unstring-baseline.yaml` |
 | `ts.roots` | none; the `ts` section is omitted when there are no TypeScript or JavaScript roots |
 | `go.roots` | none; the `go` section is omitted when there are no Go roots |
+| `typed.goClosedSetLiteral` | `false` |
 | `schema.module` | none; the catalog is the repository only |
 | `endpoints.prefixes` | `/api/v1` |
 | `endpoints.callees` | none |
@@ -255,3 +273,28 @@ match.
 An exemption of any other rule is a review decision. The tool does not apply
 that header check to it, and the exemption is not a way to keep a hand-written
 literal: the file should still be generated. Every entry needs a reason.
+
+## Optional typed Go check
+
+To opt in, add:
+
+```yaml
+typed:
+  goClosedSetLiteral: true
+```
+
+On `check`, this loads the configured Go roots with Go type information and
+reports comparisons and switch cases that use a literal matching exactly one
+package-level constant of the receiver's named string type. Plain strings,
+interfaces, untyped values, types without constants, unmatched values and
+ambiguous values are silent. Package loading errors fail the check; the Go
+packages and their test packages must build in the environment running the tool.
+Go `//line` directives do not change which files the pass scans.
+Findings name the physical file and line, even when a `//line` directive maps them elsewhere.
+An unexported constant in another package produces a finding without a
+replacement identifier: export the constant or move the comparison.
+
+These `go-typed-closed-set-literal` findings are not structural baseline
+entries and cannot be suppressed by baseline edits or markers. `init` and
+`update` only manage the structural baseline; enabling this check requires
+fixing typed findings before `check` passes.

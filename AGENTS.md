@@ -184,7 +184,8 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   can be a candidate, and changelog-changing subjects stay out of the pending
   set, so keep releasing code changes separate from corrections. The title
   and changelog predicate identifies a candidate; it does not authenticate
-  the PR's author.
+  the PR's author. Consumers must add a plan-job GitHub API provenance check
+  before adopting this behavior.
 - **The queue policy file is `.github/release-queue.policy.yml`, top-level key
   `queue:` only.** `policy.DefaultPath` owns that path. Job-graph rules for a
   tag-triggered release workflow stay in schema's release-guard and its own
@@ -222,8 +223,25 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   job (a deliberate scope limit; a probe job would need its own typed class).
   A missing artifact fails closed; a stale run is the script's exit 0.
   `pull_request_target` stays refused in every comment workflow. The
-  release-assets action takes only the
-  build job's `release-dist` handoff and the triggering tag. The
+  release-assets action takes only the build job's `release-dist` handoff and
+  the triggering tag. Its gate is either `view.success || create.success`
+  (the existing published-create flow) or `view.failure && create.success`
+  (the immutable flow: verified draft create, asset upload, then a gated
+  `--draft=false` publish edit). The action requires literal `draft: true`
+  in the immutable flow; in the published-create flow `draft` must be absent
+  or literal `false`. `prerelease` always reads a needed job's output.
+  `make_latest` must do so in the published-create flow; it may be omitted in
+  the draft flow, and should be omitted because drafts cannot be marked latest.
+  If present there it still reads a needed job's output. The immutable flow's
+  action reads `prerelease` from a needed release-kind job. Its publish edit
+  names the current repository explicitly with exactly one `--repo` or `-R`,
+  passes `--draft=false`, and binds `--prerelease` and `--latest` to that same
+  job's declared outputs, either directly or by matching the job's own output
+  comparison. The checker does not validate the producer's computation.
+  An existing release makes the immutable flow a no-op on rerun. A failed draft
+  is a burned release; the fix is forward. The checker cannot inspect the
+  action's implementation: verify that its exact pin finds the existing draft
+  and honors `draft: true` while uploading. The
   `--print-required` mode prints the contexts but retains the policy verdict.
 - **A release tag is checked before it leaves the release job.** The release
   workflow triggers only on push, schedule and workflow_dispatch, and the

@@ -55,7 +55,7 @@ jobs:
       tag-action: ${{ steps.plan.outputs.action }}
       tag: ${{ steps.plan.outputs.tag }}
       candidate: ${{ steps.plan.outputs.candidate }}
-      plan-source: ${{ steps.plan.outputs.source }}
+      plan-source: ${{ steps.preplan.outputs.source }}
       action: ${{ steps.replan.outputs.action }}
       level: ${{ steps.replan.outputs.level }}
       breaking: ${{ steps.replan.outputs.breaking }}

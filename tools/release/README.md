@@ -4,6 +4,14 @@
 workflow checker separately reads `.github/release-queue.policy.yml`. A
 repository's tag-workflow guard and its policy remain separate.
 
+The landed release PR commit is the batch boundary. A fresh candidate is
+verified and tagged for the subjects in its snapshot, even if another releasing
+PR lands afterward. Later subjects remain in the full pending range and belong
+to the next release after the candidate is tagged. A candidate whose own
+release content is stale is still rebuilt instead of tagged. `candidate_fresh`
+is judged against the candidate's `Before` sub-range only; a later subject is
+for the next release, not evidence of staleness.
+
 ## Per-tool release stream
 
 `streams` is optional; without it, the existing repository-wide release
@@ -179,7 +187,9 @@ section without dropping existing prose or duplicating the heading. Candidate
 freshness regenerates from the candidate's first parent. A normal correction
 is not a candidate; only a changelog-changing release-titled commit can be
 selected, and only a fresh candidate is eligible for tagging. The predicate
-does not authenticate PR authorship. All changelog-changing subjects remain
+does not authenticate PR authorship. Before adopting this behavior, consumers
+must add a plan-job GitHub API provenance check that authenticates the release
+PR independently of its title and changed files. All changelog-changing subjects remain
 outside the pending set, so keep releasing code changes separate from
 corrections.
 

@@ -118,6 +118,7 @@ sets:
       - files
       - fail_on_unmatched_files
       - overwrite_files
+      - draft
       - prerelease
       - make_latest
       - repository

@@ -98,11 +98,11 @@ func (t CredentialTemplate) Shape() string {
 	case TemplateQueueRead:
 		return `gh api graphql [-F <name>=<literal>]... -f query='<a mergeQueue query>' [> <file>]`
 	case TemplateReleaseView:
-		return `gh release view <triggering tag> [--repo <repo>]`
+		return `gh release view <triggering tag> [--repo <repo>] [--json <fields>] [--jq <literal filter>]`
 	case TemplateReleaseEdit:
-		return `gh release edit <triggering tag> [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--prerelease[=<v>]] [--latest[=<v>]]`
+		return `gh release edit <triggering tag> [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
 	case TemplateReleaseCreate:
-		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--prerelease[=<v>]] [--latest[=<v>]]`
+		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
 	case TemplatePRComment:
 		return `gh pr comment [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] "${PR_NUMBER}" (--body-file|-F) <file>`
 	case TemplateReviewedScript:
@@ -228,6 +228,7 @@ const (
 	cmdNode            = "node"
 	ghFlagHead         = "--head"
 	ghFlagVerifyTag    = "--verify-tag"
+	ghFlagDraft        = "--draft"
 	ghFlagAuto         = "--auto"
 	ghFlagDisableAuto  = "--disable-auto"
 	gitFlagForceLease  = "--force-with-lease"
@@ -353,7 +354,7 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 	case TemplateQueueRead:
 		why = s.matchQueueRead(words[3:])
 	case TemplateReleaseView:
-		why = s.matchRelease(words[3:], flagSpec{"--repo": flagRepo, "-R": flagRepo}, false)
+		why = s.matchReleaseView(words[3:])
 	case TemplateReleaseEdit:
 		why = s.matchRelease(words[3:], releaseFlags(), false)
 	case TemplateReleaseCreate:
@@ -681,7 +682,7 @@ func releaseFlags() flagSpec {
 		"--title": flagText, "-t": flagText,
 		"--notes": flagText, "-n": flagText,
 		"--notes-file": flagPath, "-F": flagPath,
-		"--prerelease": flagSwitchValue, "--latest": flagSwitchValue,
+		ghFlagDraft: flagSwitchValue, "--prerelease": flagSwitchValue, "--latest": flagSwitchValue,
 	}
 }
 
@@ -990,6 +991,49 @@ func (s templateStep) matchQueueRead(words []templateWord) string {
 	}
 	return ""
 }
+
+// matchReleaseView permits only release-state fields and a literal jq filter.
+// Imports are refused: imported jq modules could otherwise read credentials
+// without naming an environment-reading builtin in the filter itself.
+func (s templateStep) matchReleaseView(words []templateWord) string {
+	spec := flagSpec{"--repo": flagRepo, "-R": flagRepo, "--json": flagLiteral, "--jq": flagLiteral}
+	if why := s.matchRelease(words, spec, false); why != "" {
+		return why
+	}
+	f, _ := s.parseFlags(words, spec)
+	jsonWord, hasJSON := f.flags["--json"]
+	if hasJSON {
+		if !namesCurrentReleaseRepository(f, s.env) {
+			return "release-state view must name the current repository exactly once with --repo or -R and \"$GITHUB_REPOSITORY\""
+		}
+		fields, _ := jsonWord.literal()
+		seen := map[string]bool{}
+		for _, field := range strings.Split(fields, ",") {
+			if (field != "isDraft" && field != "assets") || seen[field] {
+				return "--json must list only isDraft and assets, without duplicates"
+			}
+			seen[field] = true
+		}
+	}
+	if jqWord, ok := f.flags["--jq"]; ok {
+		if !hasJSON {
+			return "--jq requires --json"
+		}
+		filter, _ := jqWord.literal()
+		if strings.TrimSpace(filter) == "" || strings.Contains(filter, "$") {
+			return "--jq must be a nonempty literal filter without variables"
+		}
+		for _, word := range jqIdentifiers.FindAllString(filter, -1) {
+			switch word {
+			case "env", "input", "inputs", "input_filename", "input_line_number", "system", "import", "include", "module":
+				return "--jq may not read the environment or input, run system commands, or import modules"
+			}
+		}
+	}
+	return ""
+}
+
+var jqIdentifiers = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 
 // matchRelease checks a gh release view, edit, or create on the triggering
 // tag. create additionally requires --verify-tag, so gh refuses to create a

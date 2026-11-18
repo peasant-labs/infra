@@ -1,6 +1,6 @@
 {
   "name": "eslint-plugin-unstring",
-  "version": "0.0.0",
+  "version": "0.2.1",
   "description": "Type-aware linting for closed-set wire values",
   "type": "module",
   "main": "./src/index.js",
