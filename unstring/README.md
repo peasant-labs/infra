@@ -89,6 +89,21 @@ The release-tool SHA appears in five checkouts across `release-batch.yml`,
 `release.yml`, `npm-publish.yml`, and `title-guard.yml`; all five must move together.
 `cut-release.yml` is the fourth release workflow but does not check out the tool.
 
+### Recovery
+
+- Only the `peasant-labs-releaser` App (Integration 3988034) can bypass the
+  `Protect release tags` ruleset to create release tags. Human tag pushes are
+  refused; do not change the ruleset to work around a failed batch.
+- A release PR behind the current tip is not taggable. If a non-releasing fix
+  lands after the release PR merges, the batch can return `action=none` for
+  that release commit. Do not move or recreate the tag; land a new
+  `feat(unstring)[minor]` or `fix(unstring)[patch]` content PR so the next
+  release is cut at the current tip and includes the fix.
+- npm publishing uses Trusted Publishing (OIDC). The `npm-publish` environment
+  and Trusted Publisher registration are one-time maintainer setup; steady
+  state needs no long-lived `NPM_TOKEN`. The version file is
+  `unstring/eslint-plugin/package.json`.
+
 ### Exercise the planner without a tag
 
 Run from the repository root with Go and Git installed. This clones into a
