@@ -11,7 +11,7 @@ typed:
   goMountLiteral:
     enabled: true
     routers: [github.com/go-chi/chi/v5]
-    tests: exclude
+    includeTests: false
 schema:
   module: github.com/peasant-labs/schema
 endpoints:

@@ -277,7 +277,7 @@ cases:
     want:
       mountEnabled: true
       mountRouters: [github.com/go-chi/chi/v5]
-      mountTests: exclude
+      mountIncludeTests: false
 
   - name: typed-mount-explicit-settings-kept
     files: {server/a.go: ""}
@@ -288,11 +288,11 @@ cases:
         goMountLiteral:
           enabled: true
           routers: [github.com/go-chi/chi/v5, net/http]
-          tests: include
+          includeTests: true
     want:
       mountEnabled: true
       mountRouters: [github.com/go-chi/chi/v5, net/http]
-      mountTests: include
+      mountIncludeTests: true
 
   - name: typed-mount-off-by-default
     files: {server/a.go: ""}
@@ -302,7 +302,7 @@ cases:
     want:
       mountEnabled: false
       mountRouters: []
-      mountTests: ""
+      mountIncludeTests: false
 
   - name: refuses-mount-settings-without-enabled
     files: {server/a.go: ""}
@@ -313,14 +313,23 @@ cases:
         goMountLiteral: {routers: [net/http]}
     error: ["without `enabled: true`", "add `enabled: true`"]
 
-  - name: refuses-unknown-mount-tests-value
+  - name: refuses-include-tests-without-enabled
     files: {server/a.go: ""}
     config: |
       version: 1
       go: {roots: [server]}
       typed:
-        goMountLiteral: {enabled: true, tests: skip}
-    error: ['typed.goMountLiteral.tests in', '"skip"', "exclude or include"]
+        goMountLiteral: {includeTests: true}
+    error: ["includeTests without `enabled: true`"]
+
+  - name: refuses-false-include-tests-without-enabled
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {includeTests: false}
+    error: ["includeTests without `enabled: true`"]
 
   - name: refuses-mount-router-not-import-path
     files: {server/a.go: ""}

@@ -76,6 +76,25 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 			where,
 			"correct the key or value on the line named above; the keys are version, baseline, ts, go, typed, schema, endpoints, dataDirs and exempt.")
 	}
+	// Preserve presence independently of the boolean value: even an explicit
+	// false is a misplaced option when the pass is disabled.
+	var presence struct {
+		Typed struct {
+			Mount struct {
+				Routers      *[]string `yaml:"routers"`
+				IncludeTests *bool     `yaml:"includeTests"`
+			} `yaml:"goMountLiteral"`
+		} `yaml:"typed"`
+	}
+	if err := yaml.Unmarshal(data, &presence); err != nil {
+		return Config{}, fmt.Errorf("read mount option presence in %s: %w", name, err)
+	}
+	if !c.Typed.GoMountLiteral.Enabled && (presence.Typed.Mount.Routers != nil || presence.Typed.Mount.IncludeTests != nil) {
+		return Config{}, failure.New(
+			fmt.Sprintf("%s sets typed.goMountLiteral.routers or typed.goMountLiteral.includeTests without `enabled: true`.", name),
+			"the mount pass runs only when it is enabled, so these settings would silently do nothing.",
+			where, "add `enabled: true` under typed.goMountLiteral, or remove the options.")
+	}
 	fail := func(what, why, fix string) (Config, error) {
 		return Config{}, failure.New(what, why, where, fix)
 	}
@@ -379,9 +398,9 @@ var routerPath = regexp.MustCompile(`^[A-Za-z0-9_.~+-]+(/[A-Za-z0-9_.~+-]+)*$`)
 func (m *GoMountLiteral) normalize(name, where string) error {
 	key := "typed.goMountLiteral"
 	if !m.Enabled {
-		if len(m.Routers) > 0 || m.Tests != "" {
+		if len(m.Routers) > 0 || m.IncludeTests {
 			return failure.New(
-				fmt.Sprintf("%s sets %s.routers or %s.tests without `enabled: true`.", name, key, key),
+				fmt.Sprintf("%s sets %s.routers or %s.includeTests without `enabled: true`.", name, key, key),
 				"the mount pass runs only when it is enabled, so these settings would silently do nothing.",
 				where,
 				fmt.Sprintf("add `enabled: true` under %s, or remove the section.", key))
@@ -406,20 +425,6 @@ func (m *GoMountLiteral) normalize(name, where string) error {
 				where,
 				"remove the repeated entry.")
 		}
-	}
-	if m.Tests == "" {
-		m.Tests = TestFilesExclude
-	}
-	if !slices.Contains(AllTestFiles, m.Tests) {
-		values := make([]string, len(AllTestFiles))
-		for i, v := range AllTestFiles {
-			values[i] = v.String()
-		}
-		return failure.New(
-			fmt.Sprintf("%s.tests in %s is %q.", key, name, m.Tests),
-			"it says whether `_test.go` files are scanned, and only "+strings.Join(values, " and ")+" are values.",
-			where,
-			fmt.Sprintf("set %s.tests to %s, or remove it to exclude test files.", key, strings.Join(values, " or ")))
 	}
 	return nil
 }

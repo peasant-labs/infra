@@ -104,10 +104,11 @@ func TestTypedCheckIsOptInAndNotBaselined(t *testing.T) {
 
 func TestTypedMountCheckIsOptInAndNotBaselined(t *testing.T) {
 	var f struct {
-		Module, Source, Config, Typed string
-		Want                          []string
-		MissingRouter                 string   `yaml:"missingRouter"`
-		MissingRouterWant             []string `yaml:"missingRouterWant"`
+		Module, Source, TestSource, Config, Typed string
+		Want                                      []string
+		TestWant                                  string   `yaml:"testWant"`
+		MissingRouter                             string   `yaml:"missingRouter"`
+		MissingRouterWant                         []string `yaml:"missingRouterWant"`
 	}
 	if err := yaml.Unmarshal(typedMountFixture, &f); err != nil {
 		t.Fatal(err)
@@ -124,6 +125,7 @@ func TestTypedMountCheckIsOptInAndNotBaselined(t *testing.T) {
 	}
 	write("go.mod", f.Module)
 	write("src/router.go", f.Source)
+	write("src/router_test.go", f.TestSource)
 	bin := unstringBinary(t)
 	ag := astgreptest.Require(t)
 	run := func(args ...string) (string, error) {
@@ -164,6 +166,15 @@ func TestTypedMountCheckIsOptInAndNotBaselined(t *testing.T) {
 			t.Errorf("typed mount check output lacks %q:\n%s", want, out)
 		}
 	}
+	if strings.Contains(out, f.TestWant) {
+		t.Fatalf("default scan included test mount:\n%s", out)
+	}
+	write(".unstring.yaml", f.Config+f.Typed+"    includeTests: true\n")
+	out, err = run("check")
+	if err == nil || !strings.Contains(out, f.TestWant) {
+		t.Fatalf("included test mount missing: %v\n%s", err, out)
+	}
+	write(".unstring.yaml", f.Config+f.Typed)
 	if after, err := os.ReadFile(baseline); err != nil || !bytes.Equal(before, after) {
 		t.Fatal("check changed the baseline")
 	}

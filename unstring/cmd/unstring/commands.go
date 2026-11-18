@@ -227,7 +227,7 @@ func (p process) runTyped(s *session, langs []rules.Lang) ([]ratchet.Finding, bo
 		}
 	}
 	if mount.Enabled {
-		hits, err := prog.MountLiterals(typed.MountOptions{Routers: mount.Routers, IncludeTests: mount.Tests == config.TestFilesInclude})
+		hits, err := prog.MountLiterals(typed.MountOptions{Routers: mount.Routers, IncludeTests: mount.IncludeTests})
 		if err != nil {
 			environmentFailure(p.stderr, "the typed Go mount scan has a router it cannot match.",
 				err.Error(), "matching typed.goMountLiteral.routers during unstring check; the baseline was not changed.",

@@ -33,7 +33,6 @@ func TestDocumentedConfigDecodes(t *testing.T) {
 			GoMountLiteral: config.GoMountLiteral{
 				Enabled: true,
 				Routers: config.DefaultMountRouters(),
-				Tests:   config.TestFilesExclude,
 			},
 		},
 		Schema: config.Schema{Module: "github.com/peasant-labs/schema"},

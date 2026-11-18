@@ -18,6 +18,11 @@ config: |
   version: 1
   go:
     roots: [src]
+testsource: |
+  package example
+  import "net/http"
+  func testMount(h http.HandlerFunc) { http.NewServeMux().HandleFunc("/test-only", h) }
+testWant: 'go-typed-mount-literal  src/router_test.go:3  "/test-only"'
 typed: |
   typed:
     goMountLiteral:

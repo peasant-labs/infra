@@ -25,17 +25,17 @@ type loadCase struct {
 	Files  map[string]string `yaml:"files"`
 	Config string            `yaml:"config"`
 	Want   *struct {
-		Baseline     string   `yaml:"baseline"`
-		TSRoots      []string `yaml:"tsRoots"`
-		GoRoots      []string `yaml:"goRoots"`
-		Prefixes     []string `yaml:"prefixes"`
-		Callees      []string `yaml:"callees"`
-		MountFiles   []string `yaml:"mountFiles"`
-		DataDirs     []string `yaml:"dataDirs"`
-		SchemaModule string   `yaml:"schemaModule"`
-		MountEnabled *bool    `yaml:"mountEnabled"`
-		MountRouters []string `yaml:"mountRouters"`
-		MountTests   *string  `yaml:"mountTests"`
+		Baseline          string   `yaml:"baseline"`
+		TSRoots           []string `yaml:"tsRoots"`
+		GoRoots           []string `yaml:"goRoots"`
+		Prefixes          []string `yaml:"prefixes"`
+		Callees           []string `yaml:"callees"`
+		MountFiles        []string `yaml:"mountFiles"`
+		DataDirs          []string `yaml:"dataDirs"`
+		SchemaModule      string   `yaml:"schemaModule"`
+		MountEnabled      *bool    `yaml:"mountEnabled"`
+		MountRouters      []string `yaml:"mountRouters"`
+		MountIncludeTests *bool    `yaml:"mountIncludeTests"`
 	} `yaml:"want"`
 	Exempted []struct {
 		Rule string `yaml:"rule"`
@@ -78,7 +78,8 @@ var requiredLoadCases = []string{
 	"typed-mount-explicit-settings-kept",
 	"typed-mount-off-by-default",
 	"refuses-mount-settings-without-enabled",
-	"refuses-unknown-mount-tests-value",
+	"refuses-include-tests-without-enabled",
+	"refuses-false-include-tests-without-enabled",
 	"refuses-mount-router-not-import-path",
 	"refuses-repeated-mount-router",
 }
@@ -174,8 +175,8 @@ func TestLoad(t *testing.T) {
 				if w.MountRouters != nil && !slices.Equal(m.Routers, w.MountRouters) && (len(m.Routers) != 0 || len(w.MountRouters) != 0) {
 					t.Errorf("mount routers = %q, want %q", m.Routers, w.MountRouters)
 				}
-				if w.MountTests != nil && m.Tests.String() != *w.MountTests {
-					t.Errorf("mount tests = %q, want %q", m.Tests, *w.MountTests)
+				if w.MountIncludeTests != nil && m.IncludeTests != *w.MountIncludeTests {
+					t.Errorf("mount includeTests = %v, want %v", m.IncludeTests, *w.MountIncludeTests)
 				}
 				if w.SchemaModule != "" && got.Schema.Module != w.SchemaModule {
 					t.Errorf("schema module = %q, want %q", got.Schema.Module, w.SchemaModule)

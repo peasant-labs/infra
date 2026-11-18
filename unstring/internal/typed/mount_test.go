@@ -26,13 +26,13 @@ type mountExpected struct {
 }
 
 type mountFixture struct {
-	Name    string            `yaml:"name"`
-	Routers []string          `yaml:"routers"`
-	Tests   string            `yaml:"tests"`
-	Roots   []string          `yaml:"roots"`
-	Files   map[string]string `yaml:"files"`
-	Error   string            `yaml:"error"`
-	Expect  []mountExpected   `yaml:"expect"`
+	Name         string            `yaml:"name"`
+	Routers      []string          `yaml:"routers"`
+	IncludeTests bool              `yaml:"includeTests"`
+	Roots        []string          `yaml:"roots"`
+	Files        map[string]string `yaml:"files"`
+	Error        string            `yaml:"error"`
+	Expect       []mountExpected   `yaml:"expect"`
 }
 
 // The cases every change to the mount pass must keep.
@@ -111,7 +111,7 @@ func TestMountFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := prog.MountLiterals(typed.MountOptions{Routers: routers, IncludeTests: tc.Tests == "include"})
+			got, err := prog.MountLiterals(typed.MountOptions{Routers: routers, IncludeTests: tc.IncludeTests})
 			if tc.Error != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.Error) {
 					t.Fatalf("error = %v; want one containing %q", err, tc.Error)

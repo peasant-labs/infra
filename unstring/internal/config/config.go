@@ -65,27 +65,11 @@ type GoMountLiteral struct {
 	// Routers are the import paths of the router packages whose mount
 	// methods are matched. Defaults to DefaultMountRouters.
 	Routers []string `yaml:"routers"`
-	// Tests says whether `_test.go` files are scanned. Defaults to
-	// TestFilesExclude.
-	Tests TestFiles `yaml:"tests"`
+	// IncludeTests scans `_test.go` files too. Off by default: a test
+	// usually builds its own router, which is fixture code and not a
+	// production mount.
+	IncludeTests bool `yaml:"includeTests"`
 }
-
-// TestFiles is whether a typed pass scans `_test.go` files.
-type TestFiles string
-
-const (
-	// TestFilesExclude skips `_test.go` files: a test usually builds its own
-	// router, which is fixture code and not a production mount.
-	TestFilesExclude TestFiles = "exclude"
-	// TestFilesInclude scans `_test.go` files as well.
-	TestFilesInclude TestFiles = "include"
-)
-
-// AllTestFiles lists every TestFiles value.
-var AllTestFiles = []TestFiles{TestFilesExclude, TestFilesInclude}
-
-// String returns the config value.
-func (t TestFiles) String() string { return string(t) }
 
 // Roots are the directories scanned for one language.
 type Roots struct {

@@ -186,7 +186,7 @@ refused.
 | `typed.goClosedSetLiteral` | `false` |
 | `typed.goMountLiteral.enabled` | `false` |
 | `typed.goMountLiteral.routers` | `github.com/go-chi/chi/v5` |
-| `typed.goMountLiteral.tests` | `exclude`; the other value is `include` |
+| `typed.goMountLiteral.includeTests` | `false` |
 | `schema.module` | none; the catalog is the repository only |
 | `endpoints.prefixes` | `/api/v1` |
 | `endpoints.callees` | none |
@@ -312,7 +312,7 @@ typed:
   goMountLiteral:
     enabled: true
     routers: [github.com/go-chi/chi/v5]  # the default
-    tests: exclude                       # the default; or include
+    includeTests: false                  # the default
 ```
 
 On `check`, this loads the configured Go roots with Go type information and
@@ -338,7 +338,7 @@ The literal is reported where it is written. A `Route` or `Mount` group
 prefix is a mount in its own right, and a pattern inside the group is reported
 as written, relative to the prefix; the check never composes the full path.
 
-`_test.go` files are skipped unless `tests: include`: a test usually builds
+`_test.go` files are skipped unless `includeTests: true`: a test usually builds
 its own router, which is fixture code and not a production mount. Files are
 classified by their physical name, so a `//line` directive does not move a
 file in or out, and findings name the physical file and line. A listed router

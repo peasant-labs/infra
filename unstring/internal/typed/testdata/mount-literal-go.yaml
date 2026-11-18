@@ -3,7 +3,7 @@
 # offline stub in testdata/chi, then runs the pass.
 #
 # routers  router packages; omitted means the default (chi v5 only).
-# tests    include scans _test.go files too; omitted means they are excluded.
+# includeTests  true scans _test.go files too; omitted means they are excluded.
 # roots    the roots; omitted means ".".
 # error    a substring the load or pass error must contain.
 # expect   every finding, in report order: file, line, receiver, method,
@@ -136,7 +136,7 @@
       func mount(r chi.Router, h http.HandlerFunc) { r.Get("/external", h) }
   expect: []
 - name: test file included on opt-in
-  tests: include
+  includeTests: true
   files:
     router.go: |
       package fixture
