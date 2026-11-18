@@ -45,6 +45,9 @@ const (
 	// TemplateReleaseCreate creates the Release of the triggering tag, which
 	// must already exist.
 	TemplateReleaseCreate CredentialTemplate = "release-create"
+	// TemplateReleaseList lists the repository's releases, drafts included,
+	// to refuse a create when any release or draft already names the tag.
+	TemplateReleaseList CredentialTemplate = "release-list"
 	// TemplatePRComment comments on the PR that triggered the run.
 	TemplatePRComment CredentialTemplate = "pr-comment"
 	// TemplateReviewedScript runs the policy's default-branch evidence script.
@@ -63,6 +66,7 @@ var AllCredentialTemplates = []CredentialTemplate{
 	TemplateReleaseView,
 	TemplateReleaseEdit,
 	TemplateReleaseCreate,
+	TemplateReleaseList,
 	TemplatePRComment,
 	TemplateReviewedScript,
 }
@@ -103,6 +107,8 @@ func (t CredentialTemplate) Shape() string {
 		return `gh release edit <triggering tag> [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
 	case TemplateReleaseCreate:
 		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]] [<one quoted '<dir>/*' | <file>...>, with --draft]`
+	case TemplateReleaseList:
+		return releaseListShape
 	case TemplatePRComment:
 		return `gh pr comment [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] "${PR_NUMBER}" (--body-file|-F) <file>`
 	case TemplateReviewedScript:
@@ -119,7 +125,7 @@ func templatesFor(class credentialJobClass) []CredentialTemplate {
 	case credentialJobBot:
 		return []CredentialTemplate{TemplatePushOwnBranch, TemplatePRCreate, TemplatePREdit, TemplatePRClose, TemplatePRMerge, TemplateQueueRead}
 	case credentialJobPublish:
-		return []CredentialTemplate{TemplateReleaseView, TemplateReleaseEdit, TemplateReleaseCreate}
+		return []CredentialTemplate{TemplateReleaseView, TemplateReleaseEdit, TemplateReleaseCreate, TemplateReleaseList}
 	case credentialJobComment:
 		return []CredentialTemplate{TemplatePRComment, TemplateReviewedScript}
 	}
@@ -224,6 +230,7 @@ const (
 	ghVerbClose        = "close"
 	ghVerbMerge        = "merge"
 	ghVerbView         = "view"
+	ghVerbList         = "list"
 	ghVerbComment      = "comment"
 	cmdNode            = "node"
 	ghFlagHead         = "--head"
@@ -303,6 +310,8 @@ func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
 				return TemplateReleaseEdit, true
 			case ghVerbCreate:
 				return TemplateReleaseCreate, true
+			case ghVerbList:
+				return TemplateReleaseList, true
 			}
 		}
 	case cmdNode:
@@ -355,6 +364,8 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 		why = s.matchQueueRead(words[3:])
 	case TemplateReleaseView:
 		why = s.matchReleaseView(words[3:])
+	case TemplateReleaseList:
+		why = s.matchReleaseList(words[3:])
 	case TemplateReleaseEdit:
 		why = s.matchRelease(words[3:], releaseFlags(), false)
 	case TemplateReleaseCreate:
@@ -1034,6 +1045,65 @@ func (s templateStep) matchReleaseView(words []templateWord) string {
 }
 
 var jqIdentifiers = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+
+const (
+	releaseListLimit  = "100"
+	releaseListFields = "tagName,isDraft"
+	// releaseListTagRead is the one environment read the list filter may
+	// make: the triggering tag, which the step maps from github.ref_name.
+	releaseListTagRead = "env.TAG"
+	releaseListShape   = `gh release list --repo "$GITHUB_REPOSITORY" --limit ` + releaseListLimit + ` --json ` + releaseListFields + ` --jq '<literal filter comparing .tagName with ` + releaseListTagRead + ` and calling error()>'`
+)
+
+// releaseListSpec is the flag spec of the one release-list form.
+func releaseListSpec() flagSpec {
+	return flagSpec{"--repo": flagRepo, "--limit": flagLiteral, "--json": flagLiteral, "--jq": flagLiteral}
+}
+
+// matchReleaseList permits one exact form: gh lists drafts by default, so a
+// filter that errors on any entry for the triggering tag refuses a create
+// beside a leftover draft. The filter is literal, may read the environment
+// only as env.TAG, and TAG must be the triggering tag.
+func (s templateStep) matchReleaseList(words []templateWord) string {
+	f, why := s.parseFlags(words, releaseListSpec())
+	if why != "" {
+		return why + "; the release-list template is " + releaseListShape
+	}
+	if len(f.positional) != 0 {
+		return "gh release list takes no positional words; the template is " + releaseListShape
+	}
+	if !namesCurrentReleaseRepository(f, s.env) || !f.flags["--repo"].params("", runnerEnvRepository, "") {
+		return "release list must name the current repository with --repo \"$GITHUB_REPOSITORY\"; the template is " + releaseListShape
+	}
+	for flag, want := range map[string]string{"--limit": releaseListLimit, "--json": releaseListFields} {
+		w, ok := f.flags[flag]
+		got, _ := w.literal()
+		if !ok || got != want {
+			return "release list must pass " + flag + " " + want + "; the template is " + releaseListShape
+		}
+	}
+	jqWord, ok := f.flags["--jq"]
+	if !ok {
+		return "release list must pass a literal --jq filter; the template is " + releaseListShape
+	}
+	filter, _ := jqWord.literal()
+	if strings.Contains(filter, "$") {
+		return "--jq must be a literal filter without variables"
+	}
+	if !strings.Contains(filter, ".tagName == "+releaseListTagRead) || !strings.Contains(filter, "error(") {
+		return "--jq must compare .tagName == " + releaseListTagRead + " and call error() when a release or draft names the tag"
+	}
+	if soleExpression(s.env[TemplateEnvTag.String()]) != triggeringRefName {
+		return "release list reads " + releaseListTagRead + ", so the step must map " + TemplateEnvTag.String() + " from ${{ " + triggeringRefName + " }}"
+	}
+	for _, word := range jqIdentifiers.FindAllString(strings.ReplaceAll(filter, releaseListTagRead, ""), -1) {
+		switch word {
+		case "env", "input", "inputs", "input_filename", "input_line_number", "system", "import", "include", "module":
+			return "--jq may read the environment only as " + releaseListTagRead + ", and may not read input, run system commands, or import modules"
+		}
+	}
+	return ""
+}
 
 // matchRelease checks a gh release view, edit, or create on the triggering
 // tag. create additionally requires --verify-tag, so gh refuses to create a

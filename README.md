@@ -397,7 +397,7 @@ operator step per repository; it does not replace any check above.
 | `pr-edit`, `pr-close` | `gh pr edit\|close [--title\|--body\|--comment <text>] [--] <own bot branch>` |
 | `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) [--] <own bot branch>`; in the release job only in the arm and hold steps |
 | `merge-queue-read` | `gh api graphql [-F name=literal]... -f query='<a mergeQueue query>' [> file]` |
-| `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`; `create` passes `--verify-tag`, and `create`/`edit` may pass `--draft[=<true\|false>]`; `create` may name assets only with `--draft` (see **Prepared Release assets**) |
+| `release-view`, `release-edit`, `release-create`, `release-list` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`; `create` passes `--verify-tag`, and `create`/`edit` may pass `--draft[=<true\|false>]`; `create` may name assets only with `--draft` (see **Prepared Release assets**) |
 | `pr-comment` (`pull_request` comment job only) | `gh pr comment "$PR_NUMBER" [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] (--body-file\|-F) <file>` |
 | `run-reviewed-script` (comment job, both modes) | `node reviewed/<policy reviewed_script>` |
 
@@ -640,7 +640,25 @@ tag-only publish job is:
    workflow is literal, so a different job cannot alias `release-dist`.
 2. **View**, unconditionally, with `continue-on-error: true`:
    `gh release view "$TAG" --repo "$GITHUB_REPOSITORY"`.
-3. **Create**, gated on `steps.<view>.outcome == 'failure'`, on one line:
+3. **Refuse an existing release for the tag**, gated on
+   `steps.<view>.outcome == 'failure'`, without `continue-on-error`, on one line:
+
+   ```sh
+   gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error("...") else "..." end'
+   ```
+
+   A failed view may be a rate limit, a 5xx or an authentication error rather
+   than an absent release, and GitHub keeps several drafts for one tag. gh
+   lists drafts unless `--exclude-drafts` is passed
+   (`pkg/cmd/release/list/list.go:59`, `http.go:97`), so this check fails when
+   any release or leftover draft names the tag, and it fails closed on any API
+   error, stopping the run before anything is created. The flags are exactly
+   these; the filter is literal, compares `.tagName == env.TAG`, calls
+   `error()`, and reads the environment only as `env.TAG` (gh evaluates `--jq`
+   with gojq and the process environment). `TAG` maps from
+   `${{ github.ref_name }}`.
+4. **Create**, gated on
+   `steps.<view>.outcome == 'failure' && steps.<list>.outcome == 'success'`, on one line:
 
    ```sh
    gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$TAG" --notes-file <literal path> --prerelease="$PRERELEASE" 'dist/*'
@@ -654,12 +672,12 @@ tag-only publish job is:
    is required whenever assets are named. `PRERELEASE` reads the `prerelease`
    output of a needed release-kind job. The create must not set
    `continue-on-error`.
-4. **Verify** (optional, recommended): single-line
+5. **Verify** (optional, recommended): single-line
    `gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json <fields> --jq '<literal>'`
    steps, for example one that errors unless the release is a draft with
    assets before publishing, and one that errors unless it is published,
    immutable and has assets after.
-5. **Publish**, gated on `steps.<create>.outcome == 'success'` (optionally
+6. **Publish**, gated on `steps.<create>.outcome == 'success'` (optionally
    with `steps.<view>.outcome == 'failure' &&`) and no status function:
    `gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE" --latest="$LATEST"`.
    Exactly one such edit, after the create. `PRERELEASE` and `LATEST` read

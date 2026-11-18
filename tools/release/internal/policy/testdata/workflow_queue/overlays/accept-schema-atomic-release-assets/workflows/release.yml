@@ -104,9 +104,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
+      - name: Refuse an existing release for the tag
+        id: list
+        if: steps.view.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error("a release or draft already exists for this tag") else "no release for this tag" end'
       - name: Create the draft release
         id: create
-        if: steps.view.outcome == 'failure'
+        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}

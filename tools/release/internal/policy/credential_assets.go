@@ -94,7 +94,7 @@ func (c *queueChecker) releaseSteps(file, jobName string, doc, job *yaml.Node) [
 			continue
 		}
 		tmpl, ok := classifyTemplate(words)
-		if !ok || (tmpl != TemplateReleaseCreate && tmpl != TemplateReleaseEdit && tmpl != TemplateReleaseView) {
+		if !ok || (tmpl != TemplateReleaseCreate && tmpl != TemplateReleaseEdit && tmpl != TemplateReleaseView && tmpl != TemplateReleaseList) {
 			continue
 		}
 		spec := releaseFlags()
@@ -103,6 +103,9 @@ func (c *queueChecker) releaseSteps(file, jobName string, doc, job *yaml.Node) [
 		}
 		if tmpl == TemplateReleaseView {
 			spec = flagSpec{"--repo": flagRepo, "-R": flagRepo, "--json": flagLiteral, "--jq": flagLiteral}
+		}
+		if tmpl == TemplateReleaseList {
+			spec = releaseListSpec()
 		}
 		env := effectiveEnv(doc, job, step)
 		reader := templateStep{class: c.creds[file][jobName].class, env: env, doc: doc, job: job}
@@ -135,6 +138,9 @@ func (c *queueChecker) checkReleaseAssets() {
 					break
 				}
 			}
+			// A create without assets uploads nothing, so it cannot fill one
+			// release while another is published; the upload-action ban in
+			// credential-jobs-use-pinned-actions covers the other uploader.
 			if create == nil {
 				continue
 			}
@@ -176,11 +182,11 @@ func (c *queueChecker) atomicReleaseFault(file, jobName string, doc, job *yaml.N
 		return "must name the current repository with exactly one --repo or -R flag"
 	}
 	condition := trimOuterParens(stripIfExpression(stepIfText(create.node)))
-	m := stepOutcomeGate.FindStringSubmatch(condition)
-	if m == nil || m[2] != "failure" {
-		return "must run only on steps.<view>.outcome == 'failure', so it never runs beside an existing release"
+	m := viewFailureAndCreate.FindStringSubmatch(condition)
+	if m == nil || m[1] == m[2] {
+		return "must run only on steps.<view>.outcome == 'failure' && steps.<list>.outcome == 'success', so it never runs beside an existing release or a leftover draft"
 	}
-	viewID := m[1]
+	viewID, listID := m[1], m[2]
 	var view *releaseStep
 	for i := range steps {
 		if stepID(steps[i].node) == viewID && steps[i].index < create.index {
@@ -196,12 +202,47 @@ func (c *queueChecker) atomicReleaseFault(file, jobName string, doc, job *yaml.N
 	if !namesCurrentReleaseRepository(view.flags, view.env) {
 		return "requires the release-view step to name the current repository with exactly one --repo or -R flag"
 	}
+	if why := c.releaseListFault(file, jobName, steps, *view, create, listID); why != "" {
+		return why
+	}
 	source, outputs, why := releaseKindSource(doc, job, create)
 	if why != "" {
 		return why
 	}
 	return c.publishEditFault(file, jobName, doc, job, steps, create, viewID, source, outputs)
 }
+
+// releaseListFault requires the one release-list check that refuses a
+// create when any release or draft already names the tag: a failed view may
+// be a rate limit or an outage rather than an absent release, and GitHub
+// keeps several drafts for one tag.
+func (c *queueChecker) releaseListFault(file, jobName string, steps []releaseStep, view, create releaseStep, listID string) string {
+	var list *releaseStep
+	for i := range steps {
+		if steps[i].tmpl != TemplateReleaseList {
+			continue
+		}
+		if list != nil {
+			return "requires exactly one gh release list check in the job"
+		}
+		list = &steps[i]
+	}
+	if list == nil || stepID(list.node) != listID {
+		return "is gated on " + quote(listID) + ", which is not the job's gh release list check; run " + releaseListShape + " between the view and the create"
+	}
+	if list.index < view.index || list.index > create.index {
+		return "requires the gh release list check after the view and before the create"
+	}
+	if !matchesStepOutcome(stepIfText(list.node), view.id(), "failure") {
+		return "requires the gh release list check to run only on steps." + view.id() + ".outcome == 'failure'"
+	}
+	if hasContinueOnError(list.node) || !c.receivesCredential(file, jobName, list.node) {
+		return "requires the gh release list check to receive the credential and not set continue-on-error, so a failed list stops the create"
+	}
+	return ""
+}
+
+func (s releaseStep) id() string { return stepID(s.node) }
 
 // releaseDistFault requires the build's release-dist, and nothing else, to
 // be downloaded into dist before the create, with no checkout after it.

@@ -134,6 +134,7 @@ sets:
       - release-view
       - release-edit
       - release-create
+      - release-list
       - pr-comment
       - run-reviewed-script
     refused: ["", "push", "gh-api", "Push-Own-Branch"]

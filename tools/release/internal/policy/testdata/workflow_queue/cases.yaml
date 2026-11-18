@@ -28,6 +28,21 @@ required_names:
   - accept-comment-pat
   - accept-reviewed-script
   - accept-atomic-release-assets
+  - accept-atomic-assets-gate-expression-form
+  - reject-atomic-assets-create-gate-or-true
+  - reject-atomic-assets-create-gate-or-mix
+  - reject-atomic-assets-create-gate-self
+  - reject-atomic-assets-create-gate-always
+  - reject-atomic-assets-fake-gate
+  - reject-atomic-assets-fake-list-gate
+  - reject-atomic-assets-publish-gate-or-true
+  - reject-atomic-assets-publish-gate-or-mix
+  - reject-atomic-assets-publish-gate-self
+  - reject-atomic-assets-publish-fake-gate
+  - reject-schema-atomic-create-gate
+  - reject-atomic-assets-missing-list-check
+  - reject-atomic-assets-list-check-after-create
+  - reject-atomic-assets-list-check-continue-on-error
   - reject-atomic-assets-glob-not-asset
   - reject-atomic-assets-two-globs
   - reject-atomic-assets-command-substitution
@@ -777,9 +792,9 @@ cases:
       overlay: accept-atomic-release-assets
       edits:
         - file: workflows/release.yml
-          old: "        if: steps.view.outcome == 'failure'\n"
+          old: "        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'\n"
           new: ""
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["must run only on steps.<view>.outcome == 'failure'"] }
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
     sibling: accept-atomic-release-assets
     classification: must-fail
     provenance: { source: requirement, ref: "draft rerun behavior" }
@@ -861,8 +876,8 @@ cases:
       overlay: accept-atomic-release-assets
       edits:
         - file: workflows/release.yml
-          old: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n"
-          new: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n"
+          old: "      - id: create\n        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n"
+          new: "      - id: create\n        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'\n        env:\n"
     expected: { rule: credential-jobs-run-no-general-steps, want_contains: ["general step"] }
     sibling: accept-atomic-release-assets
     classification: must-fail
@@ -3125,3 +3140,185 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "release action class" }
     mutation: { description: "Use the release action in the release job." }
+  - name: reject-atomic-assets-missing-list-check
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Refuse an existing release for the tag\n        id: list\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release list --repo \"$GITHUB_REPOSITORY\" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error(\"a release or draft already exists for this tag\") else \"no release for this tag\" end'\n"
+          new: ""
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["not the job's gh release list check"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: bug, ref: "a failed view can be an API error, and a leftover draft would get a second draft beside it" }
+    mutation: { description: "Create after a failed view without listing the tag's releases and drafts." }
+  - name: reject-atomic-assets-list-check-after-create
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Refuse an existing release for the tag\n        id: list\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release list --repo \"$GITHUB_REPOSITORY\" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error(\"a release or draft already exists for this tag\") else \"no release for this tag\" end'\n"
+          new: ""
+        - file: workflows/release.yml
+          old: "      - id: publish\n"
+          new: "      - name: Refuse an existing release for the tag\n        id: list\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release list --repo \"$GITHUB_REPOSITORY\" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error(\"a release or draft already exists for this tag\") else \"no release for this tag\" end'\n      - id: publish\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["after the view and before the create"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: bug, ref: "the list check must stop the create" }
+    mutation: { description: "Move the list check after the create." }
+  - name: reject-atomic-assets-list-check-continue-on-error
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        id: list\n"
+          new: "        id: list\n        continue-on-error: true\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["not set continue-on-error"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: bug, ref: "the list check must fail closed on an API error" }
+    mutation: { description: "Let a failed list check continue to the create." }
+  - name: accept-atomic-assets-gate-expression-form
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+          new: "if: ${{ ( steps.view.outcome=='failure' && steps.list.outcome=='success' ) }}"
+    expected: { rule: release-assets-one-atomic-create }
+    classification: must-pass
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Write the create gate as a parenthesized expression without spaces." }
+  - name: reject-atomic-assets-create-gate-or-true
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+          new: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success' || true"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Append || true to the create gate." }
+  - name: reject-atomic-assets-create-gate-or-mix
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+          new: "if: steps.view.outcome == 'failure' || steps.list.outcome == 'success'"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Join the create gate's outcomes with ||." }
+  - name: reject-atomic-assets-create-gate-self
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+          new: "if: steps.view.outcome == 'failure' && steps.view.outcome == 'success'"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Gate the create on the view twice." }
+  - name: reject-atomic-assets-create-gate-always
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+          new: "if: always() && steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Add a status function to the create gate." }
+  - name: reject-atomic-assets-fake-gate
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+          new: "if: steps.publish.outcome == 'failure' && steps.list.outcome == 'success'"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["not an earlier gh release view"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Gate the create on a step that is not the view." }
+  - name: reject-atomic-assets-fake-list-gate
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+          new: "if: steps.view.outcome == 'failure' && steps.publish.outcome == 'success'"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["not the job's gh release list check"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Gate the create on a step that is not the list check." }
+  - name: reject-atomic-assets-publish-gate-or-true
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        if: steps.create.outcome == 'success'\n"
+          new: "        if: steps.create.outcome == 'success' || true\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Append || true to the publish gate." }
+  - name: reject-atomic-assets-publish-gate-or-mix
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        if: steps.create.outcome == 'success'\n"
+          new: "        if: steps.view.outcome == 'failure' || steps.create.outcome == 'success'\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Join the publish gate's outcomes with ||." }
+  - name: reject-atomic-assets-publish-gate-self
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        if: steps.create.outcome == 'success'\n"
+          new: "        if: steps.create.outcome == 'success' && steps.create.outcome == 'success'\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Gate the publish on the create twice." }
+  - name: reject-atomic-assets-publish-fake-gate
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        if: steps.create.outcome == 'success'\n"
+          new: "        if: steps.list.outcome == 'success'\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Gate the publish on the list check instead of the create." }
+  - name: reject-schema-atomic-create-gate
+    input:
+      overlay: accept-schema-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
+          new: "if: steps.view.outcome == 'failure'"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
+    sibling: accept-schema-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release create and publish gates" }
+    mutation: { description: "Remove the list check from the schema create gate." }
