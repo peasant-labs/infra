@@ -2,6 +2,11 @@
 
 The release automation generates this file from landed release intents.
 
+## [0.3.0]
+
+- ignore type-position literal unions in the schema catalog (#104)
+- add the typed Go mount-literal check (#105)
+
 ## [0.2.1]
 
 - discover schema members from literal enum values (#99)
