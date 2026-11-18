@@ -58,6 +58,7 @@ type freezeDocumentExpected struct {
 	Code        intent.ErrorCode `yaml:"code"`
 	Error       string           `yaml:"error"`
 	FreezeFloor string           `yaml:"freeze_floor"`
+	Equivalent  string           `yaml:"equivalent"`
 }
 
 func TestFreezeDocuments(t *testing.T) {
@@ -90,6 +91,12 @@ func TestFreezeDocuments(t *testing.T) {
 				if c.Input.Kind == "plan" {
 					if plan.FreezeFloor != c.Expected.FreezeFloor {
 						t.Fatalf("floor = %q, want %q", plan.FreezeFloor, c.Expected.FreezeFloor)
+					}
+					if c.Expected.Equivalent != "" {
+						equivalent, err := intent.ParseFreezePlan([]byte(c.Expected.Equivalent), cfg)
+						if err != nil || !reflect.DeepEqual(plan, equivalent) {
+							t.Fatalf("plan = %+v, equivalent = %+v, error %v", plan, equivalent, err)
+						}
 					}
 					data, err := yaml.Marshal(plan)
 					if err != nil {

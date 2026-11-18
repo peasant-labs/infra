@@ -32,6 +32,23 @@ func TestCheckContractRange(t *testing.T) {
 	for _, c := range loadNamedCorpus[contractRangeInput, contractRangeExpected](t, contractRangeCorpusYAML).Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			base, titles, err := intent.RangeTitles(c.Input.Config, c.Input.Facts)
+			if err == nil && (c.Classification != testcase.MustFail || c.Expected.Subjects != nil) {
+				if base != c.Expected.Base || len(titles) != c.Expected.Titles {
+					t.Fatalf("base=%q titles=%v", base, titles)
+				}
+				var subjects []string
+				for _, title := range titles {
+					subjects = append(subjects, intent.FormatTitle(title))
+				}
+				if c.Expected.Subjects != nil && !slices.Equal(subjects, c.Expected.Subjects) {
+					t.Fatalf("subjects = %v, want %v", subjects, c.Expected.Subjects)
+				}
+				for _, subject := range c.Expected.Excluded {
+					if slices.Contains(subjects, subject) {
+						t.Fatalf("excluded subject %q appeared in %v", subject, subjects)
+					}
+				}
+			}
 			if err == nil {
 				err = intent.CheckContractRange(c.Input.Config, c.Input.Report, titles)
 			}
@@ -42,20 +59,8 @@ func TestCheckContractRange(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || base != c.Expected.Base || len(titles) != c.Expected.Titles {
+			if err != nil {
 				t.Fatalf("base=%q titles=%v error=%v", base, titles, err)
-			}
-			var subjects []string
-			for _, title := range titles {
-				subjects = append(subjects, intent.FormatTitle(title))
-			}
-			if c.Expected.Subjects != nil && !slices.Equal(subjects, c.Expected.Subjects) {
-				t.Fatalf("subjects = %v, want %v", subjects, c.Expected.Subjects)
-			}
-			for _, subject := range c.Expected.Excluded {
-				if slices.Contains(subjects, subject) {
-					t.Fatalf("excluded subject %q appeared in %v", subject, subjects)
-				}
 			}
 		})
 	}

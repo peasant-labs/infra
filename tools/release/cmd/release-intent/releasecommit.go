@@ -189,7 +189,7 @@ func runReleaseCommit(flags flagValues) error {
 		}
 		computed.FreezeFloor = plan.FreezeFloor
 		if !reflect.DeepEqual(plan, computed) {
-			return fmt.Errorf("release-pr --commit: freeze plan does not match the landed titles; regenerate it from the current source range")
+			return fmt.Errorf("release-pr --commit: freeze plan does not match the landed titles (plan freeze floor %q; planned surfaces %+v; recomputed surfaces %+v); regenerate it from the current source range", plan.FreezeFloor, plan.Surfaces, computed.Surfaces)
 		}
 		freezePlan = &plan
 	}

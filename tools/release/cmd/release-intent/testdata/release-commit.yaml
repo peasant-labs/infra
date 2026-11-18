@@ -238,21 +238,21 @@ cases:
       mutation: &migration_m {description: "Change or remove the migration boundary carried by the generated plan."}
     - name: migration-freeze-floor-removed-refused
       input: {scenario: migration-floor, migration: *migration_history, generate_floor: true, generated_to: "0.1.1", plan_floor_action: omit, files: {generated/local-0.1.1.json: "frozen spec\n"}}
-      expected: {exit: 1, error: "does not match"}
+      expected: {exit: 1, error: "does not match", details: ['plan freeze floor ""', "To:0.1.1", "To:0.2.0"]}
       classification: must-fail
       sibling: migration-freeze-floor-keeps-release-range
       provenance: *migration_p
       mutation: *migration_m
     - name: migration-freeze-floor-altered-refused
       input: {scenario: migration-floor, migration: *migration_history, generate_floor: true, generated_to: "0.1.1", plan_floor_action: base, files: {generated/local-0.1.1.json: "frozen spec\n"}}
-      expected: {exit: 1, error: "does not match"}
+      expected: {exit: 1, error: "does not match", details: ['plan freeze floor "${BASE}"', "To:0.1.1", "To:0.2.0"]}
       classification: must-fail
       sibling: migration-freeze-floor-keeps-release-range
       provenance: *migration_p
       mutation: *migration_m
     - name: migration-freeze-floor-off-chain-refused
       input: {scenario: migration-floor, migration: *migration_history, generate_floor: true, generated_to: "0.1.1", plan_floor_action: missing, files: {generated/local-0.1.1.json: "frozen spec\n"}}
-      expected: {exit: 2, error: "floor-not-on-chain", code: floor-not-on-chain, details: ['freeze floor "not-on-chain"']}
+      expected: {exit: 2, error: "floor-not-on-chain", code: floor-not-on-chain, details: ['freeze floor "not-on-chain"', "full 40-character SHA"]}
       classification: must-fail
       sibling: migration-freeze-floor-keeps-release-range
       provenance: *migration_p

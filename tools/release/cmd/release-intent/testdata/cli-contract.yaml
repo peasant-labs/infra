@@ -2,6 +2,7 @@ required_names:
   - contract-accept
   - contract-reject-under-declared
   - contract-until-accept
+  - contract-until-migration-uses-full-release-range
   - contract-until-reject
   - contract-until-head-mismatch-exits-1
   - contract-until-base-mismatch-exits-1
@@ -67,6 +68,7 @@ cases:
     - {name: contract-malformed-report, input: {command: check-contract, title: "feat(local-api)[minor]: change", report: "report: ["}, expected: {exit: 1, stderr: "report"}, classification: must-fail, sibling: contract-accept, provenance: *p, mutation: *m}
     - {name: freeze-plan-writes-plan, input: {command: freeze-plan, state: &state "status: 1\nsurfaces: [{name: local-api, label: Local API, frozen: 0.1.0, state: ahead}]\n"}, expected: {exit: 0, stdout: "frozen=local-api\nerror=\n", to: "0.2.0"}, classification: must-pass, provenance: *p, mutation: *m}
     - {name: freeze-plan-migration-floor-excludes-feature, input: &migration_input {command: freeze-plan, migration_shape: true, pre_migration_subject: "feat(local-api)[minor]: pre-migration feature", migration_subject: "chore: migrate working specs", raw_subject: "fix(local-api)[patch]: post-migration fix", freeze_floor: "${MIGRATION}", state: *state}, expected: {exit: 0, stdout: "frozen=local-api\nerror=\n", to: "0.1.1"}, classification: must-pass, provenance: *p, mutation: {description: "Ignore the migration floor and the earlier minor incorrectly wins."}}
+    - {name: contract-until-migration-uses-full-release-range, input: {<<: *migration_input, command: check-contract, pre_migration_subject: "feat(local-api)![minor]: pre-migration break", freeze_floor: "", until: HEAD, report: *break}, expected: {exit: 0, stdout: "surfaces=local-api\nerror=\n"}, classification: must-pass, provenance: *p, mutation: {description: "Truncate check-contract at the migration and the pre-migration breaking declaration is lost."}}
     - {name: freeze-plan-no-migration-floor-includes-feature, input: {<<: *migration_input, freeze_floor: ""}, expected: {exit: 0, stdout: "frozen=local-api\nerror=\n", to: "0.2.0"}, classification: must-pass, provenance: *p, mutation: *m}
     - {name: freeze-plan-migration-floor-not-on-chain, input: {<<: *migration_input, freeze_floor: bogus}, expected: {exit: 2, stdout: "error=floor-not-on-chain\n", stderr: 'freeze floor "bogus"'}, classification: must-fail, sibling: freeze-plan-migration-floor-excludes-feature, provenance: *p, mutation: *m}
     - {name: freeze-plan-side-branch-floor-not-on-chain, input: {<<: *migration_input, freeze_floor: "${SIDE}"}, expected: {exit: 2, stdout: "error=floor-not-on-chain\n", stderr: 'freeze floor "${SIDE}"'}, classification: must-fail, sibling: freeze-plan-migration-floor-excludes-feature, provenance: *p, mutation: {description: "Pass an existing Git commit that is not on the first-parent chain."}}

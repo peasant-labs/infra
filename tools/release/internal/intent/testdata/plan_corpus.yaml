@@ -16,6 +16,7 @@ required_names:
   - epoch-missing
   - floor-not-on-chain
   - release-plan-ignores-freeze-floor
+  - release-plan-ignores-on-chain-freeze-floor
   - floor-drops-subjects
   - floor-at-base-ignored
   - floor-drops-bad-subject
@@ -79,8 +80,8 @@ cases:
     mutation: {description: "a pending batch with the job disarmed"}
   - name: release-plan-ignores-freeze-floor
     input:
-      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
-      facts:
+      config: &release_config {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      facts: &release_facts
         commits:
           - {sha: "aaa", subject: "feat(x)[minor]: one (#11)", changes_changelog: false}
           - {sha: "e00", subject: "chore: adopt the release config", changes_changelog: false}
@@ -90,7 +91,7 @@ cases:
         mode: "plan-only"
         verdict: ""
         fresh: {}
-    expected:
+    expected: &release_expected
       action: "none"
       range_base: "v0.1.0"
       version_base: "v0.1.0"
@@ -108,6 +109,14 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "freeze floor cannot bound or invalidate release planning"}
     mutation: {description: "Make the release planner use the freeze-only floor."}
+  - name: release-plan-ignores-on-chain-freeze-floor
+    input:
+      config: *release_config
+      facts: {<<: *release_facts, freeze_floor: "aaa"}
+    expected: *release_expected
+    classification: must-pass
+    provenance: {source: requirement, ref: "a freeze floor at the tip cannot truncate release planning"}
+    mutation: {description: "Apply the on-chain freeze floor to the release range and the pending feature disappears."}
   - name: fresh-candidate-verify
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}

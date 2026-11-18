@@ -55,6 +55,7 @@ required_names:
   - release-pr-write-current-unreadable
   - release-pr-needs-write-or-check
   - release-pr-freeze-floor-not-a-flag
+  - check-contract-freeze-floor-not-a-flag
   - release-pr-check-with-current
   - no-subcommand
   - unknown-subcommand
@@ -71,11 +72,18 @@ cases:
   cases:
     - name: release-pr-freeze-floor-not-a-flag
       input: {argv: ["release-pr", "--branch", "main", "--commit", "--freeze-floor", "abc"], stdin: "", setup: "none"}
-      expected: {exit: 1, stdout: []}
+      expected: {exit: 1, stdout: [], stderr_contains: "flag --freeze-floor does not apply to release-pr"}
       classification: must-fail
       sibling: release-pr-write-accept
       provenance: {source: requirement, ref: "freeze floor travels in the plan, not a release-pr flag"}
       mutation: {description: "Pass a freeze-plan-only flag to release-pr."}
+    - name: check-contract-freeze-floor-not-a-flag
+      input: {argv: ["check-contract", "--until", "HEAD", "--report", "report.yaml", "--freeze-floor", "abc"], stdin: "", setup: "none"}
+      expected: {exit: 1, stdout: [], stderr_contains: "flag --freeze-floor does not apply to check-contract"}
+      classification: must-fail
+      sibling: check-title-accept
+      provenance: {source: requirement, ref: "freeze-only bounds cannot be passed to check-contract"}
+      mutation: {description: "Pass a freeze-plan-only flag to check-contract."}
     - name: group-pr-queue-ref
       input: {argv: ["group-pr", "--ref", "refs/heads/gh-readonly-queue/main/pr-12-abc123"], stdin: "", setup: "none", githubOutput: true}
       expected: {exit: 0, stdout: ["pr=12"]}

@@ -86,7 +86,7 @@ func rangeBounds(cfg Config, facts Facts) (string, int, error) {
 	}
 	if facts.FreezeFloor != "" && freezeFloorIdx < 0 {
 		return "", 0, rangeError(ErrFloorNotOnChain, "the freeze floor "+strconv.Quote(facts.FreezeFloor)+" is not on the branch chain",
-			"the freeze floor must name a chain commit", "no range can be checked", "set the freeze floor to a first-parent commit or clear it")
+			"the freeze floor must name a chain commit", "no range can be checked", "set the freeze floor to the full 40-character SHA of a first-parent commit or clear it")
 	}
 	if freezeFloorIdx >= 0 && freezeFloorIdx < end {
 		end = freezeFloorIdx

@@ -11,6 +11,7 @@ required_names:
   - spec-docs-nonreleasing
   - surface-docs-releasing-not-ahead
   - surface-docs-releasing-ahead-on-base
+  - surface-mixed-functional-and-docs
   - surface-missing-one
   - surface-lists-both
   - surface-listed-unchanged
@@ -56,8 +57,9 @@ cases:
     mutation: *m
   - {name: spec-functional-releasing, input: {config: *on, current: "0.1.0", title: "fix(local-api)[patch]: change", report: *functional}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
   - {name: spec-docs-nonreleasing, input: {config: *on, current: "0.1.0", title: "docs(local-api): explain", report: {surfaces: [{name: local-api, change: docs}, {name: types, change: none}]}}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
-  - {name: surface-docs-releasing-not-ahead, input: {config: *on, current: "0.1.0", title: "fix(local-api)[patch]: change", report: {surfaces: [{name: local-api, change: docs, ahead_on_base: false}, {name: types, change: none}]}}, expected: {code: surface-mismatch, error_contains: "drop [local-api]"}, classification: must-fail, sibling: spec-functional-releasing, provenance: *p, mutation: {description: "A docs-only surface not ahead on the base cannot justify a releasing scope."}}
+  - {name: surface-docs-releasing-not-ahead, input: {config: *on, current: "0.1.0", title: "fix(local-api)[patch]: change", report: {surfaces: [{name: local-api, change: docs, ahead_on_base: false}, {name: types, change: none}]}}, expected: {code: surface-mismatch, error_contains: "drop [local-api]"}, classification: must-fail, sibling: spec-functional-releasing, provenance: *p, mutation: {description: "Mutate s.Change != SurfaceChangeFunctional to s.Change == SurfaceChangeNone in the extra-scope check; this case must fail while functional, already-ahead and non-releasing docs siblings remain green."}}
   - {name: surface-docs-releasing-ahead-on-base, input: {config: *on, current: "0.1.0", title: "fix(local-api)[patch]: change", report: {surfaces: [{name: local-api, change: docs, ahead_on_base: true}, {name: types, change: none}]}}, expected: {}, classification: must-pass, provenance: *p, mutation: {description: "A surface already ahead on the base may be named despite a docs-only change."}}
+  - {name: surface-mixed-functional-and-docs, input: {config: *on, current: "0.1.0", title: "fix(local-api,types)[patch]: change", report: {surfaces: [{name: local-api, change: functional}, {name: types, change: docs, ahead_on_base: false}]}}, expected: {code: surface-mismatch, error_contains: "drop [types]"}, classification: must-fail, sibling: surface-lists-both, provenance: *p, mutation: {description: "A functional surface does not justify a separate docs-only scope."}}
   - {name: surface-missing-one, input: {config: *on, current: "0.1.0", title: "fix(local-api)[patch]: change", report: &both {surfaces: [{name: local-api, change: functional}, {name: types, change: functional}]}}, expected: {code: surface-mismatch}, classification: must-fail, sibling: surface-lists-both, provenance: *p, mutation: *m}
   - {name: surface-lists-both, input: {config: *on, current: "0.1.0", title: "fix(local-api,types)[patch]: change", report: *both}, expected: {}, classification: must-pass, provenance: *p, mutation: *m}
   - {name: surface-listed-unchanged, input: {config: *on, current: "0.1.0", title: "fix(local-api,types)[patch]: change", report: *functional}, expected: {code: surface-mismatch, error_contains: "drop [types]"}, classification: must-fail, sibling: spec-functional-releasing, provenance: *p, mutation: *m}

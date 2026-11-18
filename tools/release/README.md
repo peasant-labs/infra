@@ -102,15 +102,19 @@ release-intent freeze-plan --branch origin/main --state status.yaml --out freeze
 ```
 
 `--until REV` optionally selects a first-parent candidate on `--branch`.
-Both floors are optional and must name literal commit SHAs on the selected
-revision's first-parent chain. `--freeze-floor SHA` excludes that commit and
-earlier subjects from freeze-level calculation only. Set it to the **first
-commit that added the working spec files** when migrating to generated spec
-freezes: subjects from before that migration must not affect the first freeze.
+Both floors are optional. `--freeze-floor SHA` must be the full literal
+40-character commit SHA on the selected revision's first-parent chain; it
+excludes that commit and earlier subjects from freeze-level calculation only.
+When migrating to generated spec freezes, set it to the **first commit that
+added the working spec files**: subjects from before that migration must not
+affect the first freeze.
+Excluding the migration commit's own subject is also intentional.
 The release range base, recovery `--floor`, grammar epoch and freeze floor
-all bound the freeze subjects. After the first post-migration release, the
-range base is newer than the migration, so retaining the freeze floor has no
-further effect.
+all bound the freeze subjects: the nearest boundary to the range tip wins.
+The range-base and floor commits are excluded; the epoch commit is included
+unless another boundary excludes it. After the first post-migration
+release, the range base is newer than the migration, so retaining the freeze
+floor has no further effect.
 
 For each `ahead` surface, the command uses the highest releasing title level
 that names it; no such declaration returns `surface-undeclared`. Other surfaces
@@ -133,7 +137,12 @@ shortens that release content.
 
 The plan is a file handoff, not a shell argument list. `release-intent` does
 not produce the state or perform the freeze. The consumer must validate the
-plan against its current tree before writing files.
+plan against its current tree before writing files. **The plan is trusted
+input:** the tool checks that its floor is on the first-parent chain and that
+its surfaces match the resulting range, but it does not determine whether that
+floor is the correct migration boundary. Whoever controls the plan controls
+the freeze decision. Generate it inside the trusted release job and never
+accept a plan supplied by a PR; the tool does not authenticate its origin.
 
 Both commands return 0 for acceptance, 2 for typed rejection (`error=<code>`
 on stdout and a six-part diagnostic on stderr), and 1 for a usage or read

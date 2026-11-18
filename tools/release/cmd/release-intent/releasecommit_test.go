@@ -492,8 +492,9 @@ func TestReleaseCommit(t *testing.T) {
 					}
 				}
 				for _, detail := range row.Expected.Details {
-					if !strings.Contains(result.Stderr, detail) {
-						t.Fatalf("stderr %q does not contain %q", result.Stderr, detail)
+					want := strings.ReplaceAll(detail, "${BASE}", base)
+					if !strings.Contains(result.Stderr, want) {
+						t.Fatalf("stderr %q does not contain %q", result.Stderr, want)
 					}
 				}
 				if r.Head() != headBefore {
