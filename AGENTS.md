@@ -209,8 +209,18 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   job (a deliberate scope limit; a probe job would need its own typed class).
   A missing artifact fails closed; a stale run is the script's exit 0.
   `pull_request_target` stays refused in every comment workflow. The
-  release-assets action takes only the
-  build job's `release-dist` handoff and the triggering tag. The
+  release-assets action takes only the build job's `release-dist` handoff and
+  the triggering tag. Its gate is either `view.success || create.success`
+  (the existing published-create flow) or `view.failure && create.success`
+  (the immutable flow: verified draft create, asset upload, then a gated
+  `--draft=false` publish edit). `prerelease` always reads a needed job's
+  output. `make_latest` must do so in the published-create flow; it may be
+  omitted in the draft flow, and should be omitted because drafts cannot be
+  marked latest. If present there it still reads a needed job's output; the
+  publish edit sets `--latest`. An existing release makes the immutable flow a
+  no-op on rerun. A failed draft is a burned release; the fix is forward.
+  The checker cannot inspect the action's implementation: verify that its exact
+  pin finds the existing draft and keeps it draft while uploading. The
   `--print-required` mode prints the contexts but retains the policy verdict.
 - **A release tag is checked before it leaves the release job.** The release
   workflow triggers only on push, schedule and workflow_dispatch, and the

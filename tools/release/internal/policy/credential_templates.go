@@ -100,9 +100,9 @@ func (t CredentialTemplate) Shape() string {
 	case TemplateReleaseView:
 		return `gh release view <triggering tag> [--repo <repo>]`
 	case TemplateReleaseEdit:
-		return `gh release edit <triggering tag> [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--prerelease[=<v>]] [--latest[=<v>]]`
+		return `gh release edit <triggering tag> [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
 	case TemplateReleaseCreate:
-		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--prerelease[=<v>]] [--latest[=<v>]]`
+		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
 	case TemplatePRComment:
 		return `gh pr comment [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] "${PR_NUMBER}" (--body-file|-F) <file>`
 	case TemplateReviewedScript:
@@ -228,6 +228,7 @@ const (
 	cmdNode            = "node"
 	ghFlagHead         = "--head"
 	ghFlagVerifyTag    = "--verify-tag"
+	ghFlagDraft        = "--draft"
 	ghFlagAuto         = "--auto"
 	ghFlagDisableAuto  = "--disable-auto"
 	gitFlagForceLease  = "--force-with-lease"
@@ -681,7 +682,7 @@ func releaseFlags() flagSpec {
 		"--title": flagText, "-t": flagText,
 		"--notes": flagText, "-n": flagText,
 		"--notes-file": flagPath, "-F": flagPath,
-		"--prerelease": flagSwitchValue, "--latest": flagSwitchValue,
+		ghFlagDraft: flagSwitchValue, "--prerelease": flagSwitchValue, "--latest": flagSwitchValue,
 	}
 }
 

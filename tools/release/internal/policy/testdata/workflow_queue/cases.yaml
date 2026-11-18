@@ -28,6 +28,37 @@ required_names:
   - accept-comment-pat
   - accept-reviewed-script
   - accept-release-assets
+  - accept-draft-release-assets
+  - accept-schema-draft-release-assets
+  - accept-draft-release-assets-explicit-true
+  - accept-draft-release-assets-publish-dual-gate
+  - accept-draft-release-assets-optional-latest
+  - reject-draft-assets-literal-latest
+  - reject-draft-assets-missing-prerelease
+  - reject-published-assets-missing-latest
+  - reject-published-assets-literal-latest
+  - reject-draft-assets-create-only-gate
+  - reject-draft-assets-view-only-gate
+  - reject-draft-assets-view-success-and-create-success
+  - reject-draft-assets-view-not-continuable
+  - reject-draft-assets-view-no-credential
+  - reject-draft-assets-create-ungated
+  - reject-draft-assets-create-no-verify
+  - reject-draft-assets-create-published
+  - reject-draft-assets-create-false
+  - reject-draft-assets-create-dynamic
+  - reject-draft-assets-create-wrong-tag
+  - reject-draft-assets-create-other-repo
+  - reject-draft-assets-create-no-credential
+  - reject-draft-assets-create-before-view
+  - reject-draft-assets-publish-ungated
+  - reject-draft-assets-publish-always
+  - reject-draft-assets-publish-before-upload
+  - reject-draft-assets-publish-missing-draft-false
+  - reject-draft-assets-publish-other-repo
+  - reject-draft-assets-publish-continue-on-error
+  - reject-draft-assets-duplicate-upload-action
+  - reject-draft-assets-wrong-files
   - accept-tag-publish-no-tap
   - accept-vendor-hash-split
   - reject-comment-job-unlisted
@@ -420,6 +451,386 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "release assets handoff" }
     mutation: { description: "Publish the verified build artifact through the pinned action." }
+  - name: accept-draft-release-assets
+    input: { overlay: accept-draft-release-assets }
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "immutable release assets" }
+    mutation: { description: "Create a draft, upload only on creation, and publish after the upload." }
+  - name: accept-schema-draft-release-assets
+    input:
+      overlay: accept-tag-publish
+      edits:
+        - file: workflows/release.yml
+          old: "  notes:\n    name: release notes\n"
+          new: "  build:\n    name: release notes and assets\n    outputs:\n      prerelease: ${{ steps.flags.outputs.prerelease }}\n      latest: ${{ steps.flags.outputs.latest }}\n"
+        - file: workflows/release.yml
+          old: "      - name: Write the notes\n"
+          new: "      - id: flags\n        run: echo 'classify release'\n      - name: Write the notes\n"
+        - file: workflows/release.yml
+          old: "          mkdir -p notes\n          ./scripts/release-notes.sh \"$TAG\" > notes/notes.md"
+          new: "          mkdir -p dist\n          ./scripts/release-notes.sh \"$TAG\" > dist/notes.md"
+        - file: workflows/release.yml
+          old: "      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n        with:\n          name: release-notes\n          path: notes\n"
+          new: "      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n        with:\n          name: release-dist\n          path: dist\n"
+        - file: workflows/release.yml
+          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: release-notes\n          path: notes\n"
+          new: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: release-dist\n          path: dist\n"
+        - file: workflows/release.yml
+          old: "needs: [guard, contract-gates, notes, verify]"
+          new: "needs: [guard, contract-gates, build, verify]"
+        - file: workflows/release.yml
+          old: "      - name: Create the GitHub Release\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --title \"$TAG\" --notes-file notes/notes.md --prerelease=\"$PRERELEASE\"\n      - name: Mark the Release as latest\n        if: needs.guard.outputs.kind == 'final'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release edit \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --latest\n"
+          new: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --draft --title \"$TAG\" --notes-file dist/notes.md --prerelease=\"$PRERELEASE\"\n      - name: Upload assets\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          tag_name: ${{ github.ref_name }}\n          repository: ${{ github.repository }}\n          files: dist/*\n          fail_on_unmatched_files: true\n          overwrite_files: true\n          prerelease: ${{ needs.build.outputs.prerelease }}\n      - name: Publish the draft\n        if: steps.create.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n          LATEST: ${{ needs.build.outputs.latest }}\n        run: gh release edit \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --draft=false --prerelease=\"$PRERELEASE\" --latest=\"$LATEST\"\n"
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "schema-style release workflow" }
+    mutation: { description: "Apply the immutable draft flow to the schema-style tag, contract, and package workflow." }
+  - name: accept-draft-release-assets-explicit-true
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--verify-tag --draft --title"
+          new: "--verify-tag --draft=true --title"
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "immutable release assets" }
+    mutation: { description: "Use the explicit true spelling for draft creation." }
+  - name: accept-draft-release-assets-publish-dual-gate
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.create.outcome == 'success'"
+          new: "if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'"
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "immutable release assets" }
+    mutation: { description: "Gate the publish edit on both the missing view and successful creation." }
+  - name: accept-draft-release-assets-optional-latest
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          prerelease: ${{ needs.build.outputs.prerelease }}\n      - id: publish"
+          new: "          prerelease: ${{ needs.build.outputs.prerelease }}\n          make_latest: ${{ needs.build.outputs.latest }}\n      - id: publish"
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "draft release latest input" }
+    mutation: { description: "Allow an optional latest input when it reads a needed job output." }
+  - name: reject-draft-assets-literal-latest
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          prerelease: ${{ needs.build.outputs.prerelease }}\n      - id: publish"
+          new: "          prerelease: ${{ needs.build.outputs.prerelease }}\n          make_latest: true\n      - id: publish"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["make_latest", "needs"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft release latest input" }
+    mutation: { description: "Pass a literal latest input instead of a needs output." }
+  - name: reject-draft-assets-missing-prerelease
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          prerelease: ${{ needs.build.outputs.prerelease }}\n      - id: publish"
+          new: "      - id: publish"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["prerelease", "needs"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft release prerelease input" }
+    mutation: { description: "Omit the prerelease input from the action." }
+  - name: reject-published-assets-missing-latest
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          make_latest: ${{ needs.build.outputs.latest }}\n"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["make_latest", "needs"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "published release latest input" }
+    mutation: { description: "Omit the required latest output from the existing flow." }
+  - name: reject-published-assets-literal-latest
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "make_latest: ${{ needs.build.outputs.latest }}"
+          new: "make_latest: true"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["make_latest", "needs"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "published release latest input" }
+    mutation: { description: "Replace the latest output with a literal." }
+  - name: reject-draft-assets-create-only-gate
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'"
+          new: "if: steps.create.outcome == 'success'"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["view.failure"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft upload gate" }
+    mutation: { description: "Remove the missing-release condition from the upload." }
+  - name: reject-draft-assets-view-only-gate
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'"
+          new: "if: steps.view.outcome == 'success'"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["view.failure"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft upload gate" }
+    mutation: { description: "Upload onto a release that already exists." }
+  - name: reject-draft-assets-view-success-and-create-success
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "steps.view.outcome == 'failure' && steps.create.outcome == 'success'"
+          new: "steps.view.outcome == 'success' && steps.create.outcome == 'success'"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["view.failure"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft upload gate" }
+    mutation: { description: "Replace the missing-release condition with an existing-release condition." }
+  - name: reject-draft-assets-view-not-continuable
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        continue-on-error: true\n"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["continue-on-error: true"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft creation after missing release" }
+    mutation: { description: "Let a missing view fail the job before the draft can be created." }
+  - name: reject-draft-assets-view-no-credential
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - id: view\n        continue-on-error: true\n        env:\n          GH_TOKEN: ${{ github.token }}\n"
+          new: "      - id: view\n        continue-on-error: true\n"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-jobs-run-no-general-steps], want_contains: ["non-credential"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft release credential" }
+    mutation: { description: "Remove the credential from the release-view step." }
+  - name: reject-draft-assets-create-ungated
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        if: steps.view.outcome == 'failure'\n"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["create step must run only"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft rerun behavior" }
+    mutation: { description: "Attempt to create the release even when it already exists." }
+  - name: reject-draft-assets-create-no-verify
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--verify-tag --draft --title"
+          new: "--draft --title"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["--verify-tag"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft tag verification" }
+    mutation: { description: "Permit creation of a missing tag." }
+  - name: reject-draft-assets-create-published
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--verify-tag --draft --title"
+          new: "--verify-tag --title"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["create a draft"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "immutable release assets" }
+    mutation: { description: "Create a published release before uploading." }
+  - name: reject-draft-assets-create-false
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--verify-tag --draft --title"
+          new: "--verify-tag --draft=false --title"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["create a draft"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "immutable release assets" }
+    mutation: { description: "Pass a false draft flag at creation." }
+  - name: reject-draft-assets-create-dynamic
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--verify-tag --draft --title"
+          new: '--verify-tag --draft="$PRERELEASE" --title'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["create a draft"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "immutable release assets" }
+    mutation: { description: "Use a dynamic draft value that could publish immediately." }
+  - name: reject-draft-assets-create-wrong-tag
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: 'gh release create "$TAG"'
+          new: 'gh release create v9.9.9'
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-steps-run-one-template], want_contains: ["triggering tag"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft release target" }
+    mutation: { description: "Create a release for another tag." }
+  - name: reject-draft-assets-create-other-repo
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: 'gh release create "$TAG" --repo "$GITHUB_REPOSITORY"'
+          new: 'gh release create "$TAG" --repo other/repository'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["current repository"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft release target" }
+    mutation: { description: "Create a release in another repository." }
+  - name: reject-draft-assets-create-no-credential
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n"
+          new: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n"
+    expected: { rule: credential-jobs-use-pinned-actions, also: [credential-jobs-run-no-general-steps], want_contains: ["non-credential"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft release credential" }
+    mutation: { description: "Remove the credential from the release-create step." }
+  - name: reject-draft-assets-create-before-view
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - id: view\n        continue-on-error: true\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\"\n      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --draft --title \"$TAG\" --notes-file dist/notes.md --prerelease=\"$PRERELEASE\"\n"
+          new: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --draft --title \"$TAG\" --notes-file dist/notes.md --prerelease=\"$PRERELEASE\"\n      - id: view\n        continue-on-error: true\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\"\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["view step before"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft release step order" }
+    mutation: { description: "Test the view result before the view step has run." }
+  - name: reject-draft-assets-publish-ungated
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        if: steps.create.outcome == 'success'\n"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["publish edit must be gated"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft rerun behavior" }
+    mutation: { description: "Publish even on a rerun with an existing release." }
+  - name: reject-draft-assets-publish-always
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "if: steps.create.outcome == 'success'"
+          new: "if: always() && steps.create.outcome == 'success'"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["publish edit must be gated"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft upload failure" }
+    mutation: { description: "Publish after an asset upload fails." }
+  - name: reject-draft-assets-publish-before-upload
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Upload assets\n"
+          new: "      - id: early\n        if: steps.create.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release edit \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --draft=false\n      - name: Upload assets\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["after the assets action"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "immutable release assets" }
+    mutation: { description: "Publish a draft before uploading its assets." }
+  - name: reject-draft-assets-publish-missing-draft-false
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--draft=false --prerelease"
+          new: "--prerelease"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["--draft=false"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish edit" }
+    mutation: { description: "Edit the release without publishing the draft." }
+  - name: reject-draft-assets-publish-other-repo
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"'
+          new: 'gh release edit "$TAG" --repo other/repository'
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["current repository"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish target" }
+    mutation: { description: "Publish a release in another repository." }
+  - name: reject-draft-assets-publish-continue-on-error
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - id: publish\n"
+          new: "      - id: publish\n        continue-on-error: true\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["must not set continue-on-error"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft publish failure" }
+    mutation: { description: "Hide an unsuccessful publish edit." }
+  - name: reject-draft-assets-duplicate-upload-action
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - id: publish\n"
+          new: "      - name: Another upload\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          tag_name: ${{ github.ref_name }}\n          repository: ${{ github.repository }}\n          files: dist/*\n          fail_on_unmatched_files: true\n          overwrite_files: true\n          prerelease: ${{ needs.build.outputs.prerelease }}\n      - id: publish\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["only release-assets action"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft upload order" }
+    mutation: { description: "Run a second release-assets action in the same draft publisher." }
+  - name: reject-draft-assets-wrong-files
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "files: dist/*"
+          new: "files: other/*"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["literal dist/*"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft artifact provenance" }
+    mutation: { description: "Upload files outside the prepared artifact." }
   - name: accept-tag-publish-no-tap
     input: { overlay: accept-tag-publish-assets }
     expected: { rule: tag-publish-verifies-the-tag }

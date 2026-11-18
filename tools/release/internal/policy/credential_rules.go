@@ -370,7 +370,7 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 		}
 	}
 	if action == ActionReleaseAssets {
-		return releaseAssetsInputFault(with, job)
+		return releaseAssetsInputFault(step, job)
 	}
 	if action == ActionDownloadArtifact {
 		path := mappingValue(with, InputArtifactPath.String())
