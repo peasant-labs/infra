@@ -1,0 +1,273 @@
+- name: ts comparison
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: Role
+    role === 'user'
+  expect: [{set: Role, member: User, literal: user, line: 4, column: 10}]
+- name: reversed comparison
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: Role
+    'assistant' != role
+  expect: [{set: Role, member: Assistant, literal: assistant, line: 4, column: 1}]
+- name: switch case
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: Role
+    switch (role) { case 'user': break }
+  expect: [{set: Role, member: User, literal: user, line: 4, column: 22}]
+- name: structural twin
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    type TypeOrigin = 'user' | 'assistant'
+    declare const origin: TypeOrigin
+    origin === 'user'
+  expect: []
+- name: any receiver
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: any
+    role === 'user'
+  expect: []
+- name: string receiver
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: string
+    role === 'user'
+  expect: []
+- name: unknown receiver
+  language: ts
+  code: |
+    declare const role: unknown
+    role === 'user'
+  expect: []
+- name: inline union
+  language: ts
+  code: |
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: 'user' | 'assistant'
+    role === 'user'
+  expect: []
+- name: no runtime value
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    declare const role: Role
+    role === 'user'
+  expect: []
+- name: non-member
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: Role
+    role === 'other'
+  expect: []
+- name: js typedef frozen table
+  language: js
+  code: |
+    /** @typedef {'user' | 'assistant'} Role */
+    const Role = Object.freeze({ User: 'user', Assistant: 'assistant' })
+    /** @param {Role} role */
+    function test(role) { return role === 'user' }
+  expect: [{set: Role, member: User, literal: user, line: 4, column: 39}]
+- name: jsx comparison
+  language: jsx
+  code: |
+    /** @typedef {'user' | 'assistant'} Role */
+    const Role = Object.freeze({ User: 'user', Assistant: 'assistant' })
+    /** @param {{role: Role}} props */
+    function View({ role }) { return <div>{role === 'assistant'}</div> }
+  expect: [{set: Role, member: Assistant, literal: assistant, line: 4, column: 49}]
+- name: closed value wire
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    declare function closed<W extends string>(wire: W, label: string): { readonly wire: W }
+    const Role = { User: closed('user', 'user'), Assistant: closed('assistant', 'assistant') } as const
+    declare const role: Role
+    role === 'user'
+  expect: [{set: Role, member: User, literal: user, line: 5, column: 10}]
+- name: mutable table is not a set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    let Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: Role
+    role === 'user'
+  expect: []
+- name: twin both types used
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    type TypeOrigin = 'user' | 'assistant'
+    declare const role: Role
+    declare const origin: TypeOrigin
+    role === 'user'
+    origin === 'user'
+  expect: [{set: Role, member: User, literal: user, line: 6, column: 10}]
+- name: narrowed receiver retains declared set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    function test(role: Role) {
+      if (role === Role.User) return role === 'user'
+      return false
+    }
+  expect: [{set: Role, member: User, literal: user, line: 4, column: 43}]
+- name: narrowed property comparisons use declared set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool' | 'system'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool', System: 'system' } as const
+    interface Turn { role: Role }
+    function test(x: Turn) {
+      if (x.role === 'user') return 1
+      if (x.role === 'assistant') return 2
+      return 0
+    }
+  expect: [{set: Role, member: User, literal: user, line: 5, column: 18}, {set: Role, member: Assistant, literal: assistant, line: 6, column: 18}]
+- name: narrowed element comparisons use declared set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool' | 'system'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool', System: 'system' } as const
+    interface Turn { role: Role }
+    function test(x: Turn) {
+      if (x['role'] === 'user') return 1
+      if (x['role'] === 'assistant') return 2
+      return 0
+    }
+  expect: [{set: Role, member: User, literal: user, line: 5, column: 21}, {set: Role, member: Assistant, literal: assistant, line: 6, column: 21}]
+- name: narrowed mapped property uses declared set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool' | 'system'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool', System: 'system' } as const
+    type Output<T> = { [K in keyof T]: T[K] extends { output: infer U } ? U : never }
+    type Turn = Output<{ role: { output: Role } }>
+    function test(x: Turn) {
+      if (x.role === 'user') return 1
+      if (x.role === 'assistant') return 2
+      return 0
+    }
+  expect: [{set: Role, member: User, literal: user, line: 6, column: 18}, {set: Role, member: Assistant, literal: assistant, line: 7, column: 18}]
+- name: narrowed unowned property stays silent
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool' } as const
+    type TypeOrigin = 'user' | 'assistant' | 'tool'
+    interface Turn { role: TypeOrigin }
+    function test(x: Turn) {
+      if (x.role === 'user') return 1
+      if (x.role === 'assistant') return 2
+      return 0
+    }
+  expect: []
+- name: narrowed broad property stays silent
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    interface Turn { role: string }
+    function test(x: Turn) {
+      if (x.role === 'user') return x.role === 'user'
+      return false
+    }
+  expect: []
+- name: imported role property in jsdoc
+  language: jsx
+  files:
+    role-schema.d.ts: |
+      type Infer<T> = T extends { value: infer V } ? V : never
+      export type Role = Infer<{ value: 'user' | 'assistant' }>
+      export declare const Role: { readonly User: 'user'; readonly Assistant: 'assistant' }
+      export interface TurnDetail { role: Role }
+      export type TypeOrigin = Infer<{ value: 'user' | 'assistant' }>
+      export interface OriginDetail { role: TypeOrigin }
+      export type WideRole = Infer<{ value: 'user' | 'assistant' }>
+      export declare const WideRole: { readonly User: WideRole; readonly Assistant: WideRole }
+  code: |
+    /** @typedef {import('./role-schema').TurnDetail} TurnDetail */
+    /** @typedef {{turn: TurnDetail}} TurnNodeData */
+    /** @param {TurnNodeData} d */
+    function View(d) { return <div>{d.turn.role === 'user' || d.turn.role === 'assistant'}</div> }
+  expect: [{set: Role, member: User, literal: user, line: 4, column: 49}, {set: Role, member: Assistant, literal: assistant, line: 4, column: 75}]
+- name: any property ignores same name
+  language: jsx
+  code: |
+    /** @typedef {'user' | 'assistant'} Role */
+    const Role = Object.freeze({ User: 'user', Assistant: 'assistant' })
+    /** @param {{turn: {role: any}}} d */
+    function View(d) { return <div>{d.turn.role === 'user'}</div> }
+  expect: []
+- name: imported jsdoc parameter
+  language: js
+  code: |
+    /** @param {import('./role-schema').Role} role */
+    function use(role) { return role === 'user' }
+  expect: [{set: Role, member: User, literal: user, line: 2, column: 38}]
+- name: imported structural twin without table
+  language: js
+  code: |
+    /** @param {import('./role-schema').OriginDetail} d */
+    function test(d) { return d.role === 'user' }
+  expect: []
+- name: widened table members are not evidence
+  language: js
+  code: |
+    /** @param {import('./role-schema').WideRole} role */
+    function test(role) { return role === 'user' }
+  expect: []
+- name: nullable role property comparisons
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool' | 'system'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool', System: 'system' } as const
+    interface Turn { role?: Role | null }
+    function test(x: Turn) {
+      if (x.role === 'user') return 1
+      if (x.role === 'assistant') return 2
+      return 0
+    }
+  expect: [{set: Role, member: User, literal: user, line: 5, column: 18}, {set: Role, member: Assistant, literal: assistant, line: 6, column: 18}]
+- name: any cast is not the declared set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    declare const role: Role
+    (role as any) === 'user'
+  expect: []
+- name: precise schema two-step role positions
+  language: jsx
+  files:
+    precise-schema.d.ts: |
+      export type Role = 'user' | 'assistant' | 'tool' | 'system'
+      export declare const Role: { readonly User: 'user'; readonly Assistant: 'assistant'; readonly Tool: 'tool'; readonly System: 'system' }
+      type Output<T> = { [K in keyof T]: T[K] extends { output: infer U } ? U : never }
+      export type TurnDetail = Output<{ role: { output: Role } }>
+  code: |
+    /** @typedef {import('./precise-schema').TurnDetail} TurnDetail */
+    /** @param {{turn: TurnDetail}} d */
+    function color(d) {
+      if (d.turn.role === 'user') return 1
+      if (d.turn.role === 'assistant') return 2
+      return 0
+    }
+  expect: [{set: Role, member: User, literal: user, line: 4, column: 23}, {set: Role, member: Assistant, literal: assistant, line: 5, column: 23}]
