@@ -148,7 +148,9 @@ func ScanGo(ctx context.Context, dir string, roots, env []string) ([]Finding, er
 				if count != 1 {
 					return
 				}
-				pos := pkg.Fset.Position(lit.Pos())
+				// Report and deduplicate physical locations, so directives cannot
+				// hide or merge distinct sites or point outside the scanned tree.
+				pos := pkg.Fset.PositionFor(lit.Pos(), false)
 				rel, err := filepath.Rel(dir, pos.Filename)
 				if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 					return
@@ -163,7 +165,7 @@ func ScanGo(ctx context.Context, dir string, roots, env []string) ([]Finding, er
 				result = append(result, Finding{Hit: rules.Hit{Rule: GoClosedSetLiteral, File: rel, Line: pos.Line, Text: lit.Value}, Set: obj.Name(), Member: member.Name(), Literal: value, Replacement: repl, InaccessibleReason: reason})
 			}
 			for _, file = range pkg.Syntax {
-				isTest := strings.HasSuffix(filepath.Base(pkg.Fset.Position(file.Pos()).Filename), "_test.go")
+				isTest := strings.HasSuffix(filepath.Base(pkg.Fset.PositionFor(file.Pos(), false).Filename), "_test.go")
 				if isTest != (pkg.ForTest != "") {
 					continue
 				}

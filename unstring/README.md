@@ -289,6 +289,7 @@ package-level constant of the receiver's named string type. Plain strings,
 interfaces, untyped values, types without constants, unmatched values and
 ambiguous values are silent. Package loading errors fail the check; the Go
 packages and their test packages must build in the environment running the tool.
+Go `//line` directives do not change which files the pass scans.
 An unexported constant in another package produces a finding without a
 replacement identifier: export the constant or move the comparison.
 

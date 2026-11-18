@@ -43,6 +43,9 @@ func LoadGoFixtures(t *testing.T) []fixture {
 func TestGoFixtures(t *testing.T) {
 	cases := LoadGoFixtures(t)
 	required := map[string]bool{"direct comparison": false, "reversed comparison": false, "switch case": false, "untyped literal": false, "string receiver": false, "interface receiver": false, "named type without constants": false, "ambiguous value": false, "non-string named type": false, "production test-only constant": false, "test file constant": false, "external test package": false, "test constant ambiguity": false, "import alias": false, "dot import": false, "foreign private constant": false, "shadowed constant": false, "multiple hits": false, "parenthesized literal": false, "overlapping roots": false, "loader error": false}
+	for _, name := range []string{"production directive names test file", "test directive names production file", "directive locations keep distinct physical sites"} {
+		required[name] = false
+	}
 	for _, tc := range cases {
 		if _, ok := required[tc.Name]; ok {
 			required[tc.Name] = true

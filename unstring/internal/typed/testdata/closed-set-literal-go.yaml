@@ -187,3 +187,37 @@
     var x = missing
   error: "undefined: missing"
   expect: []
+- name: production directive names test file
+  files:
+    a.go: |
+      //line a_test.go:1
+      package fixture
+      type Role string
+      func F(r Role) bool { return r == "user" }
+    a_test.go: |
+      package fixture
+      const User Role = "user"
+  expect: []
+- name: test directive names production file
+  files:
+    a.go: |
+      package fixture
+      type Role string
+    a_test.go: |
+      //line a.go:10
+      package fixture
+      const User Role = "user"
+      func F(r Role) bool { return r == "user" }
+  expect: [{file: a_test.go, set: Role, member: User, literal: user, line: 4, message: "use User instead of 'user'"}]
+- name: directive locations keep distinct physical sites
+  roots: [., sub]
+  files:
+    sub/a.go: |
+      package fixture
+      type Role string
+      const User Role = "user"
+      //line generated.go:10
+      func F(r Role) bool { return r == "user" }
+      //line generated.go:10
+      func G(r Role) bool { return r == "user" }
+  expect: [{file: sub/a.go, set: Role, member: User, literal: user, line: 5}, {file: sub/a.go, set: Role, member: User, literal: user, line: 7}]
