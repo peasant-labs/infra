@@ -27,7 +27,7 @@ typed: |
 want:
   - 'go-typed-mount-literal  src/router.go:7  "/health"'
   - '(*http.ServeMux).HandleFunc mounts the route pattern "/health" as a literal'
-  - 'rt.MuxPattern()'
+  - 'take the pattern from the route''s single owner'
 # A router package no root imports is refused, never silently matched.
 missingRouter: |
   typed:

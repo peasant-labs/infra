@@ -238,13 +238,11 @@ func (p process) runTyped(s *session, langs []rules.Lang) ([]ratchet.Finding, bo
 			findings = append(findings, ratchet.Finding{
 				Kind: ratchet.KindNewFile, Rule: hit.Hit.Rule, File: hit.Hit.File,
 				Line: hit.Hit.Line, Text: hit.Hit.Text, What: hit.Message() + ".",
-				Why: "the pattern restates a route the schema contract declares; when the route changes, " +
-					"this copy keeps serving the old path and only a runtime 404 shows it.",
+				Why: "a route pattern written as a literal where it is mounted is a second copy of the route; " +
+					"when the route changes, this copy keeps serving the old path and only a runtime 404 shows it.",
 				Where: where,
-				Fix: "mount the handler from the route member in github.com/peasant-labs/schema/route, " +
-					"with rt.Pattern() on a chi router or rt.MuxPattern() on a ServeMux, instead of the literal; " +
-					"a Route or Mount group prefix goes away once its routes mount full contract patterns. " +
-					"If the pinned schema has no route package yet, re-pin to the release that has it.",
+				Fix: "take the pattern from the route's single owner, a named constant or the route " +
+					"declaration your repository generates, and pass that to the mount call instead of the literal.",
 			})
 		}
 	}
