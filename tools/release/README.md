@@ -4,6 +4,24 @@
 workflow checker separately reads `.github/release-queue.policy.yml`. A
 repository's tag-workflow guard and its policy remain separate.
 
+## Per-tool release stream
+
+`streams` is optional; without it, the existing repository-wide release
+grammar and configuration stay unchanged. When present, it must contain exactly
+one named stream with `tag_prefix`, `changelog`, `version_files`, and `scopes`.
+The top-level `tag_prefix`, `changelog`, and `version_files` must be empty.
+A second stream needs a selector that is not implemented; consequently,
+cross-stream scope disjointness, `stream-ambiguous`, and prefix-overlap
+validation are deferred.
+
+With a stream configured, a title belongs to it when any title scope matches a
+stream scope. `feat` and `fix` require a level for that stream and must omit
+it otherwise. Other types that may release need a stream scope when they carry
+a level. A breaking `!` also requires a stream scope, except on a `release`
+request. A `release` title always carries a level and must not have a scope.
+Never-release types still forbid both markers. Every landed subject is parsed;
+an invalid subject fails the plan even if it concerns another tool.
+
 Surface names come from the release config. Each surface maps to one or more
 unversioned generated file stems. Stems must be unique and contain only
 lowercase letters and hyphens. `spec_freeze` defaults to false; enabling it

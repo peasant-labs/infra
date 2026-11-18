@@ -88,6 +88,8 @@ func TestClosedSets(t *testing.T) {
 		intent.ErrFloorNotOnChain,
 		intent.ErrReleaseContentStale,
 		intent.ErrConfigInvalid,
+		intent.ErrStreamInvalid,
+		intent.ErrBumpOnNoStream,
 		intent.ErrPolicyViolation,
 		intent.ErrReleaseContentScope,
 		intent.ErrTagUnverified,
@@ -118,6 +120,7 @@ func TestErrorCodeCoverage(t *testing.T) {
 		highestTagCorpusYAML, versionFieldCorpusYAML,
 		contentCorpusYAML, policyCorpusYAML, verifyTagCorpusYAML,
 		contractCorpusYAML, freezeCorpusYAML, freezeOutputCorpusYAML,
+		streamsCorpusYAML,
 	} {
 		var doc struct {
 			Cases []struct {
