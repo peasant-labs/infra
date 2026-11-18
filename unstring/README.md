@@ -315,35 +315,22 @@ typed:
     includeTests: false                  # the default
 ```
 
-On `check`, this loads the configured Go roots with Go type information and
-reports a route-mount call whose pattern argument is a string literal, as
-`go-typed-mount-literal`. A call is a mount when its method is declared in a
-package listed under `routers` and is one of `Get`, `Post`, `Put`, `Patch`,
-`Delete`, `Head`, `Options`, `Connect`, `Query`, `Trace`, `Handle`,
-`HandleFunc`, `Method`, `MethodFunc`, `Route` or `Mount`. The method is
-resolved with `go/types`, not by name, so:
+On `check`, this reports literal route patterns passed to methods declared in
+listed router packages, resolved by Go type information. Chi v5 is the default;
+`net/http` also covers `(*http.ServeMux).Handle` and `HandleFunc` when listed.
+Package-level `http.Handle` and `http.HandleFunc` are not matched. Chi interface
+receivers and promoted methods match; similarly named methods on other types do
+not. Supported methods are `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`,
+`Options`, `Connect`, `Query`, `Trace`, `Handle`, `HandleFunc`, `Method`,
+`MethodFunc`, `Route` and `Mount`.
 
-- a receiver of chi's `Router` interface matches as well as `*chi.Mux`. That
-  covers the router inside a `Route` callback and the one `With` returns;
-- a type that embeds a router matches through the promoted method;
-- a type of your own with a `Get` or `Route` method does not match, and
-  neither does `*http.ServeMux` unless `net/http` is listed.
-
-The pattern is the first argument, or the second for `Method` and
-`MethodFunc`. It is reported when it is a string literal, or literals joined
-with `+`, that starts with `/` or with an HTTP method and `/` (`"GET /x"`).
-A pattern that is a constant, a variable or a call, such as `rt.Pattern()`, is
-not reported; neither is a wrapper that forwards its parameter to the router.
-The literal is reported where it is written. A `Route` or `Mount` group
-prefix is a mount in its own right, and a pattern inside the group is reported
-as written, relative to the prefix; the check never composes the full path.
-
-`_test.go` files are skipped unless `includeTests: true`: a test usually builds
-its own router, which is fixture code and not a production mount. Files are
-classified by their physical name, so a `//line` directive does not move a
-file in or out, and findings name the physical file and line. A listed router
-package that no package under the roots imports fails the check, because the
-check would otherwise match nothing.
+Patterns must start with `/` or an HTTP method and `/` (such as `GET /x`);
+host-qualified ServeMux patterns are not matched. Literal concatenations are
+reported, but constants, variables and calls are not. Group prefixes and
+relative patterns are reported separately, as written. Files and locations
+are physical even with `//line` directives. `_test.go` files are skipped unless
+`includeTests: true`. A listed router not directly imported by any scanned file
+fails the check, rather than silently matching nothing.
 
 Like the closed-set check, these findings are not structural baseline entries
 and cannot be suppressed by baseline edits or markers. Both typed checks share

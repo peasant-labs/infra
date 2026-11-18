@@ -52,10 +52,6 @@ type MountFinding struct {
 	Receiver string
 	// Method is the mount method, for example "Get" or "Route".
 	Method string
-	// Pattern is the literal's value, exactly as mounted at this call. A
-	// pattern inside a Route group is relative to that group's prefix; the
-	// pass never composes the full path.
-	Pattern string
 }
 
 // Message names the call and the literal.
@@ -146,16 +142,12 @@ func (p *Program) MountLiterals(opts MountOptions) ([]MountFinding, error) {
 				Hit:      rules.Hit{Rule: GoMountLiteral, File: rel, Line: pos.Line, Text: types.ExprString(arg)},
 				Receiver: types.TypeString(pkg.TypesInfo.TypeOf(sel.X), qualifier),
 				Method:   sel.Sel.Name,
-				Pattern:  value,
 			})
 			return true
 		})
 	})
 	sort.Slice(result, func(i, j int) bool {
-		if result[i].Hit != result[j].Hit {
-			return hitLess(result[i].Hit, result[j].Hit)
-		}
-		return result[i].Method < result[j].Method
+		return hitLess(result[i].Hit, result[j].Hit)
 	})
 	return result, nil
 }

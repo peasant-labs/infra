@@ -3,6 +3,9 @@ package typed_test
 import (
 	"context"
 	_ "embed"
+	"go/constant"
+	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,6 +54,7 @@ var requiredMountFixtures = []string{
 	"non-router receiver with mount method names",
 	"serve mux not configured",
 	"serve mux configured",
+	"package level http functions are not mounts",
 	"non-literal patterns",
 	"literal concatenation",
 	"production directive names test file",
@@ -128,7 +132,11 @@ func TestMountFixtures(t *testing.T) {
 			}
 			for i, want := range tc.Expect {
 				h := got[i]
-				if h.Hit.Rule != typed.GoMountLiteral || h.Hit.File != want.File || h.Hit.Line != want.Line || h.Receiver != want.Receiver || h.Method != want.Method || h.Pattern != want.Pattern || (want.Text != "" && h.Hit.Text != want.Text) {
+				value, err := types.Eval(token.NewFileSet(), nil, token.NoPos, h.Hit.Text)
+				if err != nil || value.Value == nil || value.Value.Kind() != constant.String || constant.StringVal(value.Value) != want.Pattern {
+					t.Errorf("pattern expression %q does not evaluate to %q", h.Hit.Text, want.Pattern)
+				}
+				if h.Hit.Rule != typed.GoMountLiteral || h.Hit.File != want.File || h.Hit.Line != want.Line || h.Receiver != want.Receiver || h.Method != want.Method || (want.Text != "" && h.Hit.Text != want.Text) {
 					t.Errorf("finding %d = %+v; want %+v", i, h, want)
 				}
 				if !strings.Contains(h.Message(), h.Receiver) || !strings.Contains(h.Message(), h.Method) || !strings.Contains(h.Message(), h.Hit.Text) {

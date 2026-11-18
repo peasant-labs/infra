@@ -355,3 +355,14 @@
       var _ chi.Router
   error: "the router package github.com/go-chi/chi/v5 is not imported"
   expect: []
+- name: package level http functions are not mounts
+  routers: [net/http]
+  files:
+    router.go: |
+      package fixture
+      import "net/http"
+      func New(h http.HandlerFunc) {
+        http.Handle("/one", h)
+        http.HandleFunc("/two", h)
+      }
+  expect: []
