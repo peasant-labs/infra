@@ -11,6 +11,10 @@ API provenance check authenticating the release PR independently of its title
 and changed files. The planner's candidate predicate alone does not prove
 authorship.
 
+Commits already in history that combine a releasing title with a changelog
+edit remain excluded from the pending set; the guard prevents new ones. Check
+your range before adopting.
+
 The landed release PR commit is the batch boundary. A fresh candidate is
 verified and tagged for the subjects in its snapshot, even if another releasing
 PR lands afterward. Later subjects remain in the full pending range and belong
@@ -183,6 +187,15 @@ failure. Successful contract checks print `surfaces=` and `error=`; successful
 freeze plans print `frozen=` and `error=`. These machine lines are also
 appended to `GITHUB_OUTPUT` when set.
 
+## Check title and changelog
+
+A PR other than the bot's release PR that touches the changelog must have no
+release level and must not use the `release` type; for example, use
+`docs(changelog): ...`.
+Otherwise `check-title` rejects it with `changelog-release-title`. This also
+applies to an adoption PR that adds the changelog. Normal PRs may not add a
+second `[Unreleased]` block.
+
 ## Release-branch preparation
 
 Ordinary reviewed PRs may edit changelog prose, previous sections, reference
@@ -196,7 +209,8 @@ is not a candidate; only a changelog-changing release-titled commit can be
 selected, and only a fresh candidate is eligible for tagging. The predicate
 does not authenticate PR authorship. All changelog-changing subjects remain
 outside the pending set; the title guard requires normal changelog corrections
-to have no release level, so releasing code changes need a separate PR.
+to have no release level and not use the `release` type, so releasing code
+changes need a separate PR.
 Fixing a prior release date also requires the bot: its heading line is guarded.
 On rebuild, generated lines match exactly; rewording a generated line in an
 untagged section can cause the original line to reappear.

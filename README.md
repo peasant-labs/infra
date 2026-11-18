@@ -107,8 +107,8 @@ A normal reviewed PR may correct changelog prose, including earlier sections,
 reference-link definitions, and the `[Unreleased]` block. It may not add,
 remove, reorder, rename, or re-date a real release heading, or change a
 protected version field: those remain bot-only, including prior release dates.
-`[Unreleased]` is the human
-channel; the generator carries its entries into the next section when they
+A normal PR may not add a second `[Unreleased]` block. `[Unreleased]` is the
+human channel; the generator carries its entries into the next section when they
 are present in its base input.
 
 For example, Peasant's [0.18.0](https://github.com/peasant-labs/peasant/tree/v0.18.0)
@@ -125,7 +125,10 @@ Only a fresh release candidate is eligible for tagging. The planner recognizes
 that candidate by a release title and a changelog change; those facts do not by
 themselves authenticate who opened the PR. Before re-pinning, consumers must
 add the [plan-job provenance check](tools/release/README.md#before-re-pinning).
-The title guard requires changelog corrections to have no release level.
+The title guard requires a PR other than the bot's release PR that touches the
+changelog to have no level and not use the `release` type, for example
+`docs(changelog): ...`.
+This applies to an adoption PR that adds the changelog too.
 Rebuilds match generated lines exactly: rewording one in an untagged section
 can cause the original line to reappear.
 
