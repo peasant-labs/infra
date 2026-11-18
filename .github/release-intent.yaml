@@ -4,8 +4,9 @@ streams:
   unstring:
     tag_prefix: unstring/v
     changelog: unstring/CHANGELOG.md
+    version_files:
+      - {path: unstring/eslint-plugin/package.json, field: version}
     scopes: [unstring]
-# Add the npm package's version file after the package lands.
 protected_paths: []
 surfaces: {}
 bot_branches:
