@@ -153,6 +153,27 @@ cases:
     schema: *fixture-module
     members: *schema-members
 
+  - name: ts-schema-export-rejects-nested-object
+    lang: ts
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *fixture-module
+    members: *schema-members
+
+  - name: ts-schema-export-rejects-array
+    lang: ts
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *fixture-module
+    members: *schema-members
+
+  - name: ts-schema-export-rejects-template-string
+    lang: ts
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *fixture-module
+    members: *schema-members
+
   - name: ts-range-version-is-refused
     lang: ts
     files:

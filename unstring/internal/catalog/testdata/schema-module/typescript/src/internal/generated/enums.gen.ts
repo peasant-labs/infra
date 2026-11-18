@@ -13,3 +13,8 @@ export const RepositoryRole = Object.freeze({
 const Hidden = Object.freeze({
   Secret: "hidden",
 } as const);
+export const NonMemberShapes = Object.freeze({
+  NestedObject: { Value: "nested-value" },
+  ArrayValue: ["array-value"],
+  TemplateString: `template-value`,
+} as const);

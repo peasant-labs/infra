@@ -1,5 +1,8 @@
 # Runtime members of the generated schema package's closed sets. SET and NAME
 # are captured from the actual exported object, not guessed from a Go constant.
+# Bare literals are accepted because the scanned generated enums.gen.ts contains
+# only closed-set tables; other exported string tables there would require
+# tightening this rule.
 id: unstring-discover-schema-export
 language: tsx
 severity: hint

@@ -27,6 +27,9 @@ required:
     - go-directory-replace-is-refused
     - ts-pin-from-package-json
     - ts-pin-from-package-json-literal-exports
+    - ts-schema-export-rejects-nested-object
+    - ts-schema-export-rejects-array
+    - ts-schema-export-rejects-template-string
     - ts-range-version-is-refused
     - ts-workspace-specifier-is-refused
     - ts-missing-pin
