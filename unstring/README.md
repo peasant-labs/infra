@@ -183,6 +183,7 @@ refused.
 | `baseline` | `.unstring-baseline.yaml` |
 | `ts.roots` | none; the `ts` section is omitted when there are no TypeScript or JavaScript roots |
 | `go.roots` | none; the `go` section is omitted when there are no Go roots |
+| `typed.goClosedSetLiteral` | `false` |
 | `schema.module` | none; the catalog is the repository only |
 | `endpoints.prefixes` | `/api/v1` |
 | `endpoints.callees` | none |
@@ -272,3 +273,28 @@ match.
 An exemption of any other rule is a review decision. The tool does not apply
 that header check to it, and the exemption is not a way to keep a hand-written
 literal: the file should still be generated. Every entry needs a reason.
+
+## Optional typed Go check
+
+To opt in, add:
+
+```yaml
+typed:
+  goClosedSetLiteral: true
+```
+
+On `check`, this loads the configured Go roots with Go type information and
+reports comparisons and switch cases that use a literal matching exactly one
+package-level constant of the receiver's named string type. Plain strings,
+interfaces, untyped values, types without constants, unmatched values and
+ambiguous values are silent. Package loading errors fail the check; the Go
+packages and their test packages must build in the environment running the tool.
+Go `//line` directives do not change which files the pass scans.
+Findings name the physical file and line, even when a `//line` directive maps them elsewhere.
+An unexported constant in another package produces a finding without a
+replacement identifier: export the constant or move the comparison.
+
+These `go-typed-closed-set-literal` findings are not structural baseline
+entries and cannot be suppressed by baseline edits or markers. `init` and
+`update` only manage the structural baseline; enabling this check requires
+fixing typed findings before `check` passes.

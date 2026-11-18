@@ -1,0 +1,223 @@
+- name: direct comparison
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r Role) bool { return r == "user" }
+  expect: [{set: Role, member: User, literal: user, line: 4}]
+- name: reversed comparison
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r Role) bool { return "user" != r }
+  expect: [{set: Role, member: User, literal: user, line: 4}]
+- name: switch case
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r Role) { switch r { case "user": } }
+  expect: [{set: Role, member: User, literal: user, line: 4}]
+- name: untyped literal
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    const result = "user" == "user"
+  expect: []
+- name: string receiver
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r string) bool { return r == "user" }
+  expect: []
+- name: interface receiver
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r any) bool { return r == "user" }
+  expect: []
+- name: named type without constants
+  code: |
+    package fixture
+    type Role string
+    func test(r Role) bool { return r == "user" }
+  expect: []
+- name: ambiguous value
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    const Other Role = "user"
+    func test(r Role) bool { return r == "user" }
+  expect: []
+- name: non-string named type
+  code: |
+    package fixture
+    type Role int
+    const User Role = 1
+    func test(r Role) bool { return r == 1 }
+  expect: []
+- name: alias receiver
+  code: |
+    package fixture
+    type Role string
+    type Alias = Role
+    const User Role = "user"
+    func test(r Alias) bool { return r == "user" }
+  expect: [{set: Role, member: User, literal: user, line: 5}]
+- name: nonmember
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func test(r Role) bool { return r == "other" }
+  expect: []
+- name: production test-only constant
+  files:
+    a.go: |
+      package fixture
+      type Role string
+      func f(r Role) bool { return r == "user" }
+    a_test.go: |
+      package fixture
+      const User Role = "user"
+  expect: []
+- name: test file constant
+  files:
+    a.go: |
+      package fixture
+      type Role string
+    a_test.go: |
+      package fixture
+      const User Role = "user"
+      func f(r Role) bool { return r == "user" }
+  expect: [{file: a_test.go, set: Role, member: User, literal: user, line: 3, message: "use User instead of 'user'"}]
+- name: external test package
+  files:
+    a.go: |
+      package fixture
+    a_test.go: |
+      package fixture_test
+      type Role string
+      const User Role = "user"
+      func f(r Role) bool { return r == "user" }
+  expect: [{file: a_test.go, set: Role, member: User, literal: user, line: 4, message: "use User instead of 'user'"}]
+- name: test constant ambiguity
+  files:
+    a.go: |
+      package fixture
+      type Role string
+      const User Role = "user"
+      func f(r Role) bool { return r == "user" }
+    a_test.go: |
+      package fixture
+      const Other Role = "user"
+      func g(r Role) bool { return r == "user" }
+  expect: [{file: a.go, set: Role, member: User, literal: user, line: 4}]
+- name: import alias
+  files:
+    role/role.go: |
+      package role
+      type Role string
+      const User Role = "user"
+    consumer/a.go: |
+      package consumer
+      import r "fixture/role"
+      func f(v r.Role) bool { return v == "user" }
+  expect: [{file: consumer/a.go, set: Role, member: User, literal: user, line: 3, message: "use r.User instead of 'user'"}]
+- name: dot import
+  files:
+    role/role.go: |
+      package role
+      type Role string
+      const User Role = "user"
+    consumer/a.go: |
+      package consumer
+      import . "fixture/role"
+      func f(v Role) bool { return v == "user" }
+  expect: [{file: consumer/a.go, set: Role, member: User, literal: user, line: 3, message: "use User instead of 'user'"}]
+- name: foreign private constant
+  files:
+    role/role.go: |
+      package role
+      type Role string
+      const user Role = "user"
+    consumer/a.go: |
+      package consumer
+      import r "fixture/role"
+      func f(v r.Role) bool { return v == "user" }
+  expect: [{file: consumer/a.go, set: Role, member: user, literal: user, line: 3, message: "constant user for 'user' is in package fixture/role and not accessible here; export it or move the comparison"}]
+- name: shadowed constant
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func f(r Role, User string) bool { return r == "user" }
+  expect: [{set: Role, member: User, literal: user, line: 4, message: "constant User for 'user' is shadowed at this site; rename the shadowing identifier or move the comparison"}]
+- name: multiple hits
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func f(r Role) bool { return r == "user" || r != "user" }
+  expect: [{set: Role, member: User, literal: user, line: 4}, {set: Role, member: User, literal: user, line: 4}]
+- name: parenthesized literal
+  code: |
+    package fixture
+    type Role string
+    const User Role = "user"
+    func f(r Role) bool { return r == (("user")) }
+  expect: [{set: Role, member: User, literal: user, line: 4}]
+- name: overlapping roots
+  roots: [., sub]
+  files:
+    sub/a.go: |
+      package fixture
+      type Role string
+      const User Role = "user"
+      func f(r Role) bool { return r == "user" }
+  expect: [{file: sub/a.go, set: Role, member: User, literal: user, line: 4}]
+- name: loader error
+  code: |
+    package fixture
+    var x = missing
+  error: "undefined: missing"
+  expect: []
+- name: production directive names test file
+  files:
+    a.go: |
+      //line a_test.go:1
+      package fixture
+      type Role string
+      func F(r Role) bool { return r == "user" }
+    a_test.go: |
+      package fixture
+      const User Role = "user"
+  expect: []
+- name: test directive names production file
+  files:
+    a.go: |
+      package fixture
+      type Role string
+    a_test.go: |
+      //line a.go:10
+      package fixture
+      const User Role = "user"
+      func F(r Role) bool { return r == "user" }
+  expect: [{file: a_test.go, set: Role, member: User, literal: user, line: 4, message: "use User instead of 'user'"}]
+- name: directive locations keep distinct physical sites
+  roots: [., sub]
+  files:
+    sub/a.go: |
+      package fixture
+      type Role string
+      const User Role = "user"
+      //line generated.go:10
+      func F(r Role) bool { return r == "user" }
+      //line generated.go:10
+      func G(r Role) bool { return r == "user" }
+  expect: [{file: sub/a.go, set: Role, member: User, literal: user, line: 5}, {file: sub/a.go, set: Role, member: User, literal: user, line: 7}]

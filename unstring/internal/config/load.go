@@ -74,7 +74,7 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 			fmt.Sprintf("the config file %s does not decode: %v.", name, err),
 			"unstring refuses unknown keys and wrong value types so that a misspelt setting cannot be silently ignored.",
 			where,
-			"correct the key or value on the line named above; the keys are version, baseline, ts, go, schema, endpoints, dataDirs and exempt.")
+			"correct the key or value on the line named above; the keys are version, baseline, ts, go, typed, schema, endpoints, dataDirs and exempt.")
 	}
 	fail := func(what, why, fix string) (Config, error) {
 		return Config{}, failure.New(what, why, where, fix)
