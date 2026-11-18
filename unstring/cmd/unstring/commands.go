@@ -184,29 +184,71 @@ func (p process) runCheck(args []string) int {
 	if err != nil {
 		return failErr(p.stderr, err, "unstring check, placing allow markers.")
 	}
-	if s.cfg.Typed.GoClosedSetLiteral && slices.Contains(langs, rules.LangGo) {
-		hits, err := typed.ScanGo(s.ctx, s.dir, s.cfg.RootsFor(rules.LangGo), s.environ)
-		if err != nil {
-			return environmentFailure(p.stderr, "the typed Go scan failed.",
-				err.Error(), "loading Go packages during unstring check; the baseline was not changed.",
-				"fix the reported Go package errors and retry.")
-		}
-		for _, hit := range hits {
-			message := hit.Message()
-			out.Findings = append(out.Findings, ratchet.Finding{
-				Kind: ratchet.KindNewFile, Rule: hit.Hit.Rule, File: hit.Hit.File,
-				Line: hit.Hit.Line, Text: hit.Hit.Text, What: message,
-				Why:   "a string literal duplicates a named closed-set member.",
-				Where: "typed Go scan; this finding is not baselined.",
-				Fix:   message,
-			})
-		}
-		if len(hits) > 0 {
-			out.Exit = exitFindings
-		}
+	typedFindings, ok := p.runTyped(s, langs)
+	if !ok {
+		return exitEnvironment
+	}
+	if len(typedFindings) > 0 {
+		out.Findings = append(out.Findings, typedFindings...)
+		out.Exit = exitFindings
 	}
 	ratchet.WriteReport(p.stdout, format, ratchet.CommandCheck, out.Findings)
 	return out.Exit
+}
+
+// runTyped runs the enabled typed Go passes over one shared package load.
+// Their findings are never baselined. It reports false after printing an
+// environment failure.
+func (p process) runTyped(s *session, langs []rules.Lang) ([]ratchet.Finding, bool) {
+	typedCfg := s.cfg.Typed
+	mount := typedCfg.GoMountLiteral
+	if !(typedCfg.GoClosedSetLiteral || mount.Enabled) || !slices.Contains(langs, rules.LangGo) {
+		return nil, true
+	}
+	prog, err := typed.LoadGo(s.ctx, s.dir, s.cfg.RootsFor(rules.LangGo), s.environ)
+	if err != nil {
+		environmentFailure(p.stderr, "the typed Go scan failed.",
+			err.Error(), "loading Go packages during unstring check; the baseline was not changed.",
+			"fix the reported Go package errors and retry.")
+		return nil, false
+	}
+	const where = "typed Go scan; this finding is not baselined."
+	var findings []ratchet.Finding
+	if typedCfg.GoClosedSetLiteral {
+		for _, hit := range prog.ClosedSetLiterals() {
+			message := hit.Message()
+			findings = append(findings, ratchet.Finding{
+				Kind: ratchet.KindNewFile, Rule: hit.Hit.Rule, File: hit.Hit.File,
+				Line: hit.Hit.Line, Text: hit.Hit.Text, What: message,
+				Why:   "a string literal duplicates a named closed-set member.",
+				Where: where,
+				Fix:   message,
+			})
+		}
+	}
+	if mount.Enabled {
+		hits, err := prog.MountLiterals(typed.MountOptions{Routers: mount.Routers, IncludeTests: mount.Tests == config.TestFilesInclude})
+		if err != nil {
+			environmentFailure(p.stderr, "the typed Go mount scan has a router it cannot match.",
+				err.Error(), "matching typed.goMountLiteral.routers during unstring check; the baseline was not changed.",
+				"correct typed.goMountLiteral.routers in "+config.DefaultPath+" to the router packages the Go roots import.")
+			return nil, false
+		}
+		for _, hit := range hits {
+			findings = append(findings, ratchet.Finding{
+				Kind: ratchet.KindNewFile, Rule: hit.Hit.Rule, File: hit.Hit.File,
+				Line: hit.Hit.Line, Text: hit.Hit.Text, What: hit.Message() + ".",
+				Why: "the pattern restates a route the schema contract declares; when the route changes, " +
+					"this copy keeps serving the old path and only a runtime 404 shows it.",
+				Where: where,
+				Fix: "mount the handler from the route member in github.com/peasant-labs/schema/route, " +
+					"with rt.Pattern() on a chi router or rt.MuxPattern() on a ServeMux, instead of the literal; " +
+					"a Route or Mount group prefix goes away once its routes mount full contract patterns. " +
+					"If the pinned schema has no route package yet, re-pin to the release that has it.",
+			})
+		}
+	}
+	return findings, true
 }
 
 // refuseDevBuild stops init and update in a build that names no release:

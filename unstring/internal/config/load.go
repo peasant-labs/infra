@@ -162,6 +162,9 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 				"write the router file's path or glob relative to the config, for example backend/internal/router/*.go.")
 		}
 	}
+	if ferr := c.Typed.GoMountLiteral.normalize(name, where); ferr != nil {
+		return Config{}, ferr
+	}
 	if len(c.DataDirs) == 0 {
 		c.DataDirs = DefaultDataDirs()
 	}
@@ -366,4 +369,57 @@ func (c Config) Exempted(id rules.RuleID, file string) bool {
 		}
 	}
 	return false
+}
+
+// routerPath is the shape of a Go import path: slash-separated elements with
+// no empty, `.` or `..` element.
+var routerPath = regexp.MustCompile(`^[A-Za-z0-9_.~+-]+(/[A-Za-z0-9_.~+-]+)*$`)
+
+// normalize applies the mount pass defaults and validates its keys.
+func (m *GoMountLiteral) normalize(name, where string) error {
+	key := "typed.goMountLiteral"
+	if !m.Enabled {
+		if len(m.Routers) > 0 || m.Tests != "" {
+			return failure.New(
+				fmt.Sprintf("%s sets %s.routers or %s.tests without `enabled: true`.", name, key, key),
+				"the mount pass runs only when it is enabled, so these settings would silently do nothing.",
+				where,
+				fmt.Sprintf("add `enabled: true` under %s, or remove the section.", key))
+		}
+		return nil
+	}
+	if len(m.Routers) == 0 {
+		m.Routers = DefaultMountRouters()
+	}
+	for i, r := range m.Routers {
+		if !routerPath.MatchString(r) || slices.Contains(strings.Split(r, "/"), ".") || slices.Contains(strings.Split(r, "/"), "..") {
+			return failure.New(
+				fmt.Sprintf("the router package %q in %s is not a Go import path.", r, name),
+				"the mount pass matches a method by the import path of the package that declares it.",
+				where,
+				fmt.Sprintf("write the package's import path under %s.routers, for example %s or net/http.", key, DefaultMountRouters()[0]))
+		}
+		if slices.Contains(m.Routers[:i], r) {
+			return failure.New(
+				fmt.Sprintf("the router package %q is listed twice under %s.routers in %s.", r, key, name),
+				"a repeated entry hides a typo in the entry that was meant.",
+				where,
+				"remove the repeated entry.")
+		}
+	}
+	if m.Tests == "" {
+		m.Tests = TestFilesExclude
+	}
+	if !slices.Contains(AllTestFiles, m.Tests) {
+		values := make([]string, len(AllTestFiles))
+		for i, v := range AllTestFiles {
+			values[i] = v.String()
+		}
+		return failure.New(
+			fmt.Sprintf("%s.tests in %s is %q.", key, name, m.Tests),
+			"it says whether `_test.go` files are scanned, and only "+strings.Join(values, " and ")+" are values.",
+			where,
+			fmt.Sprintf("set %s.tests to %s, or remove it to exclude test files.", key, strings.Join(values, " or ")))
+	}
+	return nil
 }

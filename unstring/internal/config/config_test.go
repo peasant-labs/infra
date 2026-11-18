@@ -28,7 +28,15 @@ func TestDocumentedConfigDecodes(t *testing.T) {
 		Baseline: config.DefaultBaselinePath,
 		TS:       &config.Roots{Roots: []string{"frontend"}},
 		Go:       &config.Roots{Roots: []string{"backend"}},
-		Schema:   config.Schema{Module: "github.com/peasant-labs/schema"},
+		Typed: config.Typed{
+			GoClosedSetLiteral: true,
+			GoMountLiteral: config.GoMountLiteral{
+				Enabled: true,
+				Routers: config.DefaultMountRouters(),
+				Tests:   config.TestFilesExclude,
+			},
+		},
+		Schema: config.Schema{Module: "github.com/peasant-labs/schema"},
 		Endpoints: config.Endpoints{
 			Prefixes:   config.DefaultEndpointPrefixes(),
 			Callees:    []string{"api"},

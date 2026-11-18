@@ -16,10 +16,6 @@ import (
 // GoMountLiteral is intentionally not a structural rule or baseline key.
 const GoMountLiteral rules.RuleID = "go-typed-mount-literal"
 
-// DefaultMountRouters returns the router packages the mount pass matches when
-// the config names none.
-func DefaultMountRouters() []string { return []string{"github.com/go-chi/chi/v5"} }
-
 // mountMethods maps each route-mount method to the index of its pattern
 // argument. It is chi v5's Router method set that takes a pattern, which also
 // covers net/http's ServeMux (Handle, HandleFunc). Use, With, Group, NotFound
@@ -84,7 +80,7 @@ func (p *Program) MountLiterals(opts MountOptions) ([]MountFinding, error) {
 	})
 	for _, r := range opts.Routers {
 		if !loaded[r] {
-			return nil, fmt.Errorf("the router package %s is not imported by any Go package under the roots, so the mount pass would match nothing; correct the import path under typed.goMountLiteral.routers, or remove it", r)
+			return nil, fmt.Errorf("the router package %s is not imported by any Go package under the roots, so the mount pass would match nothing; correct the router's import path in the config, or remove it", r)
 		}
 	}
 	qualifier := func(pkg *types.Package) string { return pkg.Name() }

@@ -46,10 +46,46 @@ type Config struct {
 	Exempt []Exempt `yaml:"exempt"`
 }
 
+// DefaultMountRouters returns the router packages the typed mount pass
+// matches when the config names none.
+func DefaultMountRouters() []string { return []string{"github.com/go-chi/chi/v5"} }
+
 // Typed configures opt-in type-aware checks.
 type Typed struct {
 	GoClosedSetLiteral bool `yaml:"goClosedSetLiteral"`
+	// GoMountLiteral configures the typed route-mount pass.
+	GoMountLiteral GoMountLiteral `yaml:"goMountLiteral"`
 }
+
+// GoMountLiteral configures the typed pass that reports a route mounted from
+// a literal pattern on a router type resolved with go/types.
+type GoMountLiteral struct {
+	// Enabled turns the pass on; the other keys are refused without it.
+	Enabled bool `yaml:"enabled"`
+	// Routers are the import paths of the router packages whose mount
+	// methods are matched. Defaults to DefaultMountRouters.
+	Routers []string `yaml:"routers"`
+	// Tests says whether `_test.go` files are scanned. Defaults to
+	// TestFilesExclude.
+	Tests TestFiles `yaml:"tests"`
+}
+
+// TestFiles is whether a typed pass scans `_test.go` files.
+type TestFiles string
+
+const (
+	// TestFilesExclude skips `_test.go` files: a test usually builds its own
+	// router, which is fixture code and not a production mount.
+	TestFilesExclude TestFiles = "exclude"
+	// TestFilesInclude scans `_test.go` files as well.
+	TestFilesInclude TestFiles = "include"
+)
+
+// AllTestFiles lists every TestFiles value.
+var AllTestFiles = []TestFiles{TestFilesExclude, TestFilesInclude}
+
+// String returns the config value.
+func (t TestFiles) String() string { return string(t) }
 
 // Roots are the directories scanned for one language.
 type Roots struct {

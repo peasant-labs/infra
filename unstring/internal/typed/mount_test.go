@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/peasant-labs/infra/unstring/internal/config"
 	"github.com/peasant-labs/infra/unstring/internal/typed"
 	"gopkg.in/yaml.v3"
 )
@@ -103,7 +104,7 @@ func TestMountFixtures(t *testing.T) {
 			}
 			routers := tc.Routers
 			if len(routers) == 0 {
-				routers = typed.DefaultMountRouters()
+				routers = config.DefaultMountRouters()
 			}
 			env := append(os.Environ(), "GOPROXY=off", "GOWORK=off")
 			prog, err := typed.LoadGo(context.Background(), dir, roots, env)
