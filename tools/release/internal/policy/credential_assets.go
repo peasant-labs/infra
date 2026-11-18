@@ -60,6 +60,15 @@ func releaseAssetsInputFault(action, job *yaml.Node) string {
 	}
 	needs, _ := needsList(job)
 	gate, isGate := parseReleaseAssetGate(stepIfText(action))
+	draft := mappingValue(with, InputDraft.String())
+	if isGate {
+		if gate.draft && !literalActionBoolean(draft, "true") {
+			return "draft must be literal true for the view.failure && create.success draft gate"
+		}
+		if !gate.draft && draft != nil && !literalActionBoolean(draft, "false") {
+			return "draft must be absent or literal false for the view.success || create.success published gate"
+		}
+	}
 	for _, input := range []ActionInput{InputPrerelease, InputMakeLatest} {
 		node := mappingValue(with, input.String())
 		if input == InputMakeLatest && node == nil && isGate && gate.draft {
@@ -72,6 +81,13 @@ func releaseAssetsInputFault(action, job *yaml.Node) string {
 		}
 	}
 	return ""
+}
+
+// Action inputs are strings at runtime. Accept either a YAML boolean or the
+// equivalent literal string, but never an expression, alias, or collection.
+func literalActionBoolean(node *yaml.Node, value string) bool {
+	return node != nil && node.Kind == yaml.ScalarNode &&
+		(node.Tag == "!!bool" || node.Tag == "!!str") && node.Value == value
 }
 
 func (c *queueChecker) releaseAssetsFault(file, jobName string, doc, job, action *yaml.Node) string {

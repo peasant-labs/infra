@@ -603,14 +603,16 @@ repository and triggering tag:
 
 - **Published-create flow:** `steps.<view>.outcome == 'success' ||
   steps.<create>.outcome == 'success'`. The action's `make_latest` is required
-  and must read an output of a needed job. This existing flow may upload to an
-  existing release, so it is not appropriate for immutable releases.
+  and must read an output of a needed job; its `draft` input must be absent or
+  literal `false`. This existing flow may upload to an existing release, so it
+  is not appropriate for immutable releases.
 - **Immutable-release flow:** the unconditional view has
   `continue-on-error: true`; the create runs only on `view.failure` and passes
   `--verify-tag --draft` (or `--draft=true`). The action runs only on
-  `steps.<view>.outcome == 'failure' && steps.<create>.outcome == 'success'`.
+  `steps.<view>.outcome == 'failure' && steps.<create>.outcome == 'success'`
+  and must pass literal `draft: true` to keep the release draft during upload.
   Omit `make_latest` from the action: a draft cannot be marked latest. The
-  checker also allows the input when it reads a needed job's output, but does
+  checker also allows that input when it reads a needed job's output, but does
   not guarantee GitHub will accept it. After the action, exactly one
   `gh release edit ... --draft=false --prerelease="$PRERELEASE"
   --latest="$LATEST"` publishes the draft, gated on `create.success` (or the
@@ -619,10 +621,11 @@ repository and triggering tag:
   publish do nothing and the job succeeds. A failed draft is a burned release:
   fix forward with a new release, never retry or edit the old one.
 
-The checker confines action inputs; it does not inspect an action's code.
+The checker validates the action inputs; it does not inspect an action's code.
 Before pinning a release-assets action for the immutable flow, verify that the
-exact pinned version can find an existing draft and leaves it draft through
-asset upload. Action versions differ in draft discovery and finalization.
+exact pinned version can find the existing draft and honors `draft: true` to
+keep it draft through asset upload. Action versions differ in draft discovery
+and finalization.
 The build verifies `checksums.txt` before uploading it with the assets; this
 is a consumer workflow obligation, not a cryptographic signature. A compromised
 build can still provide malicious bytes: this split confines credentials, not

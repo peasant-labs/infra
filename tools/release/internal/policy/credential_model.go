@@ -208,6 +208,8 @@ const (
 	InputFailOnUnmatched ActionInput = "fail_on_unmatched_files"
 	// InputOverwriteFiles permits recovery from a partial upload.
 	InputOverwriteFiles ActionInput = "overwrite_files"
+	// InputDraft keeps an immutable release unpublished while assets upload.
+	InputDraft ActionInput = "draft"
 	// InputPrerelease marks a prerelease.
 	InputPrerelease ActionInput = "prerelease"
 	// InputMakeLatest controls the latest release marker.
@@ -238,6 +240,7 @@ var AllActionInputs = []ActionInput{
 	InputFiles,
 	InputFailOnUnmatched,
 	InputOverwriteFiles,
+	InputDraft,
 	InputPrerelease,
 	InputMakeLatest,
 	InputRepository,
@@ -266,7 +269,7 @@ func inputsOf(action AllowedAction) []ActionInput {
 	case ActionCreateAppToken:
 		return []ActionInput{InputAppID, InputClientID, InputPrivateKey, InputOwner, InputRepositories, InputPermissionContents, InputPermissionPullRequests, InputPermissionIssues}
 	case ActionReleaseAssets:
-		return []ActionInput{InputTagName, InputFiles, InputFailOnUnmatched, InputOverwriteFiles, InputPrerelease, InputMakeLatest, InputRepository}
+		return []ActionInput{InputTagName, InputFiles, InputFailOnUnmatched, InputOverwriteFiles, InputDraft, InputPrerelease, InputMakeLatest, InputRepository}
 	}
 	return nil
 }

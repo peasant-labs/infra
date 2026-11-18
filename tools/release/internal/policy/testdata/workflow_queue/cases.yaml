@@ -29,6 +29,17 @@ required_names:
   - accept-reviewed-script
   - accept-release-assets
   - accept-draft-release-assets
+  - accept-draft-release-assets-quoted-input
+  - accept-published-assets-draft-false
+  - accept-published-assets-quoted-draft-false
+  - reject-draft-assets-input-missing
+  - reject-draft-assets-input-false
+  - reject-draft-assets-input-expression
+  - reject-draft-assets-input-wrong-type
+  - reject-published-assets-draft-true
+  - reject-published-assets-draft-expression
+  - reject-published-assets-draft-wrong-type
+  - reject-checkout-draft-input
   - accept-schema-draft-release-assets
   - accept-draft-release-assets-explicit-true
   - accept-draft-release-assets-publish-dual-gate
@@ -457,6 +468,135 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "immutable release assets" }
     mutation: { description: "Create a draft, upload only on creation, and publish after the upload." }
+  - name: accept-draft-release-assets-quoted-input
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          draft: true\n"
+          new: "          draft: 'true'\n"
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "draft action input" }
+    mutation: { description: "Pass true as a literal action input string." }
+  - name: accept-published-assets-draft-false
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          overwrite_files: true\n"
+          new: "          overwrite_files: true\n          draft: false\n"
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "published action draft input" }
+    mutation: { description: "Explicitly disable draft mode for the published-create flow." }
+  - name: accept-published-assets-quoted-draft-false
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          overwrite_files: true\n"
+          new: "          overwrite_files: true\n          draft: 'false'\n"
+    expected: { rule: credential-jobs-use-pinned-actions }
+    classification: must-pass
+    provenance: { source: requirement, ref: "published action draft input" }
+    mutation: { description: "Pass false as a literal action input string." }
+  - name: reject-draft-assets-input-missing
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          draft: true\n"
+          new: ""
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["draft", "literal true"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft action input" }
+    mutation: { description: "Omit the input that keeps the release draft during upload." }
+  - name: reject-draft-assets-input-false
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          draft: true\n"
+          new: "          draft: false\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["draft", "literal true"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft action input" }
+    mutation: { description: "Let the action publish before it uploads the assets." }
+  - name: reject-draft-assets-input-expression
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          draft: true\n"
+          new: "          draft: ${{ needs.build.outputs.prerelease }}\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["draft", "literal true"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft action input" }
+    mutation: { description: "Let an expression select whether the action keeps the release draft." }
+  - name: reject-draft-assets-input-wrong-type
+    input:
+      overlay: accept-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          draft: true\n"
+          new: "          draft: [true]\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["draft", "literal true"] }
+    sibling: accept-draft-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "draft action input" }
+    mutation: { description: "Pass a sequence instead of a literal boolean input." }
+  - name: reject-published-assets-draft-true
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          overwrite_files: true\n"
+          new: "          overwrite_files: true\n          draft: true\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["draft", "literal false"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "published action draft input" }
+    mutation: { description: "Turn the published-create action into a draft publisher." }
+  - name: reject-published-assets-draft-expression
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          overwrite_files: true\n"
+          new: "          overwrite_files: true\n          draft: ${{ needs.build.outputs.prerelease }}\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["draft", "literal false"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "published action draft input" }
+    mutation: { description: "Allow an expression to leave the published-create action in draft mode." }
+  - name: reject-published-assets-draft-wrong-type
+    input:
+      overlay: accept-tag-publish-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          overwrite_files: true\n"
+          new: "          overwrite_files: true\n          draft: [false]\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["draft", "literal false"] }
+    sibling: accept-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "published action draft input" }
+    mutation: { description: "Pass a sequence instead of a literal false input." }
+  - name: reject-checkout-draft-input
+    input:
+      overlay: accept-tag-publish
+      edits:
+        - file: workflows/release.yml
+          old: "          fetch-depth: 1\n          persist-credentials: false\n"
+          new: "          fetch-depth: 1\n          persist-credentials: false\n          draft: true\n"
+    expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["draft", "may not take"] }
+    sibling: accept-tag-publish
+    classification: must-fail
+    provenance: { source: requirement, ref: "action input scope" }
+    mutation: { description: "Pass the release-assets draft input to checkout." }
   - name: accept-schema-draft-release-assets
     input:
       overlay: accept-tag-publish
@@ -481,7 +621,7 @@ cases:
           new: "needs: [guard, contract-gates, build, verify]"
         - file: workflows/release.yml
           old: "      - name: Create the GitHub Release\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --title \"$TAG\" --notes-file notes/notes.md --prerelease=\"$PRERELEASE\"\n      - name: Mark the Release as latest\n        if: needs.guard.outputs.kind == 'final'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release edit \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --latest\n"
-          new: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --draft --title \"$TAG\" --notes-file dist/notes.md --prerelease=\"$PRERELEASE\"\n      - name: Upload assets\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          tag_name: ${{ github.ref_name }}\n          repository: ${{ github.repository }}\n          files: dist/*\n          fail_on_unmatched_files: true\n          overwrite_files: true\n          prerelease: ${{ needs.build.outputs.prerelease }}\n      - name: Publish the draft\n        if: steps.create.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n          LATEST: ${{ needs.build.outputs.latest }}\n        run: gh release edit \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --draft=false --prerelease=\"$PRERELEASE\" --latest=\"$LATEST\"\n"
+          new: "      - id: create\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --draft --title \"$TAG\" --notes-file dist/notes.md --prerelease=\"$PRERELEASE\"\n      - name: Upload assets\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          tag_name: ${{ github.ref_name }}\n          repository: ${{ github.repository }}\n          files: dist/*\n          fail_on_unmatched_files: true\n          overwrite_files: true\n          draft: true\n          prerelease: ${{ needs.build.outputs.prerelease }}\n      - name: Publish the draft\n        if: steps.create.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n          LATEST: ${{ needs.build.outputs.latest }}\n        run: gh release edit \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --draft=false --prerelease=\"$PRERELEASE\" --latest=\"$LATEST\"\n"
     expected: { rule: credential-jobs-use-pinned-actions }
     classification: must-pass
     provenance: { source: requirement, ref: "schema-style release workflow" }
@@ -813,7 +953,7 @@ cases:
       edits:
         - file: workflows/release.yml
           old: "      - id: publish\n"
-          new: "      - name: Another upload\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          tag_name: ${{ github.ref_name }}\n          repository: ${{ github.repository }}\n          files: dist/*\n          fail_on_unmatched_files: true\n          overwrite_files: true\n          prerelease: ${{ needs.build.outputs.prerelease }}\n      - id: publish\n"
+          new: "      - name: Another upload\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          tag_name: ${{ github.ref_name }}\n          repository: ${{ github.repository }}\n          files: dist/*\n          fail_on_unmatched_files: true\n          overwrite_files: true\n          draft: true\n          prerelease: ${{ needs.build.outputs.prerelease }}\n      - id: publish\n"
     expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["only release-assets action"] }
     sibling: accept-draft-release-assets
     classification: must-fail
