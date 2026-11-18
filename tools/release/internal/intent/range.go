@@ -49,8 +49,8 @@ func RangeBaseBefore(tags map[string]string, prefix string, chain []Commit, rev 
 	return "", "", false
 }
 
-// rangeBounds applies the planner's first-parent, epoch and recovery-floor
-// boundaries.
+// rangeBounds applies the first-parent, epoch, recovery-floor and optional
+// freeze-floor boundaries.
 func rangeBounds(cfg Config, facts Facts) (string, int, error) {
 	if len(facts.Commits) == 0 {
 		return "", 0, rangeError(ErrNoFinalTag, "the revision has no first-parent commits",
@@ -62,7 +62,7 @@ func rangeBounds(cfg Config, facts Facts) (string, int, error) {
 			"the range begins after the nearest earlier final tag", "no range can be checked", "fetch an earlier final tag on the first-parent chain")
 	}
 	end := -1
-	epochIdx, floorIdx := -1, -1
+	epochIdx, floorIdx, freezeFloorIdx := -1, -1, -1
 	for i, commit := range facts.Commits {
 		if commit.SHA == facts.Tags[base] {
 			end = i
@@ -73,6 +73,9 @@ func rangeBounds(cfg Config, facts Facts) (string, int, error) {
 		if commit.SHA == facts.Floor && facts.Floor != "" {
 			floorIdx = i
 		}
+		if commit.SHA == facts.FreezeFloor && facts.FreezeFloor != "" {
+			freezeFloorIdx = i
+		}
 	}
 	if facts.Floor != "" && floorIdx < 0 {
 		return "", 0, rangeError(ErrFloorNotOnChain, "the recovery floor "+strconv.Quote(facts.Floor)+" is not on the branch chain",
@@ -80,6 +83,13 @@ func rangeBounds(cfg Config, facts Facts) (string, int, error) {
 	}
 	if floorIdx >= 0 && floorIdx < end {
 		end = floorIdx
+	}
+	if facts.FreezeFloor != "" && freezeFloorIdx < 0 {
+		return "", 0, rangeError(ErrFloorNotOnChain, "the freeze floor "+strconv.Quote(facts.FreezeFloor)+" is not on the branch chain",
+			"the freeze floor must name a chain commit", "no range can be checked", "set the freeze floor to a first-parent commit or clear it")
+	}
+	if freezeFloorIdx >= 0 && freezeFloorIdx < end {
+		end = freezeFloorIdx
 	}
 	if facts.Epoch == "" || epochIdx < 0 {
 		return "", 0, rangeError(ErrEpochMissing, "the grammar epoch is absent from the branch chain",

@@ -202,6 +202,7 @@ func runFreezePlan(flags flagValues) error {
 	if err != nil {
 		return err
 	}
+	facts.FreezeFloor = flags.Value(intent.FlagFreezeFloor)
 	if rev != branch {
 		chain, err := r.FirstParent(ctx, branch, cfg.Changelog)
 		if err != nil || len(facts.Commits) == 0 {
@@ -231,6 +232,7 @@ func runFreezePlan(flags flagValues) error {
 	if err != nil {
 		return err
 	}
+	plan.FreezeFloor = flags.Value(intent.FlagFreezeFloor)
 	doc, err := yaml.Marshal(plan)
 	if err != nil {
 		return fmt.Errorf("freeze-plan: cannot encode plan: %w", err)

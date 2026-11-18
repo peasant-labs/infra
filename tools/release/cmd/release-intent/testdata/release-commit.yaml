@@ -41,6 +41,12 @@ required_names:
   - protected-current-changed
   - protected-current-title-changed
   - freeze-outputs-and-multiple-surfaces
+  - migration-freeze-floor-keeps-release-range
+  - migration-freeze-floor-removed-refused
+  - migration-freeze-floor-altered-refused
+  - migration-freeze-floor-off-chain-refused
+  - migration-no-freeze-floor-uses-full-range
+  - migration-release-floor-still-bounds-content
   - freeze-outputs-alternate-directory
   - freeze-output-without-plan
   - freeze-output-outside-declared-set
@@ -211,6 +217,68 @@ cases:
       classification: must-pass
       provenance: &freeze_p {source: requirement, ref: "plan-gated freeze writer outputs and numbered primary documents"}
       mutation: &freeze_m {description: "Change the plan, dirty outputs, or current branch."}
+    - name: migration-freeze-floor-keeps-release-range
+      input:
+        scenario: migration-floor
+        migration: &migration_history
+          pre_subject: "feat(local-api)[minor]: pre-migration feature"
+          migration_subject: "chore: migrate working specs"
+          post_subject: "fix(local-api)[patch]: post-migration fix"
+          state: "status: 1\nsurfaces: [{name: local-api, label: Local API, frozen: 0.1.0, state: ahead}]\n"
+        generate_floor: true
+        generated_to: "0.1.1"
+        files: {generated/local-0.1.1.json: "frozen spec\n"}
+      expected:
+        <<: *initial-output
+        title: "release(local-api)[minor]: v0.2.0, Local API 0.1.1"
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- pre-migration feature\n- post-migration fix\n"
+        paths: "CHANGELOG.md\ngenerated/local-0.1.1.json\npackage.json"
+      classification: must-pass
+      provenance: &migration_p {source: requirement, ref: "real freeze-plan handoff and release commit keep distinct ranges"}
+      mutation: &migration_m {description: "Change or remove the migration boundary carried by the generated plan."}
+    - name: migration-freeze-floor-removed-refused
+      input: {scenario: migration-floor, migration: *migration_history, generate_floor: true, generated_to: "0.1.1", plan_floor_action: omit, files: {generated/local-0.1.1.json: "frozen spec\n"}}
+      expected: {exit: 1, error: "does not match"}
+      classification: must-fail
+      sibling: migration-freeze-floor-keeps-release-range
+      provenance: *migration_p
+      mutation: *migration_m
+    - name: migration-freeze-floor-altered-refused
+      input: {scenario: migration-floor, migration: *migration_history, generate_floor: true, generated_to: "0.1.1", plan_floor_action: base, files: {generated/local-0.1.1.json: "frozen spec\n"}}
+      expected: {exit: 1, error: "does not match"}
+      classification: must-fail
+      sibling: migration-freeze-floor-keeps-release-range
+      provenance: *migration_p
+      mutation: *migration_m
+    - name: migration-freeze-floor-off-chain-refused
+      input: {scenario: migration-floor, migration: *migration_history, generate_floor: true, generated_to: "0.1.1", plan_floor_action: missing, files: {generated/local-0.1.1.json: "frozen spec\n"}}
+      expected: {exit: 2, error: "floor-not-on-chain", code: floor-not-on-chain, details: ['freeze floor "not-on-chain"']}
+      classification: must-fail
+      sibling: migration-freeze-floor-keeps-release-range
+      provenance: *migration_p
+      mutation: *migration_m
+    - name: migration-no-freeze-floor-uses-full-range
+      input: {scenario: migration-floor, migration: *migration_history, generated_to: "0.2.0", files: {generated/local-0.2.0.json: "frozen spec\n"}}
+      expected:
+        <<: *initial-output
+        title: "release(local-api)[minor]: v0.2.0, Local API 0.2.0"
+        changelog: "# changelog\n\n## [v0.2.0] - $DATE\n\n- pre-migration feature\n- post-migration fix\n"
+        paths: "CHANGELOG.md\ngenerated/local-0.2.0.json\npackage.json"
+      classification: must-pass
+      provenance: *migration_p
+      mutation: *migration_m
+    - name: migration-release-floor-still-bounds-content
+      input: {scenario: migration-floor, migration: *migration_history, generate_floor: true, release_floor: true, generated_to: "0.1.1", files: {generated/local-0.1.1.json: "frozen spec\n"}}
+      expected:
+        <<: *initial-output
+        version: "0.1.1"
+        title: "release(local-api)[patch]: v0.1.1, Local API 0.1.1"
+        changelog: "# changelog\n\n## [v0.1.1] - $DATE\n\n- post-migration fix\n"
+        version_file: "{\"version\":\"0.1.1\"}\n"
+        paths: "CHANGELOG.md\ngenerated/local-0.1.1.json\npackage.json"
+      classification: must-pass
+      provenance: *migration_p
+      mutation: {description: "Set the separate recovery floor at migration; release content must use only the later patch."}
     - name: freeze-output-without-plan
       input: {scenario: freeze-outputs, files: *freeze_files}
       expected: {exit: 1, error: "unexpected path"}

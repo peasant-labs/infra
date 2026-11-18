@@ -3,6 +3,7 @@ package intent_test
 import (
 	_ "embed"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
@@ -37,7 +38,8 @@ type contractInput struct {
 }
 
 type contractExpected struct {
-	Code intent.ErrorCode `yaml:"code"`
+	Code          intent.ErrorCode `yaml:"code"`
+	ErrorContains string           `yaml:"error_contains"`
 }
 
 func TestCheckContract(t *testing.T) {
@@ -46,6 +48,9 @@ func TestCheckContract(t *testing.T) {
 			_, err := intent.CheckContract(c.Input.Config, c.Input.Current, c.Input.Report, c.Input.Title)
 			if c.Classification == testcase.MustFail {
 				requireSixParts(t, err, c.Expected.Code)
+				if c.Expected.ErrorContains != "" && !strings.Contains(err.Error(), c.Expected.ErrorContains) {
+					t.Fatalf("error %q does not contain %q", err, c.Expected.ErrorContains)
+				}
 			} else if err != nil {
 				t.Fatalf("unexpected rejection: %v", err)
 			}

@@ -663,16 +663,17 @@ type Commit struct {
 // the recovery floor, the job mode and verdict, and per-commit freshness for
 // the changelog-changing commits in range. The command layer fills Fresh by
 // comparing each candidate through Generate; Plan only reads the entry for
-// the commit it picks.
+// the commit it picks. FreezeFloor bounds RangeTitles only, not Plan.
 type Facts struct {
-	Branch  string            `yaml:"branch"`
-	Commits []Commit          `yaml:"commits"`
-	Tags    map[string]string `yaml:"tags"`
-	Epoch   string            `yaml:"epoch"`
-	Floor   string            `yaml:"floor"`
-	Mode    Mode              `yaml:"mode"`
-	Verdict Verdict           `yaml:"verdict"`
-	Fresh   map[string]bool   `yaml:"fresh"`
+	Branch      string            `yaml:"branch"`
+	Commits     []Commit          `yaml:"commits"`
+	Tags        map[string]string `yaml:"tags"`
+	Epoch       string            `yaml:"epoch"`
+	Floor       string            `yaml:"floor"`
+	FreezeFloor string            `yaml:"freeze_floor,omitempty"`
+	Mode        Mode              `yaml:"mode"`
+	Verdict     Verdict           `yaml:"verdict"`
+	Fresh       map[string]bool   `yaml:"fresh"`
 }
 
 // PendingSet is one set of releasing subjects with what it computes: the

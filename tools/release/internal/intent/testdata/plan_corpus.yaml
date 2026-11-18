@@ -15,6 +15,7 @@ required_names:
   - version-base-off-chain
   - epoch-missing
   - floor-not-on-chain
+  - release-plan-ignores-freeze-floor
   - floor-drops-subjects
   - floor-at-base-ignored
   - floor-drops-bad-subject
@@ -76,6 +77,37 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "planner: tag mode off gives none"}
     mutation: {description: "a pending batch with the job disarmed"}
+  - name: release-plan-ignores-freeze-floor
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      facts:
+        commits:
+          - {sha: "aaa", subject: "feat(x)[minor]: one (#11)", changes_changelog: false}
+          - {sha: "e00", subject: "chore: adopt the release config", changes_changelog: false}
+        tags: {"v0.1.0": "e00"}
+        epoch: "e00"
+        freeze_floor: "not-on-chain"
+        mode: "plan-only"
+        verdict: ""
+        fresh: {}
+    expected:
+      action: "none"
+      range_base: "v0.1.0"
+      version_base: "v0.1.0"
+      candidate_fresh: "unknown"
+      pending:
+        - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "one", pr: 11}
+      level: "minor"
+      version: "0.2.0"
+      tag: "v0.2.0"
+      full:
+        pending:
+          - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "one", pr: 11}
+        version: "0.2.0"
+        tag: "v0.2.0"
+    classification: must-pass
+    provenance: {source: requirement, ref: "freeze floor cannot bound or invalidate release planning"}
+    mutation: {description: "Make the release planner use the freeze-only floor."}
   - name: fresh-candidate-verify
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}

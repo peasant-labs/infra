@@ -3,6 +3,7 @@ package intent_test
 import (
 	_ "embed"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
@@ -24,6 +25,7 @@ type contractRangeExpected struct {
 	Subjects []string         `yaml:"subjects"`
 	Excluded []string         `yaml:"excluded"`
 	Code     intent.ErrorCode `yaml:"code"`
+	Error    string           `yaml:"error"`
 }
 
 func TestCheckContractRange(t *testing.T) {
@@ -35,6 +37,9 @@ func TestCheckContractRange(t *testing.T) {
 			}
 			if c.Classification == testcase.MustFail {
 				requireSixParts(t, err, c.Expected.Code)
+				if c.Expected.Error != "" && !strings.Contains(err.Error(), c.Expected.Error) {
+					t.Fatalf("error %q does not contain %q", err, c.Expected.Error)
+				}
 				return
 			}
 			if err != nil || base != c.Expected.Base || len(titles) != c.Expected.Titles {

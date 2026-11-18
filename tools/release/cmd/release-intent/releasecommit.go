@@ -174,10 +174,20 @@ func runReleaseCommit(flags flagValues) error {
 			}
 			states.Surfaces = append(states.Surfaces, intent.SurfaceState{Name: s.Name, Label: s.Label, Frozen: s.From, State: state})
 		}
-		computed, err := intent.PlanFreeze(cfg, states, decision.Full.Pending)
+		subjects := decision.Full.Pending
+		if plan.FreezeFloor != "" {
+			freezeFacts := facts
+			freezeFacts.FreezeFloor = plan.FreezeFloor
+			_, subjects, err = intent.RangeTitles(cfg, freezeFacts)
+			if err != nil {
+				return rejectAsMode(intent.CommandReleasePR, intent.FlagCommit, err)
+			}
+		}
+		computed, err := intent.PlanFreeze(cfg, states, subjects)
 		if err != nil {
 			return err
 		}
+		computed.FreezeFloor = plan.FreezeFloor
 		if !reflect.DeepEqual(plan, computed) {
 			return fmt.Errorf("release-pr --commit: freeze plan does not match the landed titles; regenerate it from the current source range")
 		}

@@ -75,8 +75,9 @@ type FreezeSurface struct {
 }
 
 type FreezePlan struct {
-	Plan     int             `yaml:"plan"`
-	Surfaces []FreezeSurface `yaml:"surfaces"`
+	Plan        int             `yaml:"plan"`
+	FreezeFloor string          `yaml:"freeze_floor,omitempty"`
+	Surfaces    []FreezeSurface `yaml:"surfaces"`
 }
 
 func safeLabel(s string) bool {
@@ -219,8 +220,9 @@ func CheckFrozenPrimaryOutputs(cfg Config, plan FreezePlan, dirty []string) erro
 // influence a release commit title.
 func ParseFreezePlan(data []byte, cfg Config) (FreezePlan, error) {
 	var raw struct {
-		Plan     *int `yaml:"plan"`
-		Surfaces *[]struct {
+		Plan        *int   `yaml:"plan"`
+		FreezeFloor string `yaml:"freeze_floor"`
+		Surfaces    *[]struct {
 			Name     *string      `yaml:"name"`
 			Label    *string      `yaml:"label"`
 			From     *SemVer      `yaml:"from"`
@@ -236,7 +238,7 @@ func ParseFreezePlan(data []byte, cfg Config) (FreezePlan, error) {
 	if raw.Plan == nil || *raw.Plan != FreezePlanSchemaVersion || raw.Surfaces == nil || len(cfg.Surfaces) == 0 {
 		return FreezePlan{}, documentError("FreezePlan", fmt.Errorf("missing fields, unsupported plan version, or no configured surfaces"))
 	}
-	out := FreezePlan{Plan: *raw.Plan, Surfaces: []FreezeSurface{}}
+	out := FreezePlan{Plan: *raw.Plan, FreezeFloor: raw.FreezeFloor, Surfaces: []FreezeSurface{}}
 	seen := map[string]bool{}
 	for _, s := range *raw.Surfaces {
 		if s.Name == nil || s.Label == nil || s.From == nil || s.To == nil || s.Level == nil || s.Breaking == nil || s.Freeze == nil || !safeLabel(*s.Label) || *s.From == "" || *s.To == "" {

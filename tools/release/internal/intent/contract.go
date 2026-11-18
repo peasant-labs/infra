@@ -185,7 +185,7 @@ func CheckContract(cfg Config, current SemVer, rep ContractReport, raw string) (
 		if s.Change == SurfaceChangeFunctional && !listed {
 			missing = append(missing, s.Name)
 		}
-		if listed && s.Change == SurfaceChangeNone && !s.AheadOnBase {
+		if listed && s.Change != SurfaceChangeFunctional && !s.AheadOnBase {
 			extra = append(extra, s.Name)
 		}
 	}
