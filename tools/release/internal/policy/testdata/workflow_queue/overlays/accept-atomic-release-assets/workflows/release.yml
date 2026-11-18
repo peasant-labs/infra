@@ -67,23 +67,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
-      - id: create
+      - name: Refuse an existing release for the tag
+        id: list
         if: steps.view.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
+        run: gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error("a release or draft already exists for this tag") else "no release for this tag" end'
+      - id: create
+        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TAG" --notes-file dist/notes.md --prerelease="$PRERELEASE"
-      - name: Upload assets
-        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
-        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567
-        with:
-          tag_name: ${{ github.ref_name }}
-          repository: ${{ github.repository }}
-          files: dist/*
-          fail_on_unmatched_files: true
-          overwrite_files: true
-          draft: true
-          prerelease: ${{ needs.build.outputs.prerelease }}
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TAG" --notes-file dist/notes.md --prerelease="$PRERELEASE" 'dist/*'
       - id: publish
         if: steps.create.outcome == 'success'
         env:

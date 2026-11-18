@@ -291,6 +291,11 @@ func (c *queueChecker) checkCredentialActions() {
 				action, ref, ok := usesAction(uses)
 				member, err := ParseAllowedAction(action)
 				if !ok || err != nil || !slices.Contains(actionsFor(cj.class), member) {
+					if isReleaseUploadAction(action) {
+						emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", a release-upload action, which is not an allowed action: release assets reach a Release only through one atomic gh command",
+							"replace the action, and any separate gh release create, with "+atomicReleaseCreateShape+", then publish with gh release edit --draft=false")
+						continue
+					}
 					emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", which is not an allowed action", allowed)
 					continue
 				}
@@ -299,11 +304,6 @@ func (c *queueChecker) checkCredentialActions() {
 				}
 				if why := actionInputFault(step, job, cj); why != "" {
 					emit(stepLabel(jobName, i, step)+" "+why, "pass "+uses+" only the inputs it may take there")
-				}
-				if member == ActionReleaseAssets {
-					if why := c.releaseAssetsFault(name, jobName, doc, job, step); why != "" {
-						emit(stepLabel(jobName, i, step)+" "+why, "download the build's release-dist into dist and gate the upload on the verified Release")
-					}
 				}
 			}
 		}
@@ -352,7 +352,7 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 		// run-id and github-token are judged below, where the message can say
 		// what each must be.
 		judgedBelow := action == ActionDownloadArtifact && (input == InputRunID || input == InputGitHubToken)
-		if action != ActionCreateAppToken && action != ActionReleaseAssets && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && !judgedBelow && strings.Contains(value, "${{") {
+		if action != ActionCreateAppToken && !(action == ActionCheckout && class == credentialJobComment && input == InputRef) && !judgedBelow && strings.Contains(value, "${{") {
 			return "passes input " + key + " from an expression; " + action.String() + " takes literal inputs there"
 		}
 	}
@@ -368,9 +368,6 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 		if target := mappingValue(with, InputArtifactPath.String()); target != nil && target.Value != reviewedCheckoutDir {
 			return "passes checkout path " + quote(target.Value) + "; a comment job may check out only into " + reviewedCheckoutDir
 		}
-	}
-	if action == ActionReleaseAssets {
-		return releaseAssetsInputFault(step, job)
 	}
 	if action == ActionDownloadArtifact {
 		path := mappingValue(with, InputArtifactPath.String())

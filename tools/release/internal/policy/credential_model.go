@@ -132,12 +132,10 @@ const (
 	ActionDownloadArtifact AllowedAction = "actions/download-artifact"
 	// ActionCreateAppToken mints the releaser App token.
 	ActionCreateAppToken AllowedAction = "actions/create-github-app-token"
-	// ActionReleaseAssets uploads prepared assets for the triggering tag.
-	ActionReleaseAssets AllowedAction = "softprops/action-gh-release"
 )
 
 // AllAllowedActions is the canonical closed set of allowed actions.
-var AllAllowedActions = []AllowedAction{ActionCheckout, ActionDownloadArtifact, ActionCreateAppToken, ActionReleaseAssets}
+var AllAllowedActions = []AllowedAction{ActionCheckout, ActionDownloadArtifact, ActionCreateAppToken}
 
 func (a AllowedAction) String() string { return string(a) }
 
@@ -200,22 +198,6 @@ const (
 	InputPermissionPullRequests ActionInput = "permission-pull-requests"
 	// InputPermissionIssues narrows the token's issues permission.
 	InputPermissionIssues ActionInput = "permission-issues"
-	// InputTagName names the triggering tag.
-	InputTagName ActionInput = "tag_name"
-	// InputFiles names the prepared release asset glob.
-	InputFiles ActionInput = "files"
-	// InputFailOnUnmatched prevents publishing an empty asset set.
-	InputFailOnUnmatched ActionInput = "fail_on_unmatched_files"
-	// InputOverwriteFiles permits recovery from a partial upload.
-	InputOverwriteFiles ActionInput = "overwrite_files"
-	// InputDraft keeps an immutable release unpublished while assets upload.
-	InputDraft ActionInput = "draft"
-	// InputPrerelease marks a prerelease.
-	InputPrerelease ActionInput = "prerelease"
-	// InputMakeLatest controls the latest release marker.
-	InputMakeLatest ActionInput = "make_latest"
-	// InputRepository names the current repository for the release action.
-	InputRepository ActionInput = "repository"
 )
 
 // AllActionInputs is the canonical closed set of action inputs.
@@ -236,14 +218,6 @@ var AllActionInputs = []ActionInput{
 	InputPermissionContents,
 	InputPermissionPullRequests,
 	InputPermissionIssues,
-	InputTagName,
-	InputFiles,
-	InputFailOnUnmatched,
-	InputOverwriteFiles,
-	InputDraft,
-	InputPrerelease,
-	InputMakeLatest,
-	InputRepository,
 }
 
 func (i ActionInput) String() string { return string(i) }
@@ -268,8 +242,6 @@ func inputsOf(action AllowedAction) []ActionInput {
 		return []ActionInput{InputArtifactName, InputArtifactPath}
 	case ActionCreateAppToken:
 		return []ActionInput{InputAppID, InputClientID, InputPrivateKey, InputOwner, InputRepositories, InputPermissionContents, InputPermissionPullRequests, InputPermissionIssues}
-	case ActionReleaseAssets:
-		return []ActionInput{InputTagName, InputFiles, InputFailOnUnmatched, InputOverwriteFiles, InputDraft, InputPrerelease, InputMakeLatest, InputRepository}
 	}
 	return nil
 }

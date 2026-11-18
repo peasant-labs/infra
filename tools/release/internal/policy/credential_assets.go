@@ -8,93 +8,245 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Release assets reach a Release through one command: gh release create
+// with --draft and the asset words, which creates the draft and uploads to
+// that same release. A separate creator and uploader find the release by tag
+// and can each create one, so the uploader can fill a release that is never
+// published while the publish step publishes an empty one.
+//
 // The release artifact is the handoff between the credential-free build and
-// the publish job. These names are fixed so the action cannot upload another
+// the publish job. These names are fixed so the create cannot upload another
 // artifact or a checkout's files.
 const (
 	releaseArtifactName = "release-dist"
 	releaseArtifactJob  = "build"
 	releaseArtifactDir  = "dist"
-	releaseAssetFiles   = "dist/*"
 )
+
+// atomicReleaseCreateShape is the one command that uploads release assets.
+const atomicReleaseCreateShape = `gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$TAG" --notes-file <file> --prerelease="$PRERELEASE" '` + releaseArtifactDir + `/*'`
+
+// retiredReleaseUploadActions are actions that upload release assets. They
+// find their release by listing releases, so beside a gh release create they
+// can create a second release for the tag; no release-upload action is
+// allowed in a job that may hold a credential.
+var retiredReleaseUploadActions = []string{"softprops/action-gh-release"}
+
+func isReleaseUploadAction(name string) bool {
+	return slices.Contains(retiredReleaseUploadActions, name)
+}
 
 var (
-	releaseAssetGate      = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'success'\s*\|\|\s*steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'success'$`)
-	draftReleaseAssetGate = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'failure'\s*&&\s*steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'success'$`)
-	stepOutcomeGate       = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'(success|failure)'$`)
-	releaseOutputCompare  = regexp.MustCompile(`^(needs|steps)\.(` + stepIDPattern + `)\.outputs\.([A-Za-z0-9_-]+)\s*==\s*'([^']*)'$`)
+	stepOutcomeGate      = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'(success|failure)'$`)
+	releaseOutputCompare = regexp.MustCompile(`^(needs|steps)\.(` + stepIDPattern + `)\.outputs\.([A-Za-z0-9_-]+)\s*==\s*'([^']*)'$`)
+	viewFailureAndCreate = regexp.MustCompile(`^steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'failure'\s*&&\s*steps\.(` + stepIDPattern + `)\.outcome\s*==\s*'success'$`)
+	// assetGlobWord is one literal directory glob: a relative directory and
+	// a final "/*". gh expands it itself and fails when it matches nothing.
+	assetGlobWord = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*/\*$`)
 )
 
-// assetGate binds the two referenced steps. The older success-or-success
-// shape permits either ordering; the draft shape always names view, then create.
-type assetGate struct {
-	first, second string
-	draft         bool
-}
-
-func parseReleaseAssetGate(condition string) (assetGate, bool) {
-	condition = trimOuterParens(stripIfExpression(condition))
-	if m := draftReleaseAssetGate.FindStringSubmatch(condition); m != nil && m[1] != m[2] {
-		return assetGate{first: m[1], second: m[2], draft: true}, true
-	}
-	if m := releaseAssetGate.FindStringSubmatch(condition); m != nil && m[1] != m[2] {
-		return assetGate{first: m[1], second: m[2]}, true
-	}
-	return assetGate{}, false
-}
-
-func releaseAssetsInputFault(action, job *yaml.Node) string {
-	with := mappingValue(action, "with")
-	if got := valueOf(mappingValue(with, InputFiles.String())); got != releaseAssetFiles {
-		return "passes files " + quote(got) + "; the release-assets action requires the literal " + releaseAssetFiles
-	}
-	for _, input := range []ActionInput{InputFailOnUnmatched, InputOverwriteFiles} {
-		if got := valueOf(mappingValue(with, input.String())); got != "true" {
-			return "passes " + input.String() + ": " + quote(got) + "; it must be true"
+// releaseAssetWordsFault checks the asset words after the tag of a gh release
+// create: exactly one literal directory glob, or literal relative file paths.
+// The shell never sees a glob, because a glob outside quotes is refused by the
+// command reader; gh expands the quoted word itself.
+func releaseAssetWordsFault(assets []templateWord) string {
+	for _, w := range assets {
+		lit, ok := w.literal()
+		if !ok {
+			return "the asset " + quote(w.raw) + " expands; name the assets as one quoted '<dir>/*' or as literal file paths"
 		}
-	}
-	if got := soleExpression(valueOf(mappingValue(with, InputTagName.String()))); got != triggeringRefName {
-		return "tag_name must be the triggering tag from github.ref_name"
-	}
-	if got := soleExpression(valueOf(mappingValue(with, InputRepository.String()))); got != "github.repository" {
-		return "repository must be the current github.repository"
-	}
-	needs, _ := needsList(job)
-	gate, isGate := parseReleaseAssetGate(stepIfText(action))
-	draft := mappingValue(with, InputDraft.String())
-	if isGate {
-		if gate.draft && !literalActionBoolean(draft, "true") {
-			return "draft must be literal true for the view.failure && create.success draft gate"
+		if strings.HasPrefix(lit, "-") {
+			return "the asset " + quote(w.raw) + " starts with '-'"
 		}
-		if !gate.draft && draft != nil && !literalActionBoolean(draft, "false") {
-			return "draft must be absent or literal false for the view.success || create.success published gate"
-		}
-	}
-	for _, input := range []ActionInput{InputPrerelease, InputMakeLatest} {
-		node := mappingValue(with, input.String())
-		if input == InputMakeLatest && node == nil && isGate && gate.draft {
+		if strings.Contains(lit, "*") {
+			if len(assets) != 1 || !assetGlobWord.MatchString(lit) || slices.Contains(strings.Split(lit, "/"), "..") {
+				return "the asset glob " + quote(w.raw) + " is not the one asset word, as a literal '<dir>/*'"
+			}
 			continue
 		}
-		expr := soleExpression(valueOf(node))
-		m := outputRead.FindStringSubmatch(expr)
-		if m == nil || m[1] != "needs" || !slices.Contains(needs, m[2]) {
-			return input.String() + " must read one output of a job in needs; make_latest may be omitted only for the view.failure && create.success draft gate"
+		if why := checkPath(w); why != "" {
+			return "the asset " + quote(w.raw) + " is not a literal relative path or one quoted '<dir>/*'"
 		}
 	}
 	return ""
 }
 
-// Action inputs are strings at runtime. Accept either a YAML boolean or the
-// equivalent literal string, but never an expression, alias, or collection.
-func literalActionBoolean(node *yaml.Node, value string) bool {
-	return node != nil && node.Kind == yaml.ScalarNode &&
-		(node.Tag == "!!bool" || node.Tag == "!!str") && node.Value == value
+func draftFlagTrue(f parsedFlags) bool {
+	draft, present := f.flags[ghFlagDraft]
+	lit, literal := draft.literal()
+	return present && literal && (lit == ghFlagDraft || lit == ghFlagDraft+"=true")
 }
 
-func (c *queueChecker) releaseAssetsFault(file, jobName string, doc, job, action *yaml.Node) string {
-	if hasContinueOnError(job) || hasContinueOnError(action) {
-		return "sets continue-on-error on the publish job or assets action, which could hide an incomplete upload"
+// releaseStep is one release template step of a job, read once.
+type releaseStep struct {
+	index int
+	node  *yaml.Node
+	tmpl  CredentialTemplate
+	env   map[string]string
+	flags parsedFlags
+}
+
+func (c *queueChecker) releaseSteps(file, jobName string, doc, job *yaml.Node) []releaseStep {
+	var out []releaseStep
+	for i, step := range stepsOf(job) {
+		words, why := singleCommand(doc, job, step)
+		if why != "" {
+			continue
+		}
+		tmpl, ok := classifyTemplate(words)
+		if !ok || (tmpl != TemplateReleaseCreate && tmpl != TemplateReleaseEdit && tmpl != TemplateReleaseView && tmpl != TemplateReleaseList) {
+			continue
+		}
+		spec := releaseFlags()
+		if tmpl == TemplateReleaseCreate {
+			spec[ghFlagVerifyTag] = flagSwitch
+		}
+		if tmpl == TemplateReleaseView {
+			spec = flagSpec{"--repo": flagRepo, "-R": flagRepo, "--json": flagLiteral, "--jq": flagLiteral}
+		}
+		if tmpl == TemplateReleaseList {
+			spec = releaseListSpec()
+		}
+		env := effectiveEnv(doc, job, step)
+		reader := templateStep{class: c.creds[file][jobName].class, env: env, doc: doc, job: job}
+		flags, why := reader.parseFlags(words[3:], spec)
+		if why != "" {
+			continue
+		}
+		out = append(out, releaseStep{index: i, node: step, tmpl: tmpl, env: env, flags: flags})
 	}
+	return out
+}
+
+// checkReleaseAssets (release-assets-one-atomic-create) holds every
+// publish job whose gh release create names assets to the one atomic shape:
+// one creator, assets only from the build's release-dist, created as a draft
+// only when the unconditional view found no release, and one publish edit
+// gated on that create.
+func (c *queueChecker) checkReleaseAssets() {
+	c.eachDoc(QueueRuleReleaseAssets, func(name string, doc *yaml.Node) {
+		for _, jobName := range jobNames(doc) {
+			if c.creds[name][jobName].class != credentialJobPublish {
+				continue
+			}
+			job := jobNode(doc, jobName)
+			steps := c.releaseSteps(name, jobName, doc, job)
+			var create *releaseStep
+			for i := range steps {
+				if steps[i].tmpl == TemplateReleaseCreate && len(steps[i].flags.positional) > 1 {
+					create = &steps[i]
+					break
+				}
+			}
+			// A create without assets uploads nothing, so it cannot fill one
+			// release while another is published; the upload-action ban in
+			// credential-jobs-use-pinned-actions covers the other uploader.
+			if create == nil {
+				continue
+			}
+			if why := c.atomicReleaseFault(name, jobName, doc, job, steps, *create); why != "" {
+				c.emit(QueueRuleReleaseAssets, name, jobName, violation(
+					stepLabel(jobName, create.index, create.node)+" "+why,
+					"release assets reach a Release only through one atomic gh release create --draft; a second creator or uploader finds the release by tag and can fill a release that is never published",
+					rejected,
+					"run "+atomicReleaseCreateShape+" gated on steps.<view>.outcome == 'failure', after an unconditional gh release view with continue-on-error: true, then one gh release edit --draft=false gated on steps.<create>.outcome == 'success'"))
+			}
+		}
+	})
+}
+
+func (c *queueChecker) atomicReleaseFault(file, jobName string, doc, job *yaml.Node, steps []releaseStep, create releaseStep) string {
+	for _, step := range stepsOf(job) {
+		if name, _, ok := usesAction(stepUsesText(step)); ok && isReleaseUploadAction(name) {
+			return "shares the job with the release-upload action " + name + ", so two tools would write the Release"
+		}
+	}
+	for _, s := range steps {
+		if s.tmpl == TemplateReleaseCreate && s.node != create.node {
+			return "is not the only gh release create in the job"
+		}
+	}
+	for _, asset := range create.flags.positional[1:] {
+		lit, _ := asset.literal()
+		if !strings.HasPrefix(lit, releaseArtifactDir+"/") {
+			return "uploads " + quote(asset.raw) + ", which is outside the " + releaseArtifactDir + " directory the build's " + releaseArtifactName + " is downloaded into"
+		}
+	}
+	if why := c.releaseDistFault(file, doc, job, create.node); why != "" {
+		return why
+	}
+	if hasContinueOnError(create.node) {
+		return "sets continue-on-error, which could hide a failed upload"
+	}
+	if !namesCurrentReleaseRepository(create.flags, create.env) {
+		return "must name the current repository with exactly one --repo or -R flag"
+	}
+	condition := trimOuterParens(stripIfExpression(stepIfText(create.node)))
+	m := viewFailureAndCreate.FindStringSubmatch(condition)
+	if m == nil || m[1] == m[2] {
+		return "must run only on steps.<view>.outcome == 'failure' && steps.<list>.outcome == 'success', so it never runs beside an existing release or a leftover draft"
+	}
+	viewID, listID := m[1], m[2]
+	var view *releaseStep
+	for i := range steps {
+		if stepID(steps[i].node) == viewID && steps[i].index < create.index {
+			view = &steps[i]
+		}
+	}
+	if view == nil || view.tmpl != TemplateReleaseView || !c.receivesCredential(file, jobName, view.node) {
+		return "is gated on " + quote(viewID) + ", which is not an earlier gh release view of the triggering tag"
+	}
+	if mappingValue(view.node, "if") != nil || valueOf(mappingValue(view.node, "continue-on-error")) != "true" {
+		return "requires the release-view step to run unconditionally with continue-on-error: true"
+	}
+	if !namesCurrentReleaseRepository(view.flags, view.env) {
+		return "requires the release-view step to name the current repository with exactly one --repo or -R flag"
+	}
+	if why := c.releaseListFault(file, jobName, steps, *view, create, listID); why != "" {
+		return why
+	}
+	source, outputs, why := releaseKindSource(doc, job, create)
+	if why != "" {
+		return why
+	}
+	return c.publishEditFault(file, jobName, doc, job, steps, create, viewID, source, outputs)
+}
+
+// releaseListFault requires the one release-list check that refuses a
+// create when any release or draft already names the tag: a failed view may
+// be a rate limit or an outage rather than an absent release, and GitHub
+// keeps several drafts for one tag.
+func (c *queueChecker) releaseListFault(file, jobName string, steps []releaseStep, view, create releaseStep, listID string) string {
+	var list *releaseStep
+	for i := range steps {
+		if steps[i].tmpl != TemplateReleaseList {
+			continue
+		}
+		if list != nil {
+			return "requires exactly one gh release list check in the job"
+		}
+		list = &steps[i]
+	}
+	if list == nil || stepID(list.node) != listID {
+		return "is gated on " + quote(listID) + ", which is not the job's gh release list check; run " + releaseListShape + " between the view and the create"
+	}
+	if list.index < view.index || list.index > create.index {
+		return "requires the gh release list check after the view and before the create"
+	}
+	if !matchesStepOutcome(stepIfText(list.node), view.id(), "failure") {
+		return "requires the gh release list check to run only on steps." + view.id() + ".outcome == 'failure'"
+	}
+	if hasContinueOnError(list.node) || !c.receivesCredential(file, jobName, list.node) {
+		return "requires the gh release list check to receive the credential and not set continue-on-error, so a failed list stops the create"
+	}
+	return ""
+}
+
+func (s releaseStep) id() string { return stepID(s.node) }
+
+// releaseDistFault requires the build's release-dist, and nothing else, to
+// be downloaded into dist before the create, with no checkout after it.
+func (c *queueChecker) releaseDistFault(file string, doc, job, create *yaml.Node) string {
 	needs, _ := needsList(job)
 	build := jobNode(doc, releaseArtifactJob)
 	if !slices.Contains(needs, releaseArtifactJob) || build == nil || publishes(doc, build) ||
@@ -125,98 +277,100 @@ func (c *queueChecker) releaseAssetsFault(file, jobName string, doc, job, action
 	if uploads != 1 {
 		return "requires exactly one release-dist upload from build"
 	}
-	beforeAction, downloads, foundDownload := true, 0, false
-	preceding := map[string]*yaml.Node{}
-	positions := map[string]int{}
-	for index, step := range stepsOf(job) {
-		if step == action {
-			beforeAction = false
+	beforeCreate, downloads, foundDownload := true, 0, false
+	for _, step := range stepsOf(job) {
+		if step == create {
+			beforeCreate = false
 		}
 		if isAction(stepUsesText(step), ActionDownloadArtifact) {
 			downloads++
 			with := mappingValue(step, "with")
-			if beforeAction && valueOf(mappingValue(with, InputArtifactName.String())) == releaseArtifactName &&
+			if beforeCreate && valueOf(mappingValue(with, InputArtifactName.String())) == releaseArtifactName &&
 				valueOf(mappingValue(with, InputArtifactPath.String())) == releaseArtifactDir &&
 				mappingValue(step, "if") == nil && !hasContinueOnError(step) {
 				foundDownload = true
 			}
 		}
-		if beforeAction && stepID(step) != "" {
-			preceding[stepID(step)] = step
-			positions[stepID(step)] = index
-		}
-		if beforeAction && foundDownload && isAction(stepUsesText(step), ActionCheckout) {
+		if beforeCreate && foundDownload && isAction(stepUsesText(step), ActionCheckout) {
 			return "checks out the repository after downloading release-dist into dist"
 		}
 	}
 	if downloads != 1 || !foundDownload {
-		return "must unconditionally download only release-dist into dist before uploading"
+		return "must unconditionally download only release-dist into dist before the create"
 	}
-	gate, ok := parseReleaseAssetGate(stepIfText(action))
-	if !ok {
-		return "must gate the action on view.success || create.success or view.failure && create.success, using earlier release-view and release-create steps"
+	return ""
+}
+
+// releaseKindSource finds the needed job whose prerelease output the create
+// reads, directly or through the comparison that job declares.
+func releaseKindSource(doc, job *yaml.Node, create releaseStep) (string, *yaml.Node, string) {
+	const fault = "the create --prerelease must read a needed job's prerelease output"
+	word, present := create.flags.flags["--prerelease"]
+	if !present || len(word.parts) != 2 || word.parts[1].kind != partParam {
+		return "", nil, fault
 	}
-	if gate.draft && preceding[gate.first] != nil && preceding[gate.second] != nil && positions[gate.first] >= positions[gate.second] {
-		return "requires the release-view step before the draft create step"
+	expr := soleExpression(create.env[word.parts[1].text])
+	m := outputRead.FindStringSubmatch(expr)
+	if m == nil {
+		m = releaseOutputCompare.FindStringSubmatch(expr)
 	}
-	cj := c.creds[file][jobName]
-	foundView, foundCreate := false, false
-	for i, id := range []string{gate.first, gate.second} {
-		step := preceding[id]
-		if step == nil || !c.receivesCredential(file, jobName, step) {
-			return "gates on a missing or non-credential release step"
+	needs, _ := needsList(job)
+	if m == nil || m[1] != "needs" || !slices.Contains(needs, m[2]) {
+		return "", nil, fault
+	}
+	outputs := mappingValue(jobNode(doc, m[2]), "outputs")
+	if !publishFlagReadsOutput(word, "--prerelease", create.env, m[2], "prerelease", outputs) {
+		return "", nil, fault
+	}
+	return m[2], outputs, ""
+}
+
+// publishEditFault binds the one publish to the create and leaves the default
+// success() guard intact, so a failed create or upload cannot publish.
+func (c *queueChecker) publishEditFault(file, jobName string, doc, job *yaml.Node, steps []releaseStep, create releaseStep, viewID, source string, outputs *yaml.Node) string {
+	createID := stepID(create.node)
+	edits := 0
+	for _, s := range steps {
+		if s.tmpl != TemplateReleaseEdit {
+			continue
 		}
-		words, why := singleCommand(doc, job, step)
-		if why != "" {
-			return "gates on a step that is not one release template"
+		edits++
+		if s.index < create.index {
+			return "requires the publish edit after the create"
 		}
-		env := effectiveEnv(doc, job, step)
-		reader := templateStep{class: cj.class, env: env, doc: doc, job: job}
-		tmpl, why := matchTemplate(words, reader)
-		if why != "" {
-			return "gates on an invalid release template: " + why
+		condition := trimOuterParens(stripIfExpression(stepIfText(s.node)))
+		dual := viewFailureAndCreate.FindStringSubmatch(condition)
+		if createID == "" || (!matchesStepOutcome(stepIfText(s.node), createID, "success") &&
+			(dual == nil || dual[1] != viewID || dual[2] != createID)) {
+			return "the publish edit must be gated on create.success, optionally with view.failure, without a status function"
 		}
-		spec := releaseFlags()
-		spec[ghFlagVerifyTag] = flagSwitch
-		flags, why := reader.parseFlags(words[3:], spec)
-		if why != "" {
-			return "gates on an invalid release command: " + why
+		if hasContinueOnError(s.node) || !c.receivesCredential(file, jobName, s.node) {
+			return "the publish edit must receive the credential and must not set continue-on-error"
 		}
-		if !namesCurrentReleaseRepository(flags, env) {
-			return "gates on a release command that does not name the current repository"
+		if !namesCurrentReleaseRepository(s.flags, s.env) {
+			return "the publish edit must name the current repository with exactly one --repo or -R flag"
 		}
-		if gate.draft {
-			if (i == 0 && tmpl != TemplateReleaseView) || (i == 1 && tmpl != TemplateReleaseCreate) {
-				return "must gate the draft action on view.failure && create.success, in that order"
+		draft, present := s.flags.flags[ghFlagDraft]
+		lit, literal := draft.literal()
+		if !present || !literal || lit != ghFlagDraft+"=false" {
+			return "the publish edit must pass --draft=false"
+		}
+		for _, name := range []string{"prerelease", "latest"} {
+			flag := "--" + name
+			word, present := s.flags.flags[flag]
+			if !present || !publishFlagReadsOutput(word, flag, s.env, source, name, outputs) {
+				return "the publish edit " + flag + " must read the needed release-kind job's " + name + " output"
 			}
-			if i == 0 && (mappingValue(step, "if") != nil || valueOf(mappingValue(step, "continue-on-error")) != "true") {
-				return "requires the release-view step to run unconditionally with continue-on-error: true"
-			}
-			if i == 1 {
-				draft, present := flags.flags[ghFlagDraft]
-				lit, literal := draft.literal()
-				if !present || !literal || (lit != ghFlagDraft && lit != ghFlagDraft+"=true") {
-					return "requires the release-create step to create a draft with --draft or --draft=true"
-				}
-				if !matchesStepOutcome(stepIfText(step), gate.first, "failure") || hasContinueOnError(step) {
-					return "the draft create step must run only on view.failure and must not set continue-on-error"
-				}
-			}
 		}
-		foundView = foundView || tmpl == TemplateReleaseView
-		foundCreate = foundCreate || tmpl == TemplateReleaseCreate
 	}
-	if !foundView || !foundCreate {
-		return "must gate on one release-view and one release-create --verify-tag step"
-	}
-	if gate.draft {
-		return c.draftPublishFault(file, jobName, doc, job, action, gate)
+	if edits != 1 {
+		return "requires exactly one publish edit after the create"
 	}
 	return ""
 }
 
 // namesCurrentReleaseRepository requires exactly one repo flag and the
-// runner's unmodified repository value, for an asset gate or release-state view.
+// runner's unmodified repository value, for a release command or view.
 func namesCurrentReleaseRepository(flags parsedFlags, env map[string]string) bool {
 	repo, long := flags.flags["--repo"]
 	shortRepo, short := flags.flags["-R"]
@@ -231,81 +385,6 @@ func matchesStepOutcome(condition, id, outcome string) bool {
 	condition = trimOuterParens(stripIfExpression(condition))
 	m := stepOutcomeGate.FindStringSubmatch(condition)
 	return m != nil && m[1] == id && m[2] == outcome
-}
-
-// draftPublishFault binds the final write to the same successful creation and
-// leaves the default success() guard intact, so a failed upload cannot publish.
-func (c *queueChecker) draftPublishFault(file, jobName string, doc, job, action *yaml.Node, gate assetGate) string {
-	prerelease := soleExpression(valueOf(mappingValue(mappingValue(action, "with"), InputPrerelease.String())))
-	source := outputRead.FindStringSubmatch(prerelease)
-	if source == nil || source[1] != "needs" || source[3] != "prerelease" {
-		return "the draft action prerelease must read a needed job's prerelease output"
-	}
-	producer := jobNode(doc, source[2])
-	outputs := mappingValue(producer, "outputs")
-	if soleExpression(valueOf(mappingValue(outputs, "prerelease"))) == "" {
-		return "the draft action prerelease output must be declared by the needed job"
-	}
-	afterAction, edits := false, 0
-	for _, step := range stepsOf(job) {
-		if step == action {
-			afterAction = true
-			continue
-		}
-		if isAction(stepUsesText(step), ActionReleaseAssets) {
-			return "requires the draft assets action to be the only release-assets action"
-		}
-		tmpl, ok := stepTemplate(step)
-		if !ok {
-			continue
-		}
-		if tmpl == TemplateReleaseCreate && stepID(step) != gate.second {
-			return "requires the gated draft create to be the only release-create step"
-		}
-		if tmpl != TemplateReleaseEdit {
-			continue
-		}
-		edits++
-		if !afterAction {
-			return "requires the publish edit after the assets action"
-		}
-		condition, dual := parseReleaseAssetGate(stepIfText(step))
-		if !matchesStepOutcome(stepIfText(step), gate.second, "success") &&
-			(!dual || !condition.draft || condition.first != gate.first || condition.second != gate.second) {
-			return "the publish edit must be gated on create.success, optionally with view.failure, without a status function"
-		}
-		if hasContinueOnError(step) || !c.receivesCredential(file, jobName, step) {
-			return "the publish edit must receive the credential and must not set continue-on-error"
-		}
-		words, why := singleCommand(doc, job, step)
-		if why != "" {
-			return "the publish edit must run one release-edit template"
-		}
-		reader := templateStep{class: c.creds[file][jobName].class, env: effectiveEnv(doc, job, step), doc: doc, job: job}
-		if got, why := matchTemplate(words, reader); why != "" || got != TemplateReleaseEdit {
-			return "the publish edit must run a valid release-edit template for the triggering tag"
-		}
-		flags, _ := reader.parseFlags(words[3:], releaseFlags())
-		if !namesCurrentReleaseRepository(flags, reader.env) {
-			return "the publish edit must name the current repository with exactly one --repo or -R flag"
-		}
-		draft, present := flags.flags[ghFlagDraft]
-		lit, literal := draft.literal()
-		if !present || !literal || lit != ghFlagDraft+"=false" {
-			return "the publish edit must pass --draft=false"
-		}
-		for _, name := range []string{"prerelease", "latest"} {
-			flag := "--" + name
-			word, present := flags.flags[flag]
-			if !present || !publishFlagReadsOutput(word, flag, reader.env, source[2], name, outputs) {
-				return "the publish edit " + flag + " must read the needed release-kind job's " + name + " output"
-			}
-		}
-	}
-	if edits != 1 {
-		return "requires exactly one publish edit after the assets action"
-	}
-	return ""
 }
 
 // publishFlagReadsOutput accepts the named output directly, or a comparison

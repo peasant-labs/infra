@@ -86,6 +86,11 @@ const (
 	// environment of template env names only, and a handoff from the jobs it
 	// needs through job outputs and artifacts alone.
 	QueueRuleCredentialJobShape QueueRule = "credential-jobs-run-no-general-steps"
+	// QueueRuleReleaseAssets holds a publish job that uploads release assets
+	// to one atomic gh release create --draft with the build's release-dist,
+	// gated on an unconditional view, and one publish edit gated on that
+	// create. No other step creates the release or uploads to it.
+	QueueRuleReleaseAssets QueueRule = "release-assets-one-atomic-create"
 	// QueueRuleTagVerified requires every job of a tag-triggered workflow
 	// that can publish (contents or id-token write) to need a job without a
 	// credential that runs release-intent verify-tag on the triggering tag
@@ -150,6 +155,7 @@ var AllQueueRules = []QueueRule{
 	QueueRuleCredentialActions,
 	QueueRuleCredentialTemplates,
 	QueueRuleCredentialJobShape,
+	QueueRuleReleaseAssets,
 	QueueRuleTagVerified,
 	QueueRuleReleaseTagBoundary,
 	QueueRuleTokenMint,
