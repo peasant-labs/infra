@@ -91,6 +91,9 @@ The release-tool SHA appears in five checkouts across `release-batch.yml`,
 
 ### Recovery
 
+`unstring/v0.1.0` is published as the first plugin release. These recovery
+rules apply to subsequent releases.
+
 - Only the `peasant-labs-releaser` App (Integration 3988034) can bypass the
   `Protect release tags` ruleset to create release tags. Human tag pushes are
   refused; do not change the ruleset to work around a failed batch.
