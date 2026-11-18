@@ -19,6 +19,8 @@ permissions:
 
 jobs:
   determine-runner:
+    permissions:
+      contents: read
     uses: ./.github/workflows/runner-router.yml
     with:
       fallback: '["ubuntu-24.04"]'
@@ -26,6 +28,8 @@ jobs:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   release-tool:
+    permissions:
+      contents: read
     name: release-tool
     needs: determine-runner
     runs-on: ${{ fromJson(needs.determine-runner.outputs.runner) }}
@@ -36,6 +40,8 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0

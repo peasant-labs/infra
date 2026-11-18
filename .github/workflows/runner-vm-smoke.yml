@@ -17,6 +17,8 @@ permissions:
 
 jobs:
   smoke:
+    permissions:
+      contents: read
     # The scale set's labels; the dispatcher boots exactly one VM for this job.
     runs-on: [self-hosted, linux, x64, microvm]
     # Boot plus probes takes seconds; a hung VM must fail fast. This bounds
