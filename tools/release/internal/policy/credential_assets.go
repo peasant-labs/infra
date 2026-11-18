@@ -216,7 +216,7 @@ func (c *queueChecker) releaseAssetsFault(file, jobName string, doc, job, action
 }
 
 // namesCurrentReleaseRepository requires exactly one repo flag and the
-// runner's unmodified repository value, for every release in an asset gate.
+// runner's unmodified repository value, for an asset gate or release-state view.
 func namesCurrentReleaseRepository(flags parsedFlags, env map[string]string) bool {
 	repo, long := flags.flags["--repo"]
 	shortRepo, short := flags.flags["-R"]

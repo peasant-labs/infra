@@ -63,6 +63,7 @@ required_names:
   - reject-published-assets-draft-wrong-type
   - reject-checkout-draft-input
   - accept-schema-draft-release-assets
+  - accept-schema-release-view-completeness
   - accept-draft-release-assets-explicit-true
   - accept-draft-release-assets-publish-dual-gate
   - accept-draft-release-assets-optional-latest
@@ -512,6 +513,17 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "draft publish guard outputs" }
     mutation: { description: "Publish with direct reads of the guard's prerelease and latest outputs." }
+  - name: accept-schema-release-view-completeness
+    input:
+      overlay: accept-schema-draft-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: '      - name: Create the draft release'
+          new: "      - name: Inspect existing release\n        if: steps.view.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --json isDraft,assets --jq 'if (.isDraft | type) != \"boolean\" or (.assets | type) != \"array\" or .isDraft or (.assets | length == 0) then error(\"release is incomplete; tags are immutable, so fix forward with a new tag\") else \"existing release is published and has assets\" end'\n      - name: Create the draft release"
+    expected: { rule: credential-steps-run-one-template }
+    classification: must-pass
+    provenance: { source: requirement, ref: "read release completeness in a credential job" }
+    mutation: { description: "Permit a literal filter over release state in the mounted workflow." }
   - name: accept-unrelated-release-edit-without-repo
     input:
       overlay: accept-tag-publish

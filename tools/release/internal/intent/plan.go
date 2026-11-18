@@ -203,6 +203,17 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 		parsed = append(parsed, parsedCommit{commit: commit, title: title})
 	}
 
+	// A candidate cannot contain release content for a subject that landed
+	// after it, even if its own content comparison reported fresh.
+	if candidateIdx >= 0 {
+		for _, p := range parsed[:candidateIdx] {
+			if p.title.Level != LevelNone {
+				freshness = FreshnessStale
+				break
+			}
+		}
+	}
+
 	// accumulate reduces parsed commits to a pending set, its high level,
 	// whether it breaks, and the committer date of its newest commit. A
 	// repeated request for one release folds to the newest request, so two

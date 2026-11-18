@@ -184,14 +184,15 @@ func TestFreshness(t *testing.T) {
 				}
 				assertKeysAbsent(t, c.Name, result.Stdout, plainKeys(c.Expected.AbsentKeys))
 			case freshRejectedLaterMinor, freshLaterSubjectChecksFull:
-				r.Commit(titleCut, at(dateRelease))
-				// A later minor that touches no changelog file: the candidate
-				// stays fresh and the plan speaks for the before set, yet the
-				// release content must be the full set.
+				candidate := r.Commit(titleCut, at(dateRelease))
+				// A later minor stales the candidate even when it touches no
+				// changelog file; the rebuilt content uses the full set.
 				commitLater(r, titleLaterMinor)
 				plan := r.Run(argvPlan...)
-				if fresh := outputValues(t, c.Name, plan.Stdout)[intent.OutputCandidateFresh]; plan.Exit != exitAccepted || fresh != strconv.FormatBool(true) {
-					t.Fatalf("%s: candidate must stay fresh, got exit=%d stdout=%q", c.Name, plan.Exit, plan.Stdout)
+				output := outputValues(t, c.Name, plan.Stdout)
+				if plan.Exit != exitAccepted || output[intent.OutputCandidateFresh] != strconv.FormatBool(false) ||
+					output[intent.OutputAction] != intent.ActionOpenPR.String() || output[intent.OutputCandidate] != candidate {
+					t.Fatalf("%s: newer release must stale the candidate and rebuild, got exit=%d stdout=%q", c.Name, plan.Exit, plan.Stdout)
 				}
 				write := r.Run(argvWrite...)
 				assertRunLines(t, c.Name, write, c.Expected.Exit.Status, c.Expected.Lines)
