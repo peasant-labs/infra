@@ -362,7 +362,7 @@ operator step per repository; it does not replace any check above.
 | `pr-edit`, `pr-close` | `gh pr edit\|close [--title\|--body\|--comment <text>] [--] <own bot branch>` |
 | `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) [--] <own bot branch>`; in the release job only in the arm and hold steps |
 | `merge-queue-read` | `gh api graphql [-F name=literal]... -f query='<a mergeQueue query>' [> file]` |
-| `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`, and `create` passes `--verify-tag` |
+| `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`; `create` passes `--verify-tag`, and `create`/`edit` may pass `--draft[=<true\|false>]` |
 | `pr-comment` (`pull_request` comment job only) | `gh pr comment "$PR_NUMBER" [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] (--body-file\|-F) <file>` |
 | `run-reviewed-script` (comment job, both modes) | `node reviewed/<policy reviewed_script>` |
 
@@ -588,16 +588,54 @@ checker does not make the script, its dependencies or hostile evidence safe.
 **Prepared Release assets.** A tag-only publish job may use the pinned
 release-assets action with `tag_name: ${{ github.ref_name }}`,
 `repository: ${{ github.repository }}`, `files: dist/*`,
-`fail_on_unmatched_files: true` and `overwrite_files: true`. `prerelease` and
-`make_latest` read outputs of needed jobs. The job needs the credential-free
+`fail_on_unmatched_files: true` and `overwrite_files: true`. `prerelease` must
+read an output of a needed job. The job needs the credential-free
 `build` and tag verifier, and downloads the sole `release-dist` upload from
-`build`'s `dist` into `dist`. Earlier typed `release-view` and
-`release-create --verify-tag` steps for this repository gate the action on
-either step's success. The glob is action input data, not shell syntax.
+`build`'s `dist` into `dist`. The glob is action input data, not shell syntax.
 The publisher has one unconditional download; every upload-artifact name in
 the workflow is literal so a different job cannot alias `release-dist`.
 Neither the publish job nor the assets action may mask a failed upload with
 `continue-on-error`.
+
+The action gate has two supported shapes. Both refer to earlier credentialed
+`gh release view` and `gh release create --verify-tag` steps naming the current
+repository and triggering tag:
+
+- **Published-create flow:** `steps.<view>.outcome == 'success' ||
+  steps.<create>.outcome == 'success'`. The action's `make_latest` is required
+  and must read an output of a needed job; its `draft` input must be absent or
+  literal `false`. This existing flow may upload to an existing release, so it
+  is not appropriate for immutable releases.
+- **Immutable-release flow:** the unconditional view has
+  `continue-on-error: true`; the create runs only on `view.failure` and passes
+  `--verify-tag --draft` (or `--draft=true`). The action runs only on
+  `steps.<view>.outcome == 'failure' && steps.<create>.outcome == 'success'`
+  and must pass literal `draft: true` to keep the release draft during upload.
+  Omit `make_latest` from the action: a draft cannot be marked latest. The
+  checker also allows that input when it reads a needed job's output, but does
+  not guarantee GitHub will accept it. The action's `prerelease` must read the
+  `prerelease` output of a needed release-kind job. After the action, exactly
+  one `gh release edit` must name the triggering tag and exactly one of
+  `--repo "$GITHUB_REPOSITORY"` or `-R "$GITHUB_REPOSITORY"`, pass
+  `--draft=false`, and pass `--prerelease` and `--latest` as quoted environment
+  values. Those values must read that same needed job's declared `prerelease`
+  and `latest` outputs, respectively. They may instead compare another output
+  of that job when the comparison exactly matches how the job declares the
+  corresponding output; schema's release workflow uses this form with its
+  guard's `kind` output. The checker binds the values to the declared outputs;
+  it does not verify how the job computes them.
+
+  The publish edit is gated on `create.success` (or the same two-outcome gate)
+  without a status function. An upload failure skips publication. On a rerun
+  where the release already exists, create, upload and publish do nothing and
+  the job succeeds. A failed draft is a burned release: fix forward with a new
+  release, never retry or edit the old one.
+
+The checker validates the action inputs; it does not inspect an action's code.
+Before pinning a release-assets action for the immutable flow, verify that the
+exact pinned version can find the existing draft and honors `draft: true` to
+keep it draft through asset upload. Action versions differ in draft discovery
+and finalization.
 The build verifies `checksums.txt` before uploading it with the assets; this
 is a consumer workflow obligation, not a cryptographic signature. A compromised
 build can still provide malicious bytes: this split confines credentials, not

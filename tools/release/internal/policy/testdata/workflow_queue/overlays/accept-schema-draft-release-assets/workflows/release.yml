@@ -1,0 +1,142 @@
+# Sanitized schema release workflow: the real job graph and release boundary,
+# with credential-free build commands shortened and the infra pin normalized to
+# this corpus. This fixture is checked, not executed.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+permissions: {}
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    outputs:
+      kind: ${{ steps.parse.outputs.kind }}
+      prerelease: ${{ steps.parse.outputs.kind == 'rc' }}
+      latest: ${{ steps.parse.outputs.kind == 'final' }}
+    steps:
+      - id: parse
+        run: go run ./cmd/release-guard parse-tag "$TAG"
+  verify-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: peasant-labs/infra
+          ref: 71e687cef7eede9a63659be98ce9adac3c563398
+          path: infra-tool
+          sparse-checkout: tools/release
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+          cache: false
+      - name: Build release-intent
+        env:
+          GOWORK: "off"
+        run: go build -C infra-tool/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent
+      - name: Verify the tag
+        run: '"${RUNNER_TEMP}/release-intent" verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"'
+  nix-vendor-hash:
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: echo "verify vendor hash"
+  contract-gates:
+    needs: [guard, nix-vendor-hash]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: echo "verify contract"
+  build:
+    needs: [guard, nix-vendor-hash, contract-gates, verify-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare the generated contracts and release notes
+        run: echo "prepare dist"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+  release:
+    needs: [guard, nix-vendor-hash, contract-gates, verify-tag, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Download the release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-dist
+          path: dist
+      - name: Look for an existing release
+        id: view
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
+      - name: Create the draft release
+        id: create
+        if: steps.view.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$TAG" --notes-file dist/release-notes.md --prerelease="$PRERELEASE"
+      - name: Upload the release assets
+        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
+        uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe
+        with:
+          tag_name: ${{ github.ref_name }}
+          repository: ${{ github.repository }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          draft: true
+          prerelease: ${{ needs.guard.outputs.prerelease }}
+      - name: Publish the release
+        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}
+          LATEST: ${{ needs.guard.outputs.kind == 'final' }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE" --latest="$LATEST"
+  npm-publish:
+    needs: [guard, nix-vendor-hash, contract-gates, verify-tag]
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - run: echo "publish package"
