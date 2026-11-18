@@ -288,7 +288,9 @@ reports comparisons and switch cases that use a literal matching exactly one
 package-level constant of the receiver's named string type. Plain strings,
 interfaces, untyped values, types without constants, unmatched values and
 ambiguous values are silent. Package loading errors fail the check; the Go
-packages must build in the environment running the tool.
+packages and their test packages must build in the environment running the tool.
+An unexported constant in another package produces a finding without a
+replacement identifier: export the constant or move the comparison.
 
 These `go-typed-closed-set-literal` findings are not structural baseline
 entries and cannot be suppressed by baseline edits or markers. `init` and

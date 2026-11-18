@@ -192,7 +192,7 @@ func (p process) runCheck(args []string) int {
 				"fix the reported Go package errors and retry.")
 		}
 		for _, hit := range hits {
-			message := fmt.Sprintf("use %s.%s instead of '%s'", hit.Set, hit.Member, hit.Literal)
+			message := hit.Message()
 			out.Findings = append(out.Findings, ratchet.Finding{
 				Kind: ratchet.KindNewFile, Rule: hit.Hit.Rule, File: hit.Hit.File,
 				Line: hit.Hit.Line, Text: hit.Hit.Text, What: message,

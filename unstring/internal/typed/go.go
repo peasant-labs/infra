@@ -24,6 +24,60 @@ const GoClosedSetLiteral rules.RuleID = "go-typed-closed-set-literal"
 type Finding struct {
 	Hit                  rules.Hit
 	Set, Member, Literal string
+	Replacement          string
+	InaccessibleReason   string
+}
+
+// Message provides a legal replacement when one is available at the site.
+func (f Finding) Message() string {
+	if f.Replacement != "" {
+		return fmt.Sprintf("use %s instead of '%s'", f.Replacement, f.Literal)
+	}
+	return fmt.Sprintf("constant %s for '%s' is %s", f.Member, f.Literal, f.InaccessibleReason)
+}
+
+func replacement(pkg *packages.Package, file *ast.File, pos token.Pos, member *types.Const) (string, string) {
+	scope := pkg.TypesInfo.Scopes[file]
+	if scope != nil {
+		scope = scope.Innermost(pos)
+	}
+	if scope == nil {
+		scope = pkg.Types.Scope()
+	}
+	resolves := func(name string, want types.Object) bool {
+		_, found := scope.LookupParent(name, pos)
+		return found == want
+	}
+	if member.Pkg() == pkg.Types {
+		if resolves(member.Name(), member) {
+			return member.Name(), ""
+		}
+		return "", "shadowed at this site; rename the shadowing identifier or move the comparison"
+	}
+	if !member.Exported() {
+		return "", fmt.Sprintf("in package %s and not accessible here; export it or move the comparison", member.Pkg().Path())
+	}
+	for _, imp := range file.Imports {
+		var binding *types.PkgName
+		if imp.Name != nil {
+			binding, _ = pkg.TypesInfo.Defs[imp.Name].(*types.PkgName)
+		} else {
+			binding, _ = pkg.TypesInfo.Implicits[imp].(*types.PkgName)
+		}
+		if binding == nil || binding.Imported().Path() != member.Pkg().Path() {
+			continue
+		}
+		if binding.Name() == "." {
+			if resolves(member.Name(), member) {
+				return member.Name(), ""
+			}
+			return "", "shadowed at this site; rename the shadowing identifier or move the comparison"
+		}
+		if binding.Name() != "_" && resolves(binding.Name(), binding) {
+			return binding.Name() + "." + member.Name(), ""
+		}
+	}
+	return "", fmt.Sprintf("in package %s and not accessible here; import it under an unshadowed name or move the comparison", member.Pkg().Path())
 }
 
 // ScanGo loads each configured root and checks its Go packages, including tests.
@@ -32,7 +86,7 @@ func ScanGo(ctx context.Context, dir string, roots, env []string) ([]Finding, er
 	seen := map[string]bool{}
 	for _, root := range roots {
 		rootDir := filepath.Join(dir, filepath.FromSlash(root))
-		cfg := &packages.Config{Context: ctx, Dir: rootDir, Env: env, Tests: true, Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo}
+		cfg := &packages.Config{Context: ctx, Dir: rootDir, Env: env, Tests: true, Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedForTest | packages.NeedImports | packages.NeedDeps}
 		pkgs, err := packages.Load(cfg, "./...")
 		if err != nil {
 			return nil, fmt.Errorf("load Go packages under %s: %w", root, err)
@@ -47,7 +101,15 @@ func ScanGo(ctx context.Context, dir string, roots, env []string) ([]Finding, er
 			if pkg.TypesInfo == nil {
 				continue
 			}
+			var file *ast.File
 			check := func(receiver, literal ast.Expr) {
+				for {
+					paren, ok := literal.(*ast.ParenExpr)
+					if !ok {
+						break
+					}
+					literal = paren.X
+				}
 				lit, ok := literal.(*ast.BasicLit)
 				if !ok || lit.Kind != token.STRING {
 					return
@@ -73,7 +135,7 @@ func ScanGo(ctx context.Context, dir string, roots, env []string) ([]Finding, er
 					return
 				}
 				scope := obj.Pkg().Scope()
-				member := ""
+				var member *types.Const
 				count := 0
 				for _, name := range scope.Names() {
 					c, ok := scope.Lookup(name).(*types.Const)
@@ -81,7 +143,7 @@ func ScanGo(ctx context.Context, dir string, roots, env []string) ([]Finding, er
 						continue
 					}
 					count++
-					member = name
+					member = c
 				}
 				if count != 1 {
 					return
@@ -97,9 +159,14 @@ func ScanGo(ctx context.Context, dir string, roots, env []string) ([]Finding, er
 					return
 				}
 				seen[key] = true
-				result = append(result, Finding{Hit: rules.Hit{Rule: GoClosedSetLiteral, File: rel, Line: pos.Line, Text: lit.Value}, Set: obj.Name(), Member: member, Literal: value})
+				repl, reason := replacement(pkg, file, lit.Pos(), member)
+				result = append(result, Finding{Hit: rules.Hit{Rule: GoClosedSetLiteral, File: rel, Line: pos.Line, Text: lit.Value}, Set: obj.Name(), Member: member.Name(), Literal: value, Replacement: repl, InaccessibleReason: reason})
 			}
-			for _, file := range pkg.Syntax {
+			for _, file = range pkg.Syntax {
+				isTest := strings.HasSuffix(filepath.Base(pkg.Fset.Position(file.Pos()).Filename), "_test.go")
+				if isTest != (pkg.ForTest != "") {
+					continue
+				}
 				ast.Inspect(file, func(n ast.Node) bool {
 					switch n := n.(type) {
 					case *ast.BinaryExpr:

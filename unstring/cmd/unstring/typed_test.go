@@ -17,7 +17,10 @@ import (
 var typedCheckFixture []byte
 
 func TestTypedCheckIsOptInAndNotBaselined(t *testing.T) {
-	var f struct{ Module, Source, Config string }
+	var f struct {
+		Module, Source, Config, Exemption string
+		MarkedSource                      string `yaml:"markedSource"`
+	}
 	if err := yaml.Unmarshal(typedCheckFixture, &f); err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +51,8 @@ func TestTypedCheckIsOptInAndNotBaselined(t *testing.T) {
 		err := c.Run()
 		return output.String(), err
 	}
+	typedConfig := f.Config + "typed:\n  goClosedSetLiteral: true\n"
+	write(".unstring.yaml", typedConfig)
 	if out, err := run("init"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}
@@ -56,17 +61,35 @@ func TestTypedCheckIsOptInAndNotBaselined(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if bytes.Contains(before, []byte("go-typed-closed-set-literal")) {
+		t.Fatalf("init wrote a typed baseline entry: %s", before)
+	}
+	if out, err := run("update"); err != nil {
+		t.Fatalf("update: %v\n%s", err, out)
+	}
+	updated, err := os.ReadFile(baseline)
+	if err != nil || bytes.Contains(updated, []byte("go-typed-closed-set-literal")) {
+		t.Fatalf("update wrote a typed entry: %s (%v)", updated, err)
+	}
+	before = updated
+	write(".unstring.yaml", f.Config)
 	if out, err := run("check"); err != nil || strings.Contains(out, "go-typed-closed-set-literal") {
 		t.Fatalf("default check: %v\n%s", err, out)
 	}
-	write(".unstring.yaml", f.Config+"typed:\n  goClosedSetLiteral: true\n")
+	write(".unstring.yaml", typedConfig)
 	out, err := run("check")
-	if err == nil || !strings.Contains(out, "go-typed-closed-set-literal") || !strings.Contains(out, "use Role.User instead of 'user'") {
+	if err == nil || !strings.Contains(out, "go-typed-closed-set-literal") || !strings.Contains(out, "use User instead of 'user'") {
 		t.Fatalf("typed check: %v\n%s", err, out)
 	}
 	after, err := os.ReadFile(baseline)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("check changed baseline")
+	}
+	write("src/example.go", f.MarkedSource)
+	write(".unstring.yaml", typedConfig+f.Exemption)
+	out, err = run("check")
+	if err == nil || !strings.Contains(out, "go-typed-closed-set-literal  src/example.go:6  \"user\"") || !strings.Contains(out, "use User instead of 'user'") {
+		t.Fatalf("marker and exemption suppressed typed finding: %v\n%s", err, out)
 	}
 	// A fabricated typed rule entry is rejected, never used to suppress the hit.
 	write(".unstring-baseline.yaml", strings.Replace(string(before), "rules:\n", "rules:\n  go-typed-closed-set-literal:\n    src/example.go: 1\n", 1))
