@@ -72,18 +72,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TAG" --notes-file dist/notes.md --prerelease="$PRERELEASE"
-      - name: Upload assets
-        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
-        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567
-        with:
-          tag_name: ${{ github.ref_name }}
-          repository: ${{ github.repository }}
-          files: dist/*
-          fail_on_unmatched_files: true
-          overwrite_files: true
-          draft: true
-          prerelease: ${{ needs.build.outputs.prerelease }}
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TAG" --notes-file dist/notes.md --prerelease="$PRERELEASE" 'dist/*'
       - id: publish
         if: steps.create.outcome == 'success'
         env:

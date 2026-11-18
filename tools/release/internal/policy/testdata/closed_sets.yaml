@@ -43,6 +43,7 @@ sets:
       - credential-jobs-use-pinned-actions
       - credential-steps-run-one-template
       - credential-jobs-run-no-general-steps
+      - release-assets-one-atomic-create
       - tag-publish-verifies-the-tag
       - release-tag-checked-before-push
       - token-mint-ref-check
@@ -92,8 +93,7 @@ sets:
       - actions/checkout
       - actions/download-artifact
       - actions/create-github-app-token
-      - softprops/action-gh-release
-    refused: ["", "actions/github-script", "actions/setup-go", "actions/upload-artifact", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
+    refused: ["", "softprops/action-gh-release", "actions/github-script", "actions/setup-go", "actions/upload-artifact", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
 
   # The with: inputs those actions may take in such a job.
   - name: action-input
@@ -114,15 +114,7 @@ sets:
       - permission-contents
       - permission-pull-requests
       - permission-issues
-      - tag_name
-      - files
-      - fail_on_unmatched_files
-      - overwrite_files
-      - draft
-      - prerelease
-      - make_latest
-      - repository
-    refused: ["", "token", "artifact-ids", "merge-multiple", "github-api-url", "Path"]
+    refused: ["", "files", "draft", "make_latest", "token", "artifact-ids", "merge-multiple", "github-api-url", "Path"]
 
   # The env names a credential step may carry: three credential carriers and
   # the values the templates' typed parts read.

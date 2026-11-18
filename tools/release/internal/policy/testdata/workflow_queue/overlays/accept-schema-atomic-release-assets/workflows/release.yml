@@ -110,18 +110,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$TAG" --notes-file dist/release-notes.md --prerelease="$PRERELEASE"
-      - name: Upload the release assets
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$TAG" --notes-file dist/release-notes.md --prerelease="$PRERELEASE" 'dist/assets/*'
+      - name: Verify the draft before publishing
         if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
-        uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe
-        with:
-          tag_name: ${{ github.ref_name }}
-          repository: ${{ github.repository }}
-          files: dist/*
-          fail_on_unmatched_files: true
-          overwrite_files: true
-          draft: true
-          prerelease: ${{ needs.guard.outputs.prerelease }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets --jq 'if .isDraft != true or (.assets | length) == 0 then error("draft is incomplete") else "draft holds assets" end'
       - name: Publish the release
         if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
         env:
@@ -129,6 +123,11 @@ jobs:
           PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}
           LATEST: ${{ needs.guard.outputs.kind == 'final' }}
         run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE" --latest="$LATEST"
+      - name: Verify the published release
+        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isImmutable,assets --jq 'if .isDraft != false or .isImmutable != true or (.assets | length) == 0 then error("release is incomplete") else "release is published" end'
   npm-publish:
     needs: [guard, nix-vendor-hash, contract-gates, verify-tag]
     runs-on: ubuntu-latest

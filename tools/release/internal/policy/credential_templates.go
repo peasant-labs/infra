@@ -102,7 +102,7 @@ func (t CredentialTemplate) Shape() string {
 	case TemplateReleaseEdit:
 		return `gh release edit <triggering tag> [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
 	case TemplateReleaseCreate:
-		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
+		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]] [<one quoted '<dir>/*' | <file>...>, with --draft]`
 	case TemplatePRComment:
 		return `gh pr comment [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] "${PR_NUMBER}" (--body-file|-F) <file>`
 	case TemplateReviewedScript:
@@ -1009,8 +1009,8 @@ func (s templateStep) matchReleaseView(words []templateWord) string {
 		fields, _ := jsonWord.literal()
 		seen := map[string]bool{}
 		for _, field := range strings.Split(fields, ",") {
-			if (field != "isDraft" && field != "assets") || seen[field] {
-				return "--json must list only isDraft and assets, without duplicates"
+			if (field != "isDraft" && field != "isImmutable" && field != "assets") || seen[field] {
+				return "--json must list only isDraft, isImmutable and assets, without duplicates"
 			}
 			seen[field] = true
 		}
@@ -1043,12 +1043,20 @@ func (s templateStep) matchRelease(words []templateWord, spec flagSpec, create b
 	if why != "" {
 		return why
 	}
-	if len(f.positional) != 1 {
+	if len(f.positional) == 0 || (!create && len(f.positional) != 1) {
 		return "the command names " + strconv.Itoa(len(f.positional)) + " tags, and the template takes exactly the triggering tag"
 	}
 	if create {
 		if _, ok := f.flags[ghFlagVerifyTag]; !ok {
 			return "gh release create does not pass " + ghFlagVerifyTag + ", so it would create the tag when it is missing"
+		}
+		if assets := f.positional[1:]; len(assets) > 0 {
+			if why := releaseAssetWordsFault(assets); why != "" {
+				return why
+			}
+			if !draftFlagTrue(f) {
+				return "gh release create names assets without " + ghFlagDraft + "; the atomic create must leave the release a draft for the separate verify and publish steps"
+			}
 		}
 	}
 	if !s.triggeringTag(f.positional[0]) {
