@@ -51,8 +51,12 @@ type processResult struct {
 // ambient step-output file or git variables, so a caller running under git
 // cannot redirect the binary at the wrong repository. extraEnv adds to it.
 func runBinary(t *testing.T, dir string, argv []string, stdin string, extraEnv []string) processResult {
+	return runBinaryAt(t, testBinaryPath, dir, argv, stdin, extraEnv)
+}
+
+func runBinaryAt(t *testing.T, binary, dir string, argv []string, stdin string, extraEnv []string) processResult {
 	t.Helper()
-	cmd := exec.Command(testBinaryPath, argv...)
+	cmd := exec.Command(binary, argv...)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
@@ -122,6 +126,7 @@ const (
 	setupTitleReleaseSourceEdit processSetup = "title-release-source-edit"
 	setupTitleCutReleaseEmpty   processSetup = "title-cut-release-empty"
 	setupTitleCutReleaseFile    processSetup = "title-cut-release-file"
+	setupTitleChangelogEdit     processSetup = "title-changelog-edit"
 	// setupTagOnBranch is a released repository whose next release tag is
 	// annotated on the trunk tip.
 	setupTagOnBranch processSetup = "tag-on-branch"
@@ -136,7 +141,7 @@ var allProcessSetups = []processSetup{
 	setupClassifyAllBots, setupClassifyRawConfig, setupClassifyHeadTamper,
 	setupWorkflowsAccept, setupWorkflowsDefaultPolicy, setupWorkflowsViolation, setupWorkflowsPolicyOnly,
 	setupCurrentSame, setupCurrentCleanTip, setupCurrentDiffers, setupCurrentConflict,
-	setupTitleReleaseContent, setupTitleReleaseSourceEdit, setupTitleCutReleaseEmpty, setupTitleCutReleaseFile,
+	setupTitleReleaseContent, setupTitleReleaseSourceEdit, setupTitleCutReleaseEmpty, setupTitleCutReleaseFile, setupTitleChangelogEdit,
 	setupTagOnBranch, setupTagOffBranch,
 }
 
@@ -190,8 +195,10 @@ type cliInput struct {
 	GithubOutput bool `yaml:"githubOutput"`
 	// RawConfig and RawSubject are invalid on purpose; only must-fail rows
 	// carry them.
-	RawConfig  string `yaml:"rawConfig"`
-	RawSubject string `yaml:"rawSubject"`
+	RawConfig     string `yaml:"rawConfig"`
+	RawSubject    string `yaml:"rawSubject"`
+	BaseChangelog string `yaml:"baseChangelog"`
+	HeadChangelog string `yaml:"headChangelog"`
 }
 
 type cliExpected struct {
@@ -364,6 +371,16 @@ func setupProcessCase(t *testing.T, in cliInput) processState {
 			setupTitleCutReleaseFile:    titleSetupCutReleaseFileEdit,
 		}[in.Setup]
 		r, base, head := buildBotPRRepo(t, shape)
+		return processState{r.Dir(), map[placeholder]string{
+			phDir:              r.Dir(),
+			phBase:             base,
+			phHead:             head,
+			phBotAuthor:        r.Config().AutomationAuthor,
+			phReleaseBranch:    r.branchName(r.BotBranch(intent.PRKindRelease)),
+			phCutReleaseBranch: r.branchName(r.BotBranch(intent.PRKindCutRelease)),
+		}}
+	case setupTitleChangelogEdit:
+		r, base, head := buildChangelogPRRepo(t, in.BaseChangelog, in.HeadChangelog)
 		return processState{r.Dir(), map[placeholder]string{
 			phDir:              r.Dir(),
 			phBase:             base,

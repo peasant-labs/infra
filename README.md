@@ -101,6 +101,29 @@ the report, state and plan files and the new commands.
 Run its checks with `make release-tool-check` (gofmt, build, vet, test). The
 `Release tool` workflow runs the same steps on every pull request.
 
+### Changelog corrections
+
+A normal reviewed PR may correct changelog prose, including earlier sections,
+reference-link definitions, and the `[Unreleased]` block. It may not add,
+remove, reorder, rename, or re-date a real release heading, or change a
+protected version field: those remain bot-only. `[Unreleased]` is the human
+channel; the generator carries its entries into the next section when they
+are present in its base input.
+
+For example, Peasant's [0.18.0](https://github.com/peasant-labs/peasant/tree/v0.18.0)
+and [0.18.1](https://github.com/peasant-labs/peasant/tree/v0.18.1) were tagged
+but never published; 0.18.2 followed. Their prose and reference links are
+corrections for a reviewed PR, not new release headings.
+
+**Current limitation:** although the generator preserves the changelog passed
+to it, `release-pr` currently reads that base at the latest tag (or grammar
+epoch), not the current branch tip. A later correction or `[Unreleased]` edit
+can therefore be overwritten by the next release. The planner also treats a
+changelog-changing commit as a release candidate and excludes its subject
+from the pending set, so a releasing change combined with a correction can
+be omitted. Do not rely on this allowance until release preparation,
+candidate freshness, and release planning handle reviewed corrections.
+
 ### Prepare a release branch locally
 
 In a job with **no App credential**, check out the configured release bot

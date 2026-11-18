@@ -19,9 +19,110 @@ required_names:
   - content-freeze-numbered-rejected
   - release-freeze-output-accepted
   - release-undeclared-freeze-output-rejected
+  - changelog-body-edit-accepted
+  - changelog-heading-edit-rejected
+  - changelog-base-read-failure
+  - changelog-head-read-failure
+  - changelog-unreleased-added-without-base
+  - changelog-release-added-without-base
+  - release-pr-changelog-added-without-base
+  - changelog-deleted-with-headings
+  - changelog-compared-at-merge-base
 
 cases:
   cases:
+    - name: changelog-body-edit-accepted
+      input:
+        title: "docs: correct historical notes"
+        author: octocat
+        headBranch: feature/work
+        setup: changelog-edit
+        baseChangelog: &changelog_base |
+          # Changelog
+          ## [0.18.1] - 2026-01-02
+          - Old note.
+        headChangelog: &changelog_body |
+          # Changelog
+          ## [0.18.1] - 2026-01-02
+          - Corrected note.
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: &changelog_p {source: requirement, ref: "the changelog gate compares both blobs from the merge base"}
+      mutation: &changelog_m {description: "change changelog prose or a release section heading"}
+    - name: changelog-heading-edit-rejected
+      input:
+        title: "docs: correct historical notes"
+        author: octocat
+        headBranch: feature/work
+        setup: changelog-edit
+        baseChangelog: *changelog_base
+        headChangelog: &changelog_heading |
+          # Changelog
+          ## [0.18.2] - 2026-01-02
+          - Corrected note.
+      expected: {exit: 2, code: protected-path, stdout: []}
+      classification: must-fail
+      sibling: changelog-body-edit-accepted
+      provenance: *changelog_p
+      mutation: *changelog_m
+    - name: changelog-base-read-failure
+      input: {title: "docs: correct historical notes", author: octocat, headBranch: feature/work, setup: changelog-base-read-failure, baseChangelog: *changelog_base, headChangelog: *changelog_body}
+      expected: {exit: 1, stdout: [], absent_keys: [error], message: "cannot read changelog"}
+      classification: must-fail
+      sibling: changelog-body-edit-accepted
+      provenance: *changelog_p
+      mutation: {description: "fail the merge-base changelog blob read"}
+    - name: changelog-head-read-failure
+      input: {title: "docs: correct historical notes", author: octocat, headBranch: feature/work, setup: changelog-head-read-failure, baseChangelog: *changelog_base, headChangelog: *changelog_body}
+      expected: {exit: 1, stdout: [], absent_keys: [error], message: "cannot read changelog"}
+      classification: must-fail
+      sibling: changelog-body-edit-accepted
+      provenance: *changelog_p
+      mutation: {description: "fail the head changelog blob read"}
+    - name: changelog-unreleased-added-without-base
+      input: {title: "docs: add notes", author: octocat, headBranch: feature/work, setup: changelog-missing-base, headChangelog: "# Changelog\n\n## [Unreleased]\n- Note.\n"}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: *changelog_p
+      mutation: {description: "add a changelog containing only the unreleased block"}
+    - name: changelog-release-added-without-base
+      input: {title: "docs: add notes", author: octocat, headBranch: feature/work, setup: changelog-missing-base, headChangelog: *changelog_base}
+      expected: {exit: 2, code: protected-path, stdout: []}
+      classification: must-fail
+      sibling: changelog-unreleased-added-without-base
+      provenance: *changelog_p
+      mutation: {description: "add a changelog that contains a real release heading"}
+    - name: release-pr-changelog-added-without-base
+      input: {title: "release[minor]: publish the pending changes", author: SETUP_BOT_AUTHOR, headBranch: SETUP_RELEASE_BRANCH, setup: changelog-missing-base, headChangelog: *changelog_base}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "the release PR may create a changelog"}
+      mutation: {description: "add a changelog with a release heading as the release bot"}
+    - name: changelog-deleted-with-headings
+      input: {title: "docs: remove notes", author: octocat, headBranch: feature/work, setup: changelog-missing-head, baseChangelog: *changelog_base}
+      expected: {exit: 2, code: protected-path, stdout: []}
+      classification: must-fail
+      sibling: changelog-body-edit-accepted
+      provenance: *changelog_p
+      mutation: {description: "delete a changelog that contains a real release heading"}
+    - name: changelog-compared-at-merge-base
+      input:
+        title: "docs: correct historical notes"
+        author: octocat
+        headBranch: feature/work
+        setup: changelog-behind-base
+        baseChangelog: *changelog_base
+        headChangelog: *changelog_body
+        baseTipChangelog: |
+          # Changelog
+          ## [0.18.2] - 2026-01-03
+          - A later release.
+          ## [0.18.1] - 2026-01-02
+          - Old note.
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "release headings compare against the merge base rather than a later base tip"}
+      mutation: {description: "add a new release to the base after the correction branch split"}
     - name: content-freeze-working-accepted
       input: {title: "fix(api)[patch]: update working document", author: "octocat", headBranch: "feature/work", setup: freeze-output, changedPath: generated/api.json}
       expected: {exit: 0, stdout: ["error="]}

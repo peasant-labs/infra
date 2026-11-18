@@ -170,6 +170,17 @@ appended to `GITHUB_OUTPUT` when set.
 
 ## Release-branch preparation
 
+Ordinary reviewed PRs may edit changelog prose, previous sections, reference
+links, and `[Unreleased]`; they may not change the ordered release headings or
+protected version fields. The generator inserts a new section into the base it
+receives, carrying `[Unreleased]` entries with it. Currently the command reads
+that base at the latest tag or grammar epoch rather than the branch tip, so
+later human corrections can be overwritten. Release preparation and candidate
+freshness must both use the corrected base. The planner also treats every
+changelog-changing commit as a release candidate and omits its subject from
+the pending set; it must distinguish reviewed corrections before this
+allowance is safe to rely on.
+
 `release-pr --commit --branch REF [--freeze-plan FILE] [--current REF]
 [--floor SHA]` generates the changelog and version-field changes, and may carry
 unstaged regular files named by `protected_paths` from the worktree, including

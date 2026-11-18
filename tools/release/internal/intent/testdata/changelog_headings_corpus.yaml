@@ -1,0 +1,161 @@
+# Each row changes one unique substring in the same historical changelog.
+required_names:
+  - prior-section-body
+  - reference-link
+  - unreleased-body
+  - unreleased-heading-case
+  - unreleased-heading-removed
+  - unreleased-heading-added
+  - release-heading-rename
+  - release-heading-added
+  - release-heading-removed
+  - release-heading-date
+  - release-heading-reordered
+  - release-heading-duplicated
+  - mixed-body-and-heading
+  - non-version-section-added
+  - heading-whitespace
+  - bare-heading-rename
+cases:
+  - name: prior-section-body
+    input:
+      base: &changelog |
+        # Changelog
+
+        ## [Unreleased]
+        - Future work.
+
+        ## [0.18.1] - 2026-01-02
+        - Originally described release.
+
+        ## [0.18.0] - 2026-01-01
+        - Older release.
+
+        [0.18.1]: https://example.test/old
+        [0.18.0]: https://example.test/older
+      find: "Originally described release."
+      replace: "Corrected description."
+    expected: {headings_unchanged: true}
+    classification: must-pass
+    provenance: &p {source: requirement, ref: "reviewed prose and links may change, release section identity may not"}
+    mutation: &m {description: "edit one portion of the changelog"}
+  - name: reference-link
+    input: {base: *changelog, find: "https://example.test/old\n", replace: "https://example.test/corrected\n"}
+    expected: {headings_unchanged: true}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - name: unreleased-body
+    input: {base: *changelog, find: "Future work.", replace: "Another human entry."}
+    expected: {headings_unchanged: true}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - name: unreleased-heading-case
+    input: {base: *changelog, find: "## [Unreleased]", replace: "## UNRELEASED"}
+    expected: {headings_unchanged: true}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - name: unreleased-heading-removed
+    input: {base: *changelog, find: "## [Unreleased]\n", replace: ""}
+    expected: {headings_unchanged: true}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - name: unreleased-heading-added
+    input:
+      base: |
+        # Changelog
+
+        ## [0.18.1] - 2026-01-02
+        - Originally described release.
+      find: "# Changelog\n"
+      replace: "# Changelog\n\n## [Unreleased]\n"
+    expected: {headings_unchanged: true}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - name: release-heading-rename
+    input: {base: *changelog, find: "## [0.18.1] - 2026-01-02", replace: "## [0.18.2] - 2026-01-02"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: release-heading-added
+    input: {base: *changelog, find: "## [0.18.1]", replace: "## [0.18.2] - 2026-01-03\n\n## [0.18.1]"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: release-heading-removed
+    input: {base: *changelog, find: "## [0.18.0] - 2026-01-01\n", replace: ""}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: release-heading-date
+    input: {base: *changelog, find: "## [0.18.1] - 2026-01-02", replace: "## [0.18.1] - 2026-02-02"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: release-heading-reordered
+    input:
+      base: *changelog
+      find: "## [0.18.1] - 2026-01-02\n- Originally described release.\n\n## [0.18.0] - 2026-01-01"
+      replace: "## [0.18.0] - 2026-01-01\n- Originally described release.\n\n## [0.18.1] - 2026-01-02"
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: release-heading-duplicated
+    input: {base: *changelog, find: "## [0.18.1] - 2026-01-02", replace: "## [0.18.1] - 2026-01-02\n## [0.18.1] - 2026-01-02"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: mixed-body-and-heading
+    input:
+      base: *changelog
+      find: "## [0.18.1] - 2026-01-02\n- Originally described release."
+      replace: "## [0.18.2] - 2026-01-02\n- Corrected description."
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: non-version-section-added
+    input: {base: *changelog, find: "## [0.18.0]", replace: "## Notes\n\n## [0.18.0]"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: heading-whitespace
+    input: {base: *changelog, find: "## [0.18.1] - 2026-01-02", replace: "  ## [0.18.1] - 2026-01-02"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m
+  - name: bare-heading-rename
+    input:
+      base: |
+        # Changelog
+
+        ## 0.18.1
+        - Older release.
+      find: "## 0.18.1"
+      replace: "## 0.18.2"
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: prior-section-body
+    provenance: *p
+    mutation: *m

@@ -54,6 +54,14 @@ const (
 	// titleSetupFreezeOutput changes a fixture-selected file after the base
 	// config declares working and numbered freeze paths.
 	titleSetupFreezeOutput titleSetup = "freeze-output"
+	// The changelog setups use a real repository; the failure variants fail
+	// exactly one blob read through a runner wrapper.
+	titleSetupChangelogEdit        titleSetup = "changelog-edit"
+	titleSetupChangelogBaseFailure titleSetup = "changelog-base-read-failure"
+	titleSetupChangelogHeadFailure titleSetup = "changelog-head-read-failure"
+	titleSetupChangelogMissingBase titleSetup = "changelog-missing-base"
+	titleSetupChangelogMissingHead titleSetup = "changelog-missing-head"
+	titleSetupChangelogBehindBase  titleSetup = "changelog-behind-base"
 )
 
 var allTitleSetups = []titleSetup{
@@ -62,7 +70,8 @@ var allTitleSetups = []titleSetup{
 	titleSetupGroupShapedBase, titleSetupOrdinaryScriptsEdit, titleSetupAdopting,
 	titleSetupRawVersionDocument, titleSetupReleaseContent, titleSetupReleaseSourceEdit,
 	titleSetupCutReleaseEmpty, titleSetupCutReleaseFileEdit,
-	titleSetupFreezeOutput,
+	titleSetupFreezeOutput, titleSetupChangelogEdit, titleSetupChangelogBaseFailure, titleSetupChangelogHeadFailure,
+	titleSetupChangelogMissingBase, titleSetupChangelogMissingHead, titleSetupChangelogBehindBase,
 }
 
 func (s *titleSetup) UnmarshalYAML(node *yaml.Node) error {
@@ -82,6 +91,9 @@ type checkTitleInput struct {
 	// RawVersionDocument is corrupt on purpose; only a must-fail row carries it.
 	RawVersionDocument string `yaml:"rawVersionDocument"`
 	ChangedPath        string `yaml:"changedPath"`
+	BaseChangelog      string `yaml:"baseChangelog"`
+	HeadChangelog      string `yaml:"headChangelog"`
+	BaseTipChangelog   string `yaml:"baseTipChangelog"`
 }
 
 type checkTitleExpected struct {
@@ -117,6 +129,20 @@ func loadCheckTitleFixtures(t *testing.T) []checkTitleCase {
 // outcome for the scenario under test.
 type mockGitRunner struct {
 	readFile func(ctx context.Context, rev, path string) ([]byte, error)
+}
+
+// changelogReadFailureRunner changes only one git dependency read; all other
+// operations, including merge-base and changed-path discovery, stay real.
+type changelogReadFailureRunner struct {
+	GitRunner
+	rev, path string
+}
+
+func (r changelogReadFailureRunner) ReadFile(ctx context.Context, rev, path string) ([]byte, error) {
+	if rev == r.rev && path == r.path {
+		return nil, &BlobReadError{Rev: rev, Path: path, Err: fmt.Errorf("simulated on-demand fetch failure")}
+	}
+	return r.GitRunner.ReadFile(ctx, rev, path)
 }
 
 func (m *mockGitRunner) unscripted(method string) error {
@@ -283,6 +309,38 @@ func buildTitleScene(t *testing.T, in checkTitleInput) titleScene {
 		r.WriteFile(in.ChangedPath, "changed\n")
 		head := r.Commit(titleDocs)
 		return sceneOf(r, base, head)
+	case titleSetupChangelogEdit, titleSetupChangelogBaseFailure, titleSetupChangelogHeadFailure:
+		r, base, head := buildChangelogPRRepo(t, in.BaseChangelog, in.HeadChangelog)
+		scene := sceneOf(r, base, head)
+		if in.Setup == titleSetupChangelogBaseFailure {
+			scene.runner = changelogReadFailureRunner{GitRunner: scene.runner, rev: base, path: r.cfg.Changelog}
+		} else if in.Setup == titleSetupChangelogHeadFailure {
+			scene.runner = changelogReadFailureRunner{GitRunner: scene.runner, rev: head, path: r.cfg.Changelog}
+		}
+		return scene
+	case titleSetupChangelogMissingBase:
+		r := newSeededRepo(t, repoAllBots)
+		r.Remove(r.cfg.Changelog)
+		base := r.Commit(titleDocs)
+		r.WriteChangelog(in.HeadChangelog)
+		return sceneOf(r, base, r.Commit(titleDocs))
+	case titleSetupChangelogMissingHead:
+		r := newSeededRepo(t, repoAllBots)
+		r.WriteChangelog(in.BaseChangelog)
+		base := r.Commit(titleDocs)
+		r.Remove(r.cfg.Changelog)
+		return sceneOf(r, base, r.Commit(titleDocs))
+	case titleSetupChangelogBehindBase:
+		r := newSeededRepo(t, repoAllBots)
+		r.WriteChangelog(in.BaseChangelog)
+		r.Commit(titleDocs)
+		r.CreateBranch(r.Branch("feature"))
+		r.WriteChangelog(in.HeadChangelog)
+		head := r.Commit(titleDocs)
+		r.Checkout(r.Trunk())
+		r.WriteChangelog(in.BaseTipChangelog)
+		base := r.Commit(titleDocs)
+		return sceneOf(r, base, head)
 	case titleSetupAdopting:
 		// The adopting PR adds the config: the base commit has none and the
 		// head adds it. The base is an ancestor of the head.
@@ -296,6 +354,16 @@ func buildTitleScene(t *testing.T, in checkTitleInput) titleScene {
 		t.Fatalf("check-title setup %q is in the closed set but has no builder", in.Setup)
 		return titleScene{}
 	}
+}
+
+func buildChangelogPRRepo(t *testing.T, baseChangelog, headChangelog string) (*testRepo, string, string) {
+	t.Helper()
+	r := newSeededRepo(t, repoAllBots)
+	r.WriteFile(r.cfg.Changelog, baseChangelog)
+	base := r.Commit(titleDocs)
+	r.WriteFile(r.cfg.Changelog, headChangelog)
+	head := r.Commit(titleDocs)
+	return r, base, head
 }
 
 // buildBotPRRepo builds the bot PR shapes on a repository whose config names

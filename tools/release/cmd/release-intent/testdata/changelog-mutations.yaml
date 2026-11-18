@@ -1,0 +1,18 @@
+required_names:
+  - reject-all-changelog-edits
+  - allow-all-changelog-edits
+mutations:
+  - name: reject-all-changelog-edits
+    find: "if change.Path == cfg.Changelog && !change.ChangelogHeadingsUnchanged {"
+    replace: "if change.Path == cfg.Changelog {"
+    witness: check-title-changelog-body-and-links-accept
+    control: check-title-changelog-heading-reject
+    mutated_exit: 2
+    mutated_stdout: ["error=protected-path"]
+  - name: allow-all-changelog-edits
+    find: "if change.Path == cfg.Changelog && !change.ChangelogHeadingsUnchanged {"
+    replace: "if change.Path == cfg.Changelog && false {"
+    witness: check-title-changelog-heading-reject
+    control: check-title-changelog-body-and-links-accept
+    mutated_exit: 0
+    mutated_stdout: ["error="]

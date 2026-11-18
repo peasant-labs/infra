@@ -2,6 +2,7 @@ package intent
 
 import (
 	regexp "github.com/wasilibs/go-re2"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -49,6 +50,26 @@ func isSectionHeading(line string) bool {
 // isUnreleased reports whether heading text names the unreleased block.
 func isUnreleased(text string) bool {
 	return strings.EqualFold(strings.Trim(strings.TrimSpace(text), headingOpen+headingClose), unreleasedName)
+}
+
+// ChangelogHeadingsUnchanged compares the ordered, exact real section lines
+// using the same section and Unreleased rules as the generator. Prose and the
+// Unreleased block are not release identities.
+func ChangelogHeadingsUnchanged(base, head string) bool {
+	headings := func(changelog string) []string {
+		var result []string
+		for _, line := range strings.Split(changelog, "\n") {
+			if !isSectionHeading(line) {
+				continue
+			}
+			text := strings.TrimSpace(line)[len(sectionMarker):]
+			if !isUnreleased(text) {
+				result = append(result, line)
+			}
+		}
+		return result
+	}
+	return slices.Equal(headings(base), headings(head))
 }
 
 // collapseReleaseCuts folds repeated requests for the same release into one.
