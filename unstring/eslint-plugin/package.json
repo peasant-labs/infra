@@ -4,11 +4,13 @@
   "description": "Type-aware linting for closed-set wire values",
   "type": "module",
   "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "exports": "./src/index.js",
-  "files": ["src", "README.md"],
-  "license": "MIT",
+  "files": ["src", "README.md", "LICENSE"],
+  "license": "Apache-2.0",
+  "engines": { "node": "^18.18.0 || ^20.9.0 || >=21.1.0" },
   "repository": { "type": "git", "url": "https://github.com/peasant-labs/infra.git", "directory": "unstring/eslint-plugin" },
   "scripts": { "test": "node --test test/*.test.js" },
-  "peerDependencies": { "eslint": ">=9", "typescript": ">=5.7" },
+  "peerDependencies": { "eslint": ">=9", "typescript": ">=5.7 <7" },
   "devDependencies": { "@typescript-eslint/parser": "^8.48.0", "eslint": "^9.0.0", "typescript": "~5.9.3", "yaml": "^2.8.1" }
 }

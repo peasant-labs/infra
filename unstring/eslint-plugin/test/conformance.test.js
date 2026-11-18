@@ -9,8 +9,9 @@ import parser from '@typescript-eslint/parser'
 import { parse } from 'yaml'
 import plugin from '../src/index.js'
 
-const corpus = parse(readFileSync(fileURLToPath(new URL('../../internal/typed/testdata/typescript.yaml', import.meta.url)), 'utf8'))
-const required = ['ts comparison', 'reversed comparison', 'switch case', 'structural twin', 'any receiver', 'string receiver', 'unknown receiver', 'inline union', 'no runtime value', 'non-member', 'js typedef frozen table', 'jsx comparison', 'closed value wire', 'mutable table is not a set', 'twin both types used', 'narrowed receiver retains declared set', 'narrowed property comparisons use declared set', 'narrowed element comparisons use declared set', 'narrowed mapped property uses declared set', 'narrowed unowned property stays silent', 'narrowed broad property stays silent', 'imported role property in jsdoc', 'any property ignores same name', 'imported jsdoc parameter', 'imported structural twin without table', 'widened table members are not evidence']
+const fixtureDir = process.env.UNSTRING_FIXTURE_DIR ?? fileURLToPath(new URL('../../internal/typed/testdata/', import.meta.url))
+const corpus = parse(readFileSync(join(fixtureDir, 'typescript.yaml'), 'utf8'))
+const required = ['ts comparison', 'reversed comparison', 'switch case', 'structural twin', 'any receiver', 'string receiver', 'unknown receiver', 'inline union', 'no runtime value', 'non-member', 'js typedef frozen table', 'jsx comparison', 'closed value wire', 'mutable table is not a set', 'twin both types used', 'narrowed receiver retains declared set', 'narrowed property comparisons use declared set', 'narrowed element comparisons use declared set', 'narrowed mapped property uses declared set', 'narrowed unowned property stays silent', 'narrowed broad property stays silent', 'imported role property in jsdoc', 'any property ignores same name', 'imported jsdoc parameter', 'imported structural twin without table', 'widened table members are not evidence', 'nullable role property comparisons', 'any cast is not the declared set', 'precise schema two-step role positions']
 
 test('required conformance cases are present and unique', () => {
   const names = corpus.map(item => item.name)
@@ -31,7 +32,7 @@ test('typed conformance corpus', async t => {
         writeFileSync(filename, item.code)
         const linter = new Linter({ cwd: dir })
         const messages = linter.verify(item.code, [{ files: ['**/*.{ts,js,jsx}'], languageOptions: { parser, parserOptions: { projectService: true, tsconfigRootDir: dir } }, ...plugin.configs.recommended }], { filename })
-        assert.deepEqual(messages.map(m => m.message), item.expect.map(e => `use ${e.set}.${e.member} instead of '${e.literal}'`))
+        assert.deepEqual(messages.map(m => ({ message: m.message, line: m.line, column: m.column })), item.expect.map(e => ({ message: `use ${e.set}.${e.member} instead of '${e.literal}'`, line: e.line, column: e.column })))
       })
     }
   } finally { rmSync(dir, { recursive: true, force: true }) }

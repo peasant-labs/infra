@@ -1,8 +1,4 @@
-// SymbolFlags.Value: the compiler API accepts this stable bit mask without
-// loading a second copy of the consumer's TypeScript compiler.
-const VALUE_SYMBOL = 111551
-const CONST_NODE = 2
-const ALIAS_SYMBOL = 2097152
+import { VALUE_SYMBOL, CONST_NODE, ALIAS_SYMBOL, sameUnion } from './compiler.js'
 
 function namedSet(checker, type, receiverSymbol) {
   if (type.aliasSymbol?.declarations?.length) return type.aliasSymbol
@@ -30,26 +26,16 @@ function namedSet(checker, type, receiverSymbol) {
       if (!symbol?.declarations?.length) continue
       const declared = checker.getDeclaredTypeOfSymbol(symbol)
       if (declared.isUnion() && declared.types.every(part => part.isStringLiteral()) &&
-          checker.isTypeAssignableTo(declared, type) && checker.isTypeAssignableTo(type, declared)) {
+          sameUnion(checker, declared, type)) {
         return symbol
       }
     }
-  }
-
-  const symbol = type.symbol
-  if (symbol?.declarations?.length) {
-    const declared = checker.getDeclaredTypeOfSymbol(symbol)
-    if (declared.isUnion() && declared.types.every(part => part.isStringLiteral()) &&
-        checker.isTypeAssignableTo(declared, type) && checker.isTypeAssignableTo(type, declared)) return symbol
   }
   return null
 }
 
 function memberFor(checker, receiver, literal) {
   let type = checker.getTypeAtLocation(receiver)
-  // Never recover an identity for an expression that the checker regards as
-  // any or unknown. TypeFlags.Any | TypeFlags.Unknown is 3.
-  if (type.flags & 3) return null
   const receiverSymbol = checker.getSymbolAtLocation(receiver) ??
     checker.getSymbolAtLocation(receiver.name ?? receiver.argumentExpression ?? receiver)
   // Synthetic property symbols (for example mapped or inferred types) can
@@ -59,6 +45,7 @@ function memberFor(checker, receiver, literal) {
   if (declaration) {
     type = checker.getTypeOfSymbolAtLocation(receiverSymbol, declaration)
   }
+  type = checker.getNonNullableType(type)
   if (!type.isUnion() || !type.types.every(part => part.isStringLiteral())) return null
   const alias = namedSet(checker, type, receiverSymbol)
   const aliasDeclaration = alias?.declarations?.[0]

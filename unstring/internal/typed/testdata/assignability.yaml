@@ -1,0 +1,15 @@
+- name: same union
+  code: |
+    type Left = 'user' | 'assistant'
+    type Right = 'assistant' | 'user'
+  equal: true
+- name: left is subset
+  code: |
+    type Left = 'user' | 'assistant'
+    type Right = 'user' | 'assistant' | 'tool'
+  equal: false
+- name: left is superset
+  code: |
+    type Left = 'user' | 'assistant' | 'tool'
+    type Right = 'user' | 'assistant'
+  equal: false
