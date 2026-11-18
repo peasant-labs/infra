@@ -81,6 +81,8 @@ var requiredLoadCases = []string{
 	"refuses-include-tests-without-enabled",
 	"refuses-false-include-tests-without-enabled",
 	"refuses-null-router-setting-without-enabled",
+	"refuses-null-router-setting-when-enabled",
+	"refuses-null-include-tests-when-enabled",
 	"refuses-mount-router-not-import-path",
 	"refuses-repeated-mount-router",
 }

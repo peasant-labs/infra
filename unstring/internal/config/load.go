@@ -95,6 +95,18 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 			"the mount pass runs only when it is enabled, so these settings would silently do nothing.",
 			where, "add `enabled: true` under typed.goMountLiteral, or remove the options.")
 	}
+	if presence.Typed.Mount.Routers.Tag == "!!null" {
+		return Config{}, failure.New(
+			fmt.Sprintf("typed.goMountLiteral.routers in %s is null.", name),
+			"a null router list would silently select the default instead of the intended packages.",
+			where, "set typed.goMountLiteral.routers to a list of import paths, or omit it to use the default.")
+	}
+	if presence.Typed.Mount.IncludeTests.Tag == "!!null" {
+		return Config{}, failure.New(
+			fmt.Sprintf("typed.goMountLiteral.includeTests in %s is null.", name),
+			"a null test setting would silently exclude test files.",
+			where, "set typed.goMountLiteral.includeTests to true or false, or omit it to exclude test files.")
+	}
 	fail := func(what, why, fix string) (Config, error) {
 		return Config{}, failure.New(what, why, where, fix)
 	}
@@ -398,13 +410,6 @@ var routerPath = regexp.MustCompile(`^[A-Za-z0-9_.~+-]+(/[A-Za-z0-9_.~+-]+)*$`)
 func (m *GoMountLiteral) normalize(name, where string) error {
 	key := "typed.goMountLiteral"
 	if !m.Enabled {
-		if len(m.Routers) > 0 || m.IncludeTests {
-			return failure.New(
-				fmt.Sprintf("%s sets %s.routers or %s.includeTests without `enabled: true`.", name, key, key),
-				"the mount pass runs only when it is enabled, so these settings would silently do nothing.",
-				where,
-				fmt.Sprintf("add `enabled: true` under %s, or remove the section.", key))
-		}
 		return nil
 	}
 	if len(m.Routers) == 0 {
