@@ -6,3 +6,19 @@ export const TranscriptVisibility = Object.freeze({
   Public: zTranscriptVisibility.parse("public"),
   Private: zTranscriptVisibility.parse("private"),
 } as const);
+export const RepositoryRole = Object.freeze({
+  Owner: "owner",
+  ReadOnly: "reader",
+} as const);
+const Hidden = Object.freeze({
+  Secret: "hidden",
+} as const);
+export const NestedObjectValues = Object.freeze({
+  NestedObject: { Value: "nested-value" },
+} as const);
+export const ArrayValues = Object.freeze({
+  ArrayValue: ["array-value"],
+} as const);
+export const TemplateStringValues = Object.freeze({
+  TemplateString: `template-value`,
+} as const);
