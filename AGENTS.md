@@ -172,6 +172,26 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   be a required check.
 - **The module depends on no other `peasant-labs` module.** Its test support
   lives in `tools/release/internal/testcase`.
+- **Changelog body corrections go through a normal reviewed PR.** Prose,
+  reference links, and the `[Unreleased]` block are editable; ordered release
+  headings and protected version fields stay bot-only; a normal PR may not add
+  a second `[Unreleased]` block. A PR other than the bot's release PR that
+  touches the changelog must
+  have no release level and must not use the `release` type (for example,
+  `docs(changelog): ...`); otherwise `check-title` rejects it with
+  `changelog-release-title`. This also applies to an adoption PR that adds
+  the changelog. The generator carries
+  `[Unreleased]` entries from its input into the new section. Peasant's
+  [0.18.0](https://github.com/peasant-labs/peasant/tree/v0.18.0) and
+  [0.18.1](https://github.com/peasant-labs/peasant/tree/v0.18.1) were tagged
+  but never published; 0.18.2 followed. Release preparation reads the source
+  tip and preserves reviewed corrections; candidate freshness reads that
+  candidate's first parent. Only a changelog-changing release-titled commit
+  can be a candidate, and changelog-changing subjects stay out of the pending
+  set, so keep releasing code changes separate from corrections. The title
+  and changelog predicate identifies a candidate; it does not authenticate
+  the PR's author. Consumers must add the
+  [plan-job provenance check](tools/release/README.md#before-re-pinning) before adopting.
 - **The queue policy file is `.github/release-queue.policy.yml`, top-level key
   `queue:` only.** `policy.DefaultPath` owns that path. Job-graph rules for a
   tag-triggered release workflow stay in schema's release-guard and its own

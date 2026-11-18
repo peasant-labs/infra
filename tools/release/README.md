@@ -4,6 +4,17 @@
 workflow checker separately reads `.github/release-queue.policy.yml`. A
 repository's tag-workflow guard and its policy remain separate.
 
+## Before re-pinning
+
+Before adopting changelog corrections, a consumer must add a plan-job GitHub
+API provenance check authenticating the release PR independently of its title
+and changed files. The planner's candidate predicate alone does not prove
+authorship.
+
+Commits already in history that combine a releasing title with a changelog
+edit remain excluded from the pending set; the guard prevents new ones. Check
+your range before adopting.
+
 The landed release PR commit is the batch boundary. A fresh candidate is
 verified and tagged for the subjects in its snapshot, even if another releasing
 PR lands afterward. Later subjects remain in the full pending range and belong
@@ -95,7 +106,7 @@ is checked using its HEAD config; a failed base read never triggers fallback.
 The range form reads the first-parent range ending
 at `--until`, excluding a final tag at that revision, and requires both report
 endpoints to equal the computed commit SHAs. The grammar epoch and optional
-floor bound the subjects, and changelog-changing release commits are excluded.
+floor bound the subjects, and changelog-changing commits are excluded.
 The range-base-only form prints `range_base=<tag>` without judging a report or
 parsing titles.
 
@@ -176,7 +187,33 @@ failure. Successful contract checks print `surfaces=` and `error=`; successful
 freeze plans print `frozen=` and `error=`. These machine lines are also
 appended to `GITHUB_OUTPUT` when set.
 
+## Check title and changelog
+
+A PR other than the bot's release PR that touches the changelog must have no
+release level and must not use the `release` type; for example, use
+`docs(changelog): ...`.
+Otherwise `check-title` rejects it with `changelog-release-title`. This also
+applies to an adoption PR that adds the changelog. Normal PRs may not add a
+second `[Unreleased]` block.
+
 ## Release-branch preparation
+
+Ordinary reviewed PRs may edit changelog prose, previous sections, reference
+links, and `[Unreleased]`; they may not change the ordered release headings or
+protected version fields. The generator reads the source tip, inserts a new
+section and carries `[Unreleased]` entries, preserving reviewed corrections.
+When rebuilding an untagged version already in the file, it updates that
+section without dropping existing prose or duplicating the heading. Candidate
+freshness regenerates from the candidate's first parent. A normal correction
+is not a candidate; only a changelog-changing release-titled commit can be
+selected, and only a fresh candidate is eligible for tagging. The predicate
+does not authenticate PR authorship. All changelog-changing subjects remain
+outside the pending set; the title guard requires normal changelog corrections
+to have no release level and not use the `release` type, so releasing code
+changes need a separate PR.
+Fixing a prior release date also requires the bot: its heading line is guarded.
+On rebuild, generated lines match exactly; rewording a generated line in an
+untagged section can cause the original line to reappear.
 
 `release-pr --commit --branch REF [--freeze-plan FILE] [--current REF]
 [--floor SHA]` generates the changelog and version-field changes, and may carry

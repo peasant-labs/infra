@@ -218,7 +218,7 @@ func checkConfig(cfg Config, where string) error {
 	}
 	if cfg.Changelog == "" {
 		return fail("the changelog path is empty",
-			"the changelog is protected as a whole file and only the release PR may change it",
+			"the title guard needs the changelog path to protect its release headings",
 			"set changelog to the path of this repository's changelog file")
 	}
 	for i, vf := range cfg.VersionFiles {

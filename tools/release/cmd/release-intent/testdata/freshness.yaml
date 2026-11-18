@@ -5,6 +5,7 @@ required_names:
   - fresh-bracket-undated
   - fresh-bracket-dated
   - fresh-no-section
+  - snapshot-later-correction
   - stale-new-releasing
   - older-fresh-newer-stale
   - snapshot-tags-before-later-minor
@@ -45,6 +46,15 @@ cases:
       classification: must-pass
       provenance: {source: requirement, ref: "a releasing commit before the release commit makes it stale"}
       mutation: {description: "Lands one more releasing commit after the release commit was built."}
+    - name: snapshot-later-correction
+      input:
+        baseChangelog: "# changelog\n\n## 0.1.0\n\n- old\n"
+        scenario: "snapshot-later-correction"
+        correction: "\nA reviewed correction to history.\n"
+      expected: {exit: 0, action: "tag", candidate_fresh: true}
+      classification: must-pass
+      provenance: {source: requirement, ref: "a correction after the release does not change its snapshot"}
+      mutation: {description: "Compare freshness to the later tip instead of the candidate parent."}
     - name: older-fresh-newer-stale
       input: {baseChangelog: "# changelog\n\n## 0.1.0\n\n- old\n", scenario: "older-fresh-newer-stale"}
       expected: {exit: 0, action: "open-pr", candidate_fresh: false}

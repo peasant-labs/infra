@@ -504,6 +504,7 @@ const (
 	ErrOldReleaseTitle     ErrorCode = "old-release-title"
 	ErrReleasesDisabled    ErrorCode = "releases-disabled"
 	ErrProtectedPath       ErrorCode = "protected-path"
+	ErrChangelogRelease    ErrorCode = "changelog-release-title"
 	ErrNoFinalTag          ErrorCode = "no-final-tag"
 	ErrEpochMissing        ErrorCode = "epoch-missing"
 	ErrFloorNotOnChain     ErrorCode = "floor-not-on-chain"
@@ -536,6 +537,7 @@ var AllErrorCodes = []ErrorCode{
 	ErrOldReleaseTitle,
 	ErrReleasesDisabled,
 	ErrProtectedPath,
+	ErrChangelogRelease,
 	ErrNoFinalTag,
 	ErrEpochMissing,
 	ErrFloorNotOnChain,

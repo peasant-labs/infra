@@ -83,30 +83,36 @@ func checkTitle(ctx context.Context, runner GitRunner, base, head, author, headB
 	if ok {
 		current = version
 	}
-	if _, perr := intent.ParseTitle(cfg, current, title); perr != nil {
+	parsed, perr := intent.ParseTitle(cfg, current, title)
+	if perr != nil {
 		return rejectAs(intent.CommandCheckTitle, perr)
 	}
+	mergeBase, paths, err := runner.ChangedPaths(ctx, base, head)
+	if err != nil {
+		return fmt.Errorf("%s: cannot read the PR change between %q and %q: %w", intent.CommandCheckTitle, base, head, err)
+	}
+	kind := intent.ClassifyPR(cfg, author, headBranch)
 	if !adopting {
-		mergeBase, paths, err := runner.ChangedPaths(ctx, base, head)
-		if err != nil {
-			return fmt.Errorf("%s: cannot read the PR change between %q and %q: %w", intent.CommandCheckTitle, base, head, err)
-		}
 		changes, cerr := buildProtectedChanges(ctx, runner, cfg, mergeBase, head, paths)
 		if cerr != nil {
 			return cerr
 		}
-		kind := intent.ClassifyPR(cfg, author, headBranch)
 		if cerr := intent.CheckProtectedPaths(cfg, changes, kind); cerr != nil {
 			return rejectAs(intent.CommandCheckTitle, cerr)
+		}
+	}
+	for _, p := range paths {
+		if err := intent.CheckChangelogTitle(parsed, kind, p == cfg.Changelog); err != nil {
+			return rejectAs(intent.CommandCheckTitle, err)
 		}
 	}
 	return emit(out(intent.OutputError, ""))
 }
 
-// buildProtectedChanges reads every touched version file at the merge base
-// and at head: whether its protected field moved, and whether anything else
-// in it moved. A corrupt file fails closed; any other blob read error exits 1
-// and never becomes an accept or a stale verdict.
+// buildProtectedChanges compares touched version files and the changelog at
+// the merge base and head. A corrupt version file fails closed; any blob read
+// failure exits 1 and never becomes an accept or a stale verdict. An absent
+// changelog is empty, so adding or removing a file still compares its headings.
 func buildProtectedChanges(ctx context.Context, runner GitRunner, cfg intent.Config, base, head string, paths []string) ([]intent.ProtectedChange, error) {
 	changed := map[string]bool{}
 	for _, p := range paths {
@@ -115,6 +121,21 @@ func buildProtectedChanges(ctx context.Context, runner GitRunner, cfg intent.Con
 	var out []intent.ProtectedChange
 	for p := range changed {
 		out = append(out, intent.ProtectedChange{Path: p})
+	}
+	if changed[cfg.Changelog] {
+		baseData, err := readChangelog(ctx, runner, base, cfg.Changelog)
+		if err != nil {
+			return nil, err
+		}
+		headData, err := readChangelog(ctx, runner, head, cfg.Changelog)
+		if err != nil {
+			return nil, err
+		}
+		for i := range out {
+			if out[i].Path == cfg.Changelog {
+				out[i].ChangelogHeadingsUnchanged = intent.ChangelogHeadingsUnchanged(string(baseData), string(headData))
+			}
+		}
 	}
 	for _, vf := range cfg.VersionFiles {
 		if !changed[vf.Path] {
@@ -137,6 +158,20 @@ func buildProtectedChanges(ctx context.Context, runner GitRunner, cfg intent.Con
 		}
 	}
 	return out, nil
+}
+
+// readChangelog treats an absent path as empty, but an unreadable blob must
+// fail closed instead of turning an unknown heading sequence into an accept.
+func readChangelog(ctx context.Context, runner GitRunner, rev, path string) ([]byte, error) {
+	data, err := runner.ReadFile(ctx, rev, path)
+	if err != nil {
+		var nf *NotFoundError
+		if errors.As(err, &nf) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%s: cannot read changelog %q at %q: %w. Confirm the revision and blob are readable; a failed fetch is never an accept", intent.CommandCheckTitle, path, rev, err)
+	}
+	return data, nil
 }
 
 // otherContentChanged reports whether a version file moved anywhere but its

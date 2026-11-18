@@ -8,14 +8,32 @@ import (
 	"unicode/utf8"
 )
 
-// ProtectedChange is one changed path and, for a version file, whether the
-// protected field moved and whether anything else in the file moved. The
-// command layer reads both ends of the change from git; this predicate only
-// judges the answer.
+// CheckChangelogTitle prevents releasing subjects from being hidden by a
+// changelog edit, which the release planner excludes from pending subjects.
+func CheckChangelogTitle(title Title, kind PRKind, touchesChangelog bool) error {
+	if !touchesChangelog || kind == PRKindRelease || (title.Level == LevelNone && title.Type != TypeRelease) {
+		return nil
+	}
+	return &Error{
+		Code:  ErrChangelogRelease,
+		What:  "a non-release PR changes the changelog and carries a release title or level",
+		Why:   "changelog-changing commits are excluded from release subjects, so this release would be lost",
+		Where: "PR change, checked by release-intent check-title",
+		When:  "checking the pull request or merge group",
+		Means: "the title guard rejects this PR before it can be merged",
+		Fix:   "retitle as docs(changelog): ... with no level, or move the changelog edit to its own PR",
+	}
+}
+
+// ProtectedChange is one changed path with the comparisons applicable to a
+// version file or changelog. The command layer reads both ends of the change
+// from git; this predicate only judges the answer. An unset comparison is
+// never proof that the release headings are unchanged.
 type ProtectedChange struct {
-	Path                  string `yaml:"path"`
-	ProtectedFieldChanged bool   `yaml:"protected_field_changed"`
-	OtherContentChanged   bool   `yaml:"other_content_changed"`
+	Path                       string `yaml:"path"`
+	ProtectedFieldChanged      bool   `yaml:"protected_field_changed"`
+	OtherContentChanged        bool   `yaml:"other_content_changed"`
+	ChangelogHeadingsUnchanged bool   `yaml:"changelog_headings_unchanged"`
 }
 
 // CheckProtectedPaths judges a PR's changes by the kind the classifier gave
@@ -29,8 +47,8 @@ type ProtectedChange struct {
 //     guard cannot see the plan; commit preparation enforces the plan gate.
 //   - The cut-release PR is the one empty commit the button makes, so it may
 //     change no path at all.
-//   - Every other PR, any other bot PR included, may not change a protected
-//     path or a protected version field.
+//   - Every other PR, any other bot PR included, may edit the changelog body
+//     but not release headings, a protected path or a protected version field.
 func CheckProtectedPaths(cfg Config, changes []ProtectedChange, kind PRKind) error {
 	switch kind {
 	case PRKindRelease:
@@ -42,8 +60,8 @@ func CheckProtectedPaths(cfg Config, changes []ProtectedChange, kind PRKind) err
 		return nil
 	}
 	for _, change := range changes {
-		if change.Path == cfg.Changelog {
-			return protectedError(change.Path, "the changelog is written only by the release PR")
+		if change.Path == cfg.Changelog && !change.ChangelogHeadingsUnchanged {
+			return protectedError(change.Path, "release section headings are written only by the release PR")
 		}
 		for _, glob := range cfg.ProtectedPaths {
 			if change.Path == glob {
@@ -188,6 +206,6 @@ func protectedError(changePath, why string) *Error {
 		Where: "PR change, judged by intent.CheckProtectedPaths against the base release config",
 		When:  "checking a PR before it can be enqueued",
 		Means: "the title-guard check is red, so the merge queue will not accept this PR",
-		Fix:   "drop the protected edit from the PR; only the release PR writes the changelog, protected paths and protected version fields when the batch lands",
+		Fix:   "drop the protected edit from the PR; only the release PR writes release headings, protected paths and protected version fields when the batch lands",
 	}
 }

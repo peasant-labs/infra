@@ -17,7 +17,143 @@ required_names:
   - empty-pending-is-error
   - empty-tag-is-error
   - base-changelog-not-utf8
+  - rebuild-existing-version-keeps-corrections
+  - rebuild-existing-version-is-idempotent
+  - rebuild-existing-version-keeps-reference-links
+  - link-retarget-keeps-generated-section
+  - link-before-retarget-generated-section
 cases:
+  - name: link-retarget-keeps-generated-section
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      pending: [{type: fix, level: patch, subject: "repair", pr: 1}]
+      base_changelog: "# Changelog\n\n## [v0.1.0]\n\n- old\n\n[v0.1.0]: https://example.test/new\n"
+      version: "0.1.1"
+      tag: "v0.1.1"
+      date: "2026-11-12"
+    expected:
+      changelog: "# Changelog\n\n## [v0.1.1]\n\n- repair (#1)\n\n## [v0.1.0]\n\n- old\n\n[v0.1.0]: https://example.test/new\n"
+      section: &link_section "## [v0.1.1]\n\n- repair (#1)\n"
+      versions: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "retargeting a prior link preserves the generated release section"}
+    mutation: {description: "retarget the previous version reference only"}
+  - name: link-before-retarget-generated-section
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      pending: [{type: fix, level: patch, subject: "repair", pr: 1}]
+      base_changelog: "# Changelog\n\n## [v0.1.0]\n\n- old\n\n[v0.1.0]: https://example.test/old\n"
+      version: "0.1.1"
+      tag: "v0.1.1"
+      date: "2026-11-12"
+    expected:
+      changelog: "# Changelog\n\n## [v0.1.1]\n\n- repair (#1)\n\n## [v0.1.0]\n\n- old\n\n[v0.1.0]: https://example.test/old\n"
+      section: *link_section
+      versions: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "the generated section before the link retarget"}
+    mutation: {description: "use the original previous version reference"}
+  - name: rebuild-existing-version-keeps-corrections
+    input:
+      config: &rebuild_config {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      pending: &rebuild_pending
+        - {type: feat, scopes: ["y"], level: minor, subject: "two", pr: 12}
+        - {type: feat, scopes: ["x"], level: minor, subject: "one", pr: 11}
+      base_changelog: |
+        # Changelog
+
+        ## [Unreleased]
+
+        - Reviewed upcoming note.
+
+        ## [v0.2.0] - 2026-11-01
+
+        - Corrected previously generated prose.
+        - one (#11)
+
+        ## [v0.1.0] - 2026-10-01
+
+        - Older note.
+      version: "0.2.0"
+      tag: "v0.2.0"
+      date: "2026-11-12"
+    expected:
+      changelog: |
+        # Changelog
+
+        ## [v0.2.0] - 2026-11-12
+
+        - Reviewed upcoming note.
+
+        - Corrected previously generated prose.
+        - one (#11)
+        - two (#12)
+
+        ## [v0.1.0] - 2026-10-01
+
+        - Older note.
+      section: &rebuild_section |
+        ## [v0.2.0] - 2026-11-12
+
+        - one (#11)
+        - two (#12)
+      versions: {}
+    classification: must-pass
+    provenance: &rebuild_p {source: requirement, ref: "rebuilding an untagged version preserves reviewed prose without duplicating its section"}
+    mutation: &rebuild_m {description: "rebuild an existing version with new pending or corrected content"}
+  - name: rebuild-existing-version-is-idempotent
+    input:
+      config: *rebuild_config
+      pending: *rebuild_pending
+      base_changelog: &rebuild_unchanged |
+        # Changelog
+
+        ## [v0.2.0] - 2026-11-12
+
+        - Reviewed correction.
+        - one (#11)
+        - two (#12)
+
+        ## [v0.1.0] - 2026-10-01
+
+        - Older note.
+      version: "0.2.0"
+      tag: "v0.2.0"
+      date: "2026-11-12"
+    expected: {changelog: *rebuild_unchanged, section: *rebuild_section, versions: {}}
+    classification: must-pass
+    provenance: *rebuild_p
+    mutation: *rebuild_m
+  - name: rebuild-existing-version-keeps-reference-links
+    input:
+      config: *rebuild_config
+      pending: *rebuild_pending
+      base_changelog: |
+        # Changelog
+
+        ## [v0.2.0] - 2026-11-12
+
+        - one (#11)
+
+        [v0.2.0]: https://example.test/tag-tree
+      version: "0.2.0"
+      tag: "v0.2.0"
+      date: "2026-11-12"
+    expected:
+      changelog: |
+        # Changelog
+
+        ## [v0.2.0] - 2026-11-12
+
+        - one (#11)
+        - two (#12)
+
+        [v0.2.0]: https://example.test/tag-tree
+      section: *rebuild_section
+      versions: {}
+    classification: must-pass
+    provenance: *rebuild_p
+    mutation: *rebuild_m
   - name: two-minors-schema-style
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [{path: "package.json", field: "version"}], protected_paths: [], surfaces: {}, bot_branches: {}}

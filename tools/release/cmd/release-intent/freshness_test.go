@@ -31,12 +31,13 @@ const (
 	// snapshotTagChecksFull also checks the written full set.
 	snapshotTagChecksFull freshScenario = "snapshot-tag-checks-full"
 	// freshStaleRebuild rebuilds after a stale release commit.
-	freshStaleRebuild freshScenario = "stale-rebuild-single-section"
+	freshStaleRebuild       freshScenario = "stale-rebuild-single-section"
+	snapshotLaterCorrection freshScenario = "snapshot-later-correction"
 )
 
 var allFreshScenarios = []freshScenario{
 	freshAfterWrite, freshStaleNewReleasing, freshCheckStaleTree, freshOlderFreshNewerStale,
-	freshReadError, snapshotTagsBeforeLaterMinor, snapshotTagChecksFull, freshStaleRebuild,
+	freshReadError, snapshotTagsBeforeLaterMinor, snapshotTagChecksFull, freshStaleRebuild, snapshotLaterCorrection,
 }
 
 func (s *freshScenario) UnmarshalYAML(node *yaml.Node) error {
@@ -48,6 +49,7 @@ func (s *freshScenario) UnmarshalYAML(node *yaml.Node) error {
 type freshInput struct {
 	BaseChangelog string        `yaml:"baseChangelog"`
 	Scenario      freshScenario `yaml:"scenario"`
+	Correction    string        `yaml:"correction"`
 }
 
 type freshExpected struct {
@@ -146,6 +148,15 @@ func TestFreshness(t *testing.T) {
 			case freshAfterWrite:
 				r.Commit(titleCut, at(dateRelease))
 				assertPlanRow(t, c, r.Run(argvPlan...))
+			case snapshotLaterCorrection:
+				candidate := r.Commit(titleCut, at(dateRelease))
+				r.WriteChangelog(r.ReadChangelog() + c.Input.Correction)
+				r.Commit(titled(intent.TypeDocs, "changelog", intent.LevelNone, "correct history"), at(dateLater))
+				result := r.Run(argvPlan...)
+				assertPlanRow(t, c, result)
+				if got := outputValues(t, c.Name, result.Stdout)[intent.OutputCandidate]; got != candidate {
+					t.Fatalf("%s: candidate = %q, want release snapshot %q", c.Name, got, candidate)
+				}
 			case freshStaleNewReleasing, freshCheckStaleTree:
 				// A release built from an older tip: one releasing commit
 				// lands, then the stale content is committed as the release.

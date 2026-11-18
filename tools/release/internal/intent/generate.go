@@ -2,6 +2,7 @@ package intent
 
 import (
 	regexp "github.com/wasilibs/go-re2"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -42,6 +43,7 @@ var bracketHeading = regexp.MustCompile(
 		`(` + regexp.QuoteMeta(headingDateSep) + `(.+))?$`)
 
 // isSectionHeading reports whether a changelog line opens a section.
+// It is deliberately not fence-aware, so protected headings fail closed.
 func isSectionHeading(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), sectionMarker)
 }
@@ -49,6 +51,38 @@ func isSectionHeading(line string) bool {
 // isUnreleased reports whether heading text names the unreleased block.
 func isUnreleased(text string) bool {
 	return strings.EqualFold(strings.Trim(strings.TrimSpace(text), headingOpen+headingClose), unreleasedName)
+}
+
+// ChangelogHeadingsUnchanged compares the ordered, exact real section lines
+// using the same section and Unreleased rules as the generator. Prose and the
+// Unreleased block are not release identities.
+func ChangelogHeadingsUnchanged(base, head string) bool {
+	unreleasedCount := func(changelog string) int {
+		count := 0
+		for _, line := range strings.Split(changelog, "\n") {
+			if isSectionHeading(line) && isUnreleased(strings.TrimSpace(line)[len(sectionMarker):]) {
+				count++
+			}
+		}
+		return count
+	}
+	if unreleasedCount(head) > 1 && unreleasedCount(head) > unreleasedCount(base) {
+		return false
+	}
+	headings := func(changelog string) []string {
+		var result []string
+		for _, line := range strings.Split(changelog, "\n") {
+			if !isSectionHeading(line) {
+				continue
+			}
+			text := strings.TrimSpace(line)[len(sectionMarker):]
+			if !isUnreleased(text) {
+				result = append(result, line)
+			}
+		}
+		return result
+	}
+	return slices.Equal(headings(base), headings(head))
 }
 
 // collapseReleaseCuts folds repeated requests for the same release into one.
@@ -216,11 +250,104 @@ func sniffHeadingStyle(prefix, base string) (bracket, dated, useTag, found bool)
 	return true, false, true, false
 }
 
+// sectionIdentity reads the version in either heading style the generator
+// writes. The date is not part of the version: a rebuilt, untagged section
+// can acquire a newer pending commit date without becoming a second section.
+func sectionIdentity(line string) string {
+	if !isSectionHeading(line) {
+		return ""
+	}
+	trimmed := strings.TrimSpace(line)
+	if m := bracketHeading.FindStringSubmatch(trimmed); m != nil {
+		return m[1]
+	}
+	return strings.TrimSpace(trimmed[len(sectionMarker):])
+}
+
+// mergeExistingSection updates an already-generated section for this version.
+// This can happen when an untagged release commit is rebuilt. Keep its body
+// and reviewed corrections, add only missing generated lines, and carry the
+// first Unreleased block into it. A no-op preserves the base byte-for-byte.
+func mergeExistingSection(base, heading string, lines []string) (string, bool) {
+	ls := strings.Split(base, "\n")
+	target := -1
+	first := -1
+	for i, line := range ls {
+		if !isSectionHeading(line) {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		if sectionIdentity(line) == sectionIdentity(heading) {
+			target = i
+			break
+		}
+	}
+	if target < 0 {
+		return "", false
+	}
+
+	unreleased := ""
+	if first >= 0 && first < target && isUnreleased(strings.TrimSpace(ls[first])[len(sectionMarker):]) {
+		end := first + 1
+		for end < len(ls) && !isSectionHeading(ls[end]) {
+			end++
+		}
+		unreleased = strings.Trim(strings.Join(ls[first+1:end], "\n"), "\n")
+		ls = slices.Delete(ls, first, end)
+		target -= end - first
+	}
+	ls[target] = heading
+	if unreleased != "" {
+		add := append([]string{""}, strings.Split(unreleased, "\n")...)
+		ls = slices.Insert(ls, target+1, add...)
+	}
+
+	end := target + 1
+	for end < len(ls) && !isSectionHeading(ls[end]) {
+		end++
+	}
+	existing := make(map[string]bool, end-target-1)
+	for _, line := range ls[target+1 : end] {
+		existing[line] = true
+	}
+	var missing []string
+	for _, line := range lines {
+		if !existing[line] {
+			missing = append(missing, line)
+			existing[line] = true
+		}
+	}
+	if len(missing) > 0 {
+		insert := end
+		for i := target + 1; i < end; i++ {
+			// Reference definitions stay at the end of the section.
+			if strings.HasPrefix(strings.TrimSpace(ls[i]), "[") && strings.Contains(ls[i], "]:") {
+				insert = i
+				break
+			}
+		}
+		for insert > target+1 && strings.TrimSpace(ls[insert-1]) == "" {
+			insert--
+		}
+		if insert == target+1 {
+			missing = append([]string{""}, missing...)
+		}
+		ls = slices.Insert(ls, insert, missing...)
+	}
+	return strings.Join(ls, "\n"), true
+}
+
 // placeSection merges the new section into the base text. An [Unreleased]
-// block keeps its entries above the generated lines under the new heading;
+// block keeps its entries above the generated lines under the new heading.
+// A previously generated section for this version is updated in place;
 // otherwise the section goes before the first section. A base with no
 // section gains the new one after its preamble.
 func placeSection(base, heading string, lines []string) string {
+	if merged, ok := mergeExistingSection(base, heading, lines); ok {
+		return merged
+	}
 	ls := strings.Split(base, "\n")
 	first := -1
 	for i, line := range ls {

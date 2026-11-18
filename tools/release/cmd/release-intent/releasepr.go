@@ -89,20 +89,18 @@ func releasePRLines(push bool, decision intent.Decision) []outputLine {
 }
 
 // releaseContent renders the generator output for the decision's full pending
-// set, whatever action the plan chose for the candidate. The base
-// changelog is read at the range-base tag, or at the epoch when that is
-// newer; the date is the planner's newest-pending date, so write, check and
-// freshness render the same bytes on any day.
+// set, whatever action the plan chose for the candidate. The source tip's
+// changelog includes reviewed corrections made since the range base. The date
+// is the planner's newest-pending date, so write and check are deterministic.
 func releaseContent(ctx context.Context, runner GitRunner, cfg intent.Config, facts intent.Facts, decision intent.Decision) (intent.Content, error) {
 	full := decision.Full
 	if len(full.Pending) == 0 || full.Version == "" || full.Tag == "" {
 		return intent.Content{}, fmt.Errorf("%s: nothing to write: no pending releasing subjects (version is empty). Open a releasing PR first", intent.CommandReleasePR)
 	}
-	shas := make([]string, 0, len(facts.Commits))
-	for _, c := range facts.Commits {
-		shas = append(shas, c.SHA)
+	if len(facts.Commits) == 0 {
+		return intent.Content{}, fmt.Errorf("%s: cannot determine the source tip for release content: the branch has no commits", intent.CommandReleasePR)
 	}
-	baseRev := baseRevForRange(shas, facts.Tags, decision.RangeBase, facts.Epoch)
+	baseRev := facts.Commits[0].SHA
 	base, err := runner.ReadFile(ctx, baseRev, cfg.Changelog)
 	if err != nil {
 		var nf *NotFoundError

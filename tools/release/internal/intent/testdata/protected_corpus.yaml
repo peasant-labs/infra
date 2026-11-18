@@ -23,6 +23,9 @@ required_names:
   - release-freeze-glob-cannot-override-version-rule
   - release-protected-version-only
   - release-protected-version-other-content-rejected
+  - allowed-changelog-and-version-change-rejected
+  - cut-release-unchanged-headings-rejected
+  - changelog-allowance-does-not-bypass-protected-path
 cases:
   - name: release-protected-version-only
     input:
@@ -96,8 +99,40 @@ cases:
     expected: {code: "protected-path"}
     classification: must-fail
     sibling: release-pr-may-change
-    provenance: {source: requirement, ref: "protected paths: the changelog is written only by the release PR"}
-    mutation: {description: "an author edit to the changelog"}
+    provenance: {source: requirement, ref: "a changelog without proof of unchanged release headings is protected"}
+    mutation: {description: "the changelog changes without an unchanged-heading comparison"}
+  - name: allowed-changelog-and-version-change-rejected
+    input:
+      config: {changelog: CHANGELOG.md, version_files: [{path: package.json, field: version}]}
+      kind: ordinary
+      changes:
+        - {path: CHANGELOG.md, changelog_headings_unchanged: true}
+        - {path: package.json, protected_field_changed: true}
+    expected: {code: protected-path}
+    classification: must-fail
+    sibling: version-other-fields
+    provenance: {source: requirement, ref: "allowed changelog edits do not authorize a version-field change"}
+    mutation: {description: "combine a permitted changelog body edit with a protected version edit"}
+  - name: cut-release-unchanged-headings-rejected
+    input:
+      config: {changelog: CHANGELOG.md}
+      kind: cut-release
+      changes: [{path: CHANGELOG.md, changelog_headings_unchanged: true}]
+    expected: {code: release-content-scope}
+    classification: must-fail
+    sibling: cut-release-empty
+    provenance: {source: requirement, ref: "a cut-release PR may change no path"}
+    mutation: {description: "add a body-only changelog edit to an empty cut-release PR"}
+  - name: changelog-allowance-does-not-bypass-protected-path
+    input:
+      config: {changelog: CHANGELOG.md, protected_paths: [CHANGELOG.md]}
+      kind: ordinary
+      changes: [{path: CHANGELOG.md, changelog_headings_unchanged: true}]
+    expected: {code: protected-path}
+    classification: must-fail
+    sibling: unrelated-file
+    provenance: {source: boundary, ref: "a path separately protected in an unvalidated config is still protected"}
+    mutation: {description: "overlap the allowed changelog and a protected path"}
   - name: version-field-moved
     input:
       config:

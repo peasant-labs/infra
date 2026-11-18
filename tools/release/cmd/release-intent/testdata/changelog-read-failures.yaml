@@ -1,0 +1,33 @@
+required_names:
+  - source-tip-readable
+  - source-tip-unreadable
+  - candidate-parent-readable
+  - candidate-parent-unreadable
+cases:
+  cases:
+    - name: source-tip-readable
+      input: {scenario: source-tip, fail: false}
+      expected: {exit: 0}
+      classification: must-pass
+      provenance: &p {source: requirement, ref: "release changelog blob fetch failures never become accepts or stale verdicts"}
+      mutation: &m {description: "fail a source or parent changelog blob fetch"}
+    - name: source-tip-unreadable
+      input: {scenario: source-tip, fail: true}
+      expected: {exit: 1, message: "cannot read changelog"}
+      classification: must-fail
+      sibling: source-tip-readable
+      provenance: *p
+      mutation: *m
+    - name: candidate-parent-readable
+      input: {scenario: candidate-parent, fail: false}
+      expected: {exit: 0}
+      classification: must-pass
+      provenance: *p
+      mutation: *m
+    - name: candidate-parent-unreadable
+      input: {scenario: candidate-parent, fail: true}
+      expected: {exit: 1, message: "cannot read changelog"}
+      classification: must-fail
+      sibling: candidate-parent-readable
+      provenance: *p
+      mutation: *m

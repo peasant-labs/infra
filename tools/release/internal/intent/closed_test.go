@@ -83,6 +83,7 @@ func TestClosedSets(t *testing.T) {
 		intent.ErrOldReleaseTitle,
 		intent.ErrReleasesDisabled,
 		intent.ErrProtectedPath,
+		intent.ErrChangelogRelease,
 		intent.ErrNoFinalTag,
 		intent.ErrEpochMissing,
 		intent.ErrFloorNotOnChain,
@@ -120,7 +121,7 @@ func TestErrorCodeCoverage(t *testing.T) {
 		highestTagCorpusYAML, versionFieldCorpusYAML,
 		contentCorpusYAML, policyCorpusYAML, verifyTagCorpusYAML,
 		contractCorpusYAML, freezeCorpusYAML, freezeOutputCorpusYAML,
-		streamsCorpusYAML,
+		streamsCorpusYAML, changelogTitleCorpusYAML,
 	} {
 		var doc struct {
 			Cases []struct {

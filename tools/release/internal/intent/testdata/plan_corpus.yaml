@@ -43,6 +43,8 @@ required_names:
   - plan-only-with-fresh-candidate
   - mode-outside-the-set-is-an-error
   - verdict-outside-the-set-is-an-error
+  - correction-subject-excluded-from-release
+  - correction-does-not-displace-release-candidate
   - later-patch-next-release
   - later-docs-keeps-candidate-fresh
   - later-chore-keeps-candidate-fresh
@@ -125,6 +127,64 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "a freeze floor at the tip cannot truncate release planning"}
     mutation: {description: "Apply the on-chain freeze floor to the release range and the pending feature disappears."}
+  - name: correction-subject-excluded-from-release
+    input:
+      config: *release_config
+      facts:
+        commits:
+          - {sha: "cor", subject: "docs(changelog): correct history", changes_changelog: true}
+          - {sha: "fix", subject: "fix[patch]: repair behavior", changes_changelog: false}
+          - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
+        tags: {"v0.1.0": "b00"}
+        epoch: "b00"
+        mode: "tag"
+        verdict: "taggable"
+        fresh: {}
+    expected:
+      action: open-pr
+      range_base: "v0.1.0"
+      version_base: "v0.1.0"
+      candidate: ""
+      candidate_fresh: unknown
+      pending: &correction_pending
+        - {type: fix, scopes: [], level: patch, subject: "repair behavior"}
+      level: patch
+      version: "0.1.1"
+      tag: "v0.1.1"
+      full: {pending: *correction_pending, version: "0.1.1", tag: "v0.1.1"}
+    classification: must-pass
+    provenance: &correction_p {source: requirement, ref: "a changelog correction is neither a candidate nor a pending release subject"}
+    mutation: &correction_m {description: "put a reviewed correction before or after the real release commit"}
+  - name: correction-does-not-displace-release-candidate
+    input:
+      config: *release_config
+      facts:
+        commits:
+          - {sha: "cor2", subject: "docs(changelog): correct another note", changes_changelog: true}
+          - {sha: "rel", subject: "release[patch]: v0.1.1", changes_changelog: true}
+          - {sha: "cor", subject: "docs(changelog): correct history", changes_changelog: true}
+          - {sha: "fix", subject: "fix[patch]: repair behavior", changes_changelog: false}
+          - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
+        tags: {"v0.1.0": "b00"}
+        epoch: "b00"
+        mode: "tag"
+        verdict: "taggable"
+        fresh: {"rel": true}
+    expected:
+      action: tag
+      range_base: "v0.1.0"
+      version_base: "v0.1.0"
+      candidate: rel
+      candidate_fresh: fresh
+      pending: *correction_pending
+      level: patch
+      version: "0.1.1"
+      tag: "v0.1.1"
+      before: {pending: *correction_pending, version: "0.1.1", tag: "v0.1.1"}
+      full: {pending: *correction_pending, version: "0.1.1", tag: "v0.1.1"}
+    classification: must-pass
+    provenance: *correction_p
+    mutation: *correction_m
   - name: fresh-candidate-verify
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}

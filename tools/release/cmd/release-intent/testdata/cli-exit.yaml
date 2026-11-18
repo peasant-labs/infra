@@ -29,6 +29,10 @@ required_names:
   - check-title-release-scope-reject
   - check-title-cut-release-empty-accept
   - check-title-cut-release-file-reject
+  - check-title-changelog-body-and-links-accept
+  - check-title-changelog-heading-reject
+  - check-title-release-changelog-heading-accept
+  - check-title-cut-release-changelog-body-reject
   - verify-tag-accept
   - verify-tag-off-branch
   - verify-tag-bad-name
@@ -254,6 +258,81 @@ cases:
       sibling: check-title-accept
       provenance: {source: requirement, ref: "a title missing its bump bracket exits 2"}
       mutation: {description: "Runs the built binary in a temp repo with a title missing its bracket."}
+    - name: check-title-changelog-body-and-links-accept
+      input:
+        argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "octocat", "--head-branch", "feature/work"]
+        stdin: "docs: correct historical notes\n"
+        setup: title-changelog-edit
+        baseChangelog: &history |
+          # Changelog
+
+          ## [Unreleased]
+          - A human note.
+
+          ## [0.18.1] - 2026-01-02
+          - Published in error.
+
+          ## [0.18.0] - 2026-01-01
+          - Published in error.
+
+          [0.18.1]: https://example.test/old-1
+          [0.18.0]: https://example.test/old-0
+        headChangelog: &corrected |
+          # Changelog
+
+          ## [Unreleased]
+          - A human note.
+
+          ## [0.18.1] - 2026-01-02
+          - Tagged, not published.
+
+          ## [0.18.0] - 2026-01-01
+          - Tagged, not published.
+
+          [0.18.1]: https://github.com/peasant-labs/peasant/tree/v0.18.1
+          [0.18.0]: https://github.com/peasant-labs/peasant/tree/v0.18.0
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: &changelog_p {source: requirement, ref: "reviewed corrections to prior prose and reference links are allowed"}
+      mutation: &changelog_m {description: "change only changelog text or also change a release heading"}
+    - name: check-title-changelog-heading-reject
+      input:
+        argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "octocat", "--head-branch", "feature/work"]
+        stdin: "docs: correct historical notes\n"
+        setup: title-changelog-edit
+        baseChangelog: *history
+        headChangelog: &changed_heading |
+          # Changelog
+
+          ## [Unreleased]
+          - A human note.
+
+          ## [0.18.2] - 2026-01-02
+          - Tagged, not published.
+
+          ## [0.18.0] - 2026-01-01
+          - Tagged, not published.
+
+          [0.18.1]: https://github.com/peasant-labs/peasant/tree/v0.18.1
+          [0.18.0]: https://github.com/peasant-labs/peasant/tree/v0.18.0
+      expected: {exit: 2, stdout: ["error=protected-path"]}
+      classification: must-fail
+      sibling: check-title-changelog-body-and-links-accept
+      provenance: *changelog_p
+      mutation: *changelog_m
+    - name: check-title-release-changelog-heading-accept
+      input: {argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "SETUP_BOT_AUTHOR", "--head-branch", "SETUP_RELEASE_BRANCH"], stdin: "release[minor]: publish the pending changes\n", setup: title-changelog-edit, baseChangelog: *history, headChangelog: *changed_heading}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "the bot release PR may change release headings"}
+      mutation: {description: "classify the same heading edit as the release bot branch"}
+    - name: check-title-cut-release-changelog-body-reject
+      input: {argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "SETUP_BOT_AUTHOR", "--head-branch", "SETUP_CUT_RELEASE_BRANCH"], stdin: "release[patch]: cut a release\n", setup: title-changelog-edit, baseChangelog: *history, headChangelog: *corrected}
+      expected: {exit: 2, stdout: ["error=release-content-scope"]}
+      classification: must-fail
+      sibling: check-title-cut-release-empty-accept
+      provenance: {source: requirement, ref: "the cut-release PR may not change any path, even changelog prose"}
+      mutation: {description: "change only changelog prose in a cut-release PR"}
     - name: check-title-release-content-accept
       input: {argv: ["check-title", "--base", "SETUP_BASE", "--head", "SETUP_HEAD", "--author", "SETUP_BOT_AUTHOR", "--head-branch", "SETUP_RELEASE_BRANCH"], stdin: "release[minor]: publish the pending changes\n", setup: "title-release-content"}
       expected: {exit: 0, stdout: ["error="]}

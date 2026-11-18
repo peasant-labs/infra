@@ -1,0 +1,26 @@
+required_names:
+  - range-base-instead-of-tip
+  - range-base-instead-of-parent
+  - any-changelog-commit-is-candidate
+mutations:
+  - name: range-base-instead-of-tip
+    source: releasepr.go
+    find: "baseRev := facts.Commits[0].SHA"
+    replace: "baseRev := facts.Tags[decision.RangeBase]"
+    witness: '^TestCorrectionPreservation$/^reviewed-correction-write-and-tag$'
+    failure_text: "corrected text missing"
+    control: '^TestCLIExitCodes$/^check-title-accept$'
+  - name: range-base-instead-of-parent
+    source: gather.go
+    find: "if candidateIndex+1 < len(commits) {"
+    replace: "if false && candidateIndex+1 < len(commits) {"
+    witness: '^TestCorrectionPreservation$/^reviewed-correction-write-and-tag$'
+    failure_text: "candidate plan ="
+    control: '^TestCLIExitCodes$/^check-title-accept$'
+  - name: any-changelog-commit-is-candidate
+    source: ../../internal/intent/plan.go
+    find: " || p.title.Type != TypeRelease"
+    replace: ""
+    witness: '^TestCorrectionPreservation$/^reviewed-correction-write-and-tag$'
+    failure_text: "candidate plan ="
+    control: '^TestCLIExitCodes$/^check-title-accept$'

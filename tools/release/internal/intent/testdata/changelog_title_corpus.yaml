@@ -1,0 +1,41 @@
+required_names: [feature-changelog, fix-changelog, human-release-changelog, docs-changelog, feature-no-changelog, bot-release]
+cases:
+  - name: feature-changelog
+    input: {title: {type: feat, level: minor}, kind: ordinary, changed: true}
+    expected: {code: changelog-release-title}
+    classification: must-fail
+    sibling: docs-changelog
+    provenance: &p {source: requirement, ref: "changelog edits cannot hide release intent"}
+    mutation: &m {description: "vary title, author classification and changed paths"}
+  - name: fix-changelog
+    input: {title: {type: fix, level: patch}, kind: ordinary, changed: true}
+    expected: {code: changelog-release-title}
+    classification: must-fail
+    sibling: docs-changelog
+    provenance: *p
+    mutation: *m
+  - name: human-release-changelog
+    input: {title: {type: release, level: patch}, kind: ordinary, changed: true}
+    expected: {code: changelog-release-title}
+    classification: must-fail
+    sibling: bot-release
+    provenance: *p
+    mutation: *m
+  - name: docs-changelog
+    input: {title: {type: docs, level: none}, kind: ordinary, changed: true}
+    expected: {}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - name: feature-no-changelog
+    input: {title: {type: feat, level: minor}, kind: ordinary, changed: false}
+    expected: {}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - name: bot-release
+    input: {title: {type: release, level: patch}, kind: release, changed: true}
+    expected: {}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
