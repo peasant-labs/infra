@@ -314,6 +314,17 @@
       )
       func newTestRouter(h http.HandlerFunc) { chi.NewRouter().Get("/fixture", h) }
   expect: []
+- name: directive preserves physical location
+  files:
+    router.go: |
+      //line other.go:100
+      package fixture
+      import (
+      	"net/http"
+      	"github.com/go-chi/chi/v5"
+      )
+      func New(h http.HandlerFunc) { chi.NewRouter().Get("/physical", h) }
+  expect: [{file: router.go, line: 7, receiver: "*chi.Mux", method: Get, pattern: /physical}]
 - name: overlapping roots
   roots: [., sub]
   files:

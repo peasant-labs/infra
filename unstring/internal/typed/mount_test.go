@@ -54,6 +54,7 @@ var requiredMountFixtures = []string{
 	"non-literal patterns",
 	"literal concatenation",
 	"production directive names test file",
+	"directive preserves physical location",
 	"test directive names production file",
 	"overlapping roots",
 	"router package not imported",
