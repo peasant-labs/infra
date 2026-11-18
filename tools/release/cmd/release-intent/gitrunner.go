@@ -80,6 +80,9 @@ const (
 	optNoRenames     gitOption = "--no-renames"
 	optWriteTree     gitOption = "--write-tree"
 	optIsAncestor    gitOption = "--is-ancestor"
+	optRaw           gitOption = "--raw"
+	optNulTerminated gitOption = "-z"
+	optNoAbbrev      gitOption = "--no-abbrev"
 )
 
 // Output formats. Fields are NUL-separated: a subject cannot hold a NUL.
@@ -160,6 +163,12 @@ func mergeBaseOf(base, head string) gitInvocation {
 // rename detection.
 func changedNames(from, to string) gitInvocation {
 	return gitInvocation{sub: gitDiff, options: []gitOption{optNameOnly, optNoRenames}, revisions: []string{from, to}, separatePaths: true}
+}
+
+// rawTreeDiff lists every path that differs between two trees with both
+// modes and the status letter, NUL-terminated, with no rename detection.
+func rawTreeDiff(from, to string) gitInvocation {
+	return gitInvocation{sub: gitDiff, options: []gitOption{optRaw, optNulTerminated, optNoRenames, optNoAbbrev}, revisions: []string{from, to}, separatePaths: true}
 }
 
 // isAncestorOf asks whether branch reaches commit; git answers with the exit

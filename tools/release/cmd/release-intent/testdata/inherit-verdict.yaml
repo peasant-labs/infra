@@ -1,0 +1,200 @@
+# inherit-verdict process corpus: each row builds a temp repository whose base
+# commit carries the release config, the queue policy and the aggregator's
+# workflow, applies its head edits as one commit, and runs the built binary
+# against a local GitHub API that serves the named route set. {{base}} in a
+# path or body is the base commit. A route's responses are served in order and
+# the last one repeats; next names the following page for the Link header, and
+# next_url names an absolute one. An unrouted request is a 404.
+#
+# expected.lines are the step-output lines, in order; stderr fragments must
+# appear in the diagnostic. Every reject names its accept sibling.
+required_names:
+  - release-pr-inherits
+  - release-pr-inherits-paginated
+  - source-file-runs-suite
+  - version-ordinary-field-runs-suite
+  - version-unreadable-runs-suite
+  - changelog-renamed-runs-suite
+  - changelog-mode-runs-suite
+  - workflow-edit-runs-suite
+  - failed-base-fails-closed
+  - api-error-fails
+  - foreign-next-page-refused
+  - policy-without-inherit-fails
+repo: OWNER/REPO
+policy: &policy |
+  queue:
+    required:
+      - {context: merge-gate, workflow: tests.yml, job: merge-gate, aggregator: true}
+    inherit_verdict: {context: merge-gate, full_suite_job: check}
+policy_without_inherit: |
+  queue:
+    required:
+      - {context: merge-gate, workflow: tests.yml, job: merge-gate, aggregator: true}
+workflow_path: .github/workflows/tests.yml
+workflow: |
+  name: Tests
+  on: [pull_request, merge_group]
+  jobs:
+    check:
+      name: make check
+      runs-on: ubuntu-latest
+      steps: [{run: make check}]
+    merge-gate:
+      if: always()
+      needs: [check]
+      runs-on: ubuntu-latest
+      steps: [{run: echo gate}]
+routes:
+  verdict-full: &verdict_full
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
+      responses: [{status: 200, body: '{"total_count":2,"check_runs":[{"id":11,"name":"merge-gate","status":"completed","conclusion":"success","app":{"slug":"github-actions"}},{"id":12,"name":"make check","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'}]
+    - &job11
+      path: /repos/OWNER/REPO/actions/jobs/11
+      responses: [{status: 200, body: '{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"completed","conclusion":"success","steps":[{"name":"verdict-source: full","status":"completed","conclusion":"success"},{"name":"verdict-source: inherited","status":"completed","conclusion":"skipped"},{"name":"verdict-source: unaffected","status":"completed","conclusion":"skipped"}]}'}]
+    - &run21
+      path: /repos/OWNER/REPO/actions/runs/21
+      responses: [{status: 200, body: '{"id":21,"event":"merge_group","path":".github/workflows/tests.yml","head_sha":"{{base}}","run_attempt":1,"status":"completed","conclusion":"success"}'}]
+    - &run21jobs
+      path: /repos/OWNER/REPO/actions/runs/21/jobs?filter=all&per_page=100
+      responses: [{status: 200, body: '{"total_count":2,"jobs":[{"id":12,"run_id":21,"run_attempt":1,"name":"make check","status":"completed","conclusion":"success"},{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"completed","conclusion":"success"}]}'}]
+  verdict-paginated:
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
+      responses: [{status: 200, next: '/repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100&page=2', body: '{"total_count":2,"check_runs":[{"id":13,"name":"title-guard","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'}]
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100&page=2
+      responses: [{status: 200, body: '{"total_count":2,"check_runs":[{"id":11,"name":"merge-gate","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'}]
+    - *job11
+    - *run21
+    - *run21jobs
+  verdict-failed:
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
+      responses: [{status: 200, body: '{"total_count":1,"check_runs":[{"id":11,"name":"merge-gate","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}]}'}]
+    - path: /repos/OWNER/REPO/actions/jobs/11
+      responses: [{status: 200, body: '{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"completed","conclusion":"failure","steps":[]}'}]
+    - path: /repos/OWNER/REPO/actions/runs/21
+      responses: [{status: 200, body: '{"id":21,"event":"merge_group","path":".github/workflows/tests.yml","head_sha":"{{base}}","run_attempt":1,"status":"completed","conclusion":"failure"}'}]
+  api-error:
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
+      responses: [{status: 500, body: '{"message":"Server Error"}'}]
+  foreign-next:
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
+      responses: [{status: 200, next_url: 'https://elsewhere.invalid/repos/OWNER/REPO/commits/{{base}}/check-runs?page=2', body: '{"total_count":2,"check_runs":[]}'}]
+  none: []
+  # The wait row is driven in process with a fake clock: the base's queue run
+  # is in progress on the first read and finished on the second.
+  verdict-pending-then-full:
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
+      responses:
+        - {status: 200, body: '{"total_count":1,"check_runs":[{"id":11,"name":"merge-gate","status":"in_progress","conclusion":null,"app":{"slug":"github-actions"}}]}'}
+        - {status: 200, body: '{"total_count":1,"check_runs":[{"id":11,"name":"merge-gate","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'}
+    - path: /repos/OWNER/REPO/actions/jobs/11
+      responses:
+        - {status: 200, body: '{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"in_progress","conclusion":null,"steps":[]}'}
+        - {status: 200, body: '{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"completed","conclusion":"success","steps":[{"name":"verdict-source: full","status":"completed","conclusion":"success"},{"name":"verdict-source: inherited","status":"completed","conclusion":"skipped"},{"name":"verdict-source: unaffected","status":"completed","conclusion":"skipped"}]}'}
+    - path: /repos/OWNER/REPO/actions/runs/21
+      responses:
+        - {status: 200, body: '{"id":21,"event":"merge_group","path":".github/workflows/tests.yml","head_sha":"{{base}}","run_attempt":1,"status":"in_progress","conclusion":null}'}
+        - {status: 200, body: '{"id":21,"event":"merge_group","path":".github/workflows/tests.yml","head_sha":"{{base}}","run_attempt":1,"status":"completed","conclusion":"success"}'}
+    - *run21jobs
+cases:
+  - name: release-pr-inherits
+    input:
+      edits: &release_edits [{op: version, value: 0.2.0}, {op: append-changelog, text: "\n## [0.2.0] - 2026-11-18\n\n- feat: x\n"}]
+      routes: verdict-full
+    expected: {exit: 0, lines: [release_only=true, reason=release-only, inherit=true, "inherited_from={{base}}", verdict_source=full]}
+    classification: must-pass
+    provenance: &pr268 {source: bug, ref: "schema release PR 268: changelog plus package.json version on a base whose queue run passed"}
+    mutation: {description: "The bot release PR's change over a base with a full queue verdict."}
+  - name: release-pr-inherits-paginated
+    input:
+      edits: *release_edits
+      routes: verdict-paginated
+    expected: {exit: 0, lines: [release_only=true, reason=release-only, inherit=true, "inherited_from={{base}}", verdict_source=full]}
+    classification: must-pass
+    provenance: {source: requirement, ref: "check runs are read paginated with filter=all"}
+    mutation: {description: "The aggregator check run is on the second page."}
+  - name: source-file-runs-suite
+    input:
+      edits: [{op: version, value: 0.2.0}, {op: append-changelog, text: "\n- x\n"}, {op: write, path: main.go, content: "package main\n"}]
+      routes: none
+    expected: {exit: 0, lines: [release_only=false, reason=path-not-modified-in-place, inherit=false]}
+    classification: must-pass
+    provenance: &suite {source: requirement, ref: "a change that is not release-only runs the full suite and reads no API"}
+    mutation: {description: "Add a source file; no route exists, so any API read would fail."}
+  - name: version-ordinary-field-runs-suite
+    input:
+      edits: [{op: version, value: 0.2.0}, {op: ordinary, key: description, value: changed}, {op: append-changelog, text: "\n- x\n"}]
+      routes: none
+    expected: {exit: 0, lines: [release_only=false, reason=version-file-other-content, inherit=false]}
+    classification: must-pass
+    provenance: *suite
+    mutation: {description: "Change a package.json field other than the version."}
+  - name: version-unreadable-runs-suite
+    input:
+      edits: [{op: raw-version, content: "{not json\n"}, {op: append-changelog, text: "\n- x\n"}]
+      routes: none
+    expected: {exit: 0, lines: [release_only=false, reason=version-file-other-content, inherit=false]}
+    classification: must-pass
+    provenance: {source: requirement, ref: "an unreadable version field is never release content"}
+    mutation: {description: "The head's version file does not parse."}
+  - name: changelog-renamed-runs-suite
+    input:
+      edits: [{op: rename, path: CHANGELOG.md, to: HISTORY.md}]
+      routes: none
+    expected: {exit: 0, lines: [release_only=false, reason=path-not-modified-in-place, inherit=false]}
+    classification: must-pass
+    provenance: *suite
+    mutation: {description: "Rename the changelog: a deletion plus an addition."}
+  - name: changelog-mode-runs-suite
+    input:
+      edits: [{op: append-changelog, text: "\n- x\n"}, {op: chmod-exec, path: CHANGELOG.md}]
+      routes: none
+    expected: {exit: 0, lines: [release_only=false, reason=mode-changed, inherit=false]}
+    classification: must-pass
+    provenance: *suite
+    mutation: {description: "Make the changelog executable."}
+  - name: workflow-edit-runs-suite
+    input:
+      edits: [{op: version, value: 0.2.0}, {op: append-changelog, text: "\n- x\n"}, {op: write, path: .github/workflows/tests.yml, content: "name: Tests\n"}]
+      routes: none
+    expected: {exit: 0, lines: [release_only=false, reason=path-outside-release-content, inherit=false]}
+    classification: must-pass
+    provenance: *suite
+    mutation: {description: "Edit the aggregator's workflow beside the release content."}
+  - name: failed-base-fails-closed
+    input:
+      edits: *release_edits
+      routes: verdict-failed
+    expected: {exit: 2, lines: [release_only=true, reason=release-only, inherit=false, error=base-verdict-failed], stderr: ["{{base}}", "rerun the base commit's merge-queue run"]}
+    sibling: release-pr-inherits
+    classification: must-fail
+    provenance: {source: requirement, ref: "a failed base verdict fails the release gate; it never falls back to tests"}
+    mutation: {description: "The base's queue run failed."}
+  - name: api-error-fails
+    input:
+      edits: *release_edits
+      routes: api-error
+    expected: {exit: 1, lines: [release_only=true, reason=release-only], stderr: ["500"]}
+    sibling: release-pr-inherits
+    classification: must-fail
+    provenance: {source: requirement, ref: "an API error is a failure, never a verdict"}
+    mutation: {description: "The check-runs read returns 500."}
+  - name: foreign-next-page-refused
+    input:
+      edits: *release_edits
+      routes: foreign-next
+    expected: {exit: 1, lines: [release_only=true, reason=release-only], stderr: ["refusing to follow it"]}
+    sibling: release-pr-inherits-paginated
+    classification: must-fail
+    provenance: {source: requirement, ref: "the token never leaves the API host"}
+    mutation: {description: "The next page points at another host."}
+  - name: policy-without-inherit-fails
+    input:
+      edits: *release_edits
+      routes: verdict-full
+      policy_without_inherit: true
+    expected: {exit: 1, lines: [release_only=true, reason=release-only], stderr: ["no inherit_verdict section"]}
+    sibling: release-pr-inherits
+    classification: must-fail
+    provenance: {source: requirement, ref: "inheritance is opt-in through the queue policy at the base"}
+    mutation: {description: "The base's queue policy does not opt in."}

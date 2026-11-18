@@ -61,6 +61,17 @@ const (
 	OutputFrozen   OutputKey = "frozen"
 	OutputTitle    OutputKey = "title"
 	OutputSource   OutputKey = "source"
+	// OutputReleaseOnly carries whether a tree change is release content only.
+	OutputReleaseOnly OutputKey = "release_only"
+	// OutputReason carries the ReleaseOnlyReason behind release_only.
+	OutputReason OutputKey = "reason"
+	// OutputInherit carries whether the candidate inherits its base's verdict
+	// and may skip the full suite.
+	OutputInherit OutputKey = "inherit"
+	// OutputInheritedFrom carries the base commit whose verdict is inherited.
+	OutputInheritedFrom OutputKey = "inherited_from"
+	// OutputVerdictSource carries the VerdictSource of the inherited verdict.
+	OutputVerdictSource OutputKey = "verdict_source"
 )
 
 // AllOutputKeys is the canonical closed set of step-output keys.
@@ -69,6 +80,7 @@ var AllOutputKeys = []OutputKey{
 	OutputCandidateFresh, OutputLevel, OutputBreaking, OutputVersion,
 	OutputTag, OutputError, OutputPR, OutputGate, OutputFresh, OutputPush,
 	OutputKind, OutputOK, OutputSurfaces, OutputFrozen, OutputTitle, OutputSource,
+	OutputReleaseOnly, OutputReason, OutputInherit, OutputInheritedFrom, OutputVerdictSource,
 }
 
 func (k OutputKey) String() string { return string(k) }

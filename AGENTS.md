@@ -172,6 +172,14 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   be a required check.
 - **The module depends on no other `peasant-labs` module.** Its test support
   lives in `tools/release/internal/testcase`.
+- **`inherit-verdict` is the only command that reads the network.** It uses
+  read-only GitHub REST GETs over the standard library (`githubapi.go`), never
+  a client library, and fails closed: a release-only candidate whose base
+  commit has no successful, marker-recorded merge-queue verdict is rejected,
+  never sent back to the test suite. The release-only set is the changelog and
+  version fields only; never widen it with `protected_paths` or
+  `freeze_outputs`. The rule is in the
+  [README](tools/release/README.md#verdict-inheritance).
 - **Changelog body corrections go through a normal reviewed PR.** Prose,
   reference links, and the `[Unreleased]` block are editable; ordered release
   headings and protected version fields stay bot-only; a normal PR may not add

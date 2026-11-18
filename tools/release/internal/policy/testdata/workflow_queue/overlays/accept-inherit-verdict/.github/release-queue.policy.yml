@@ -1,0 +1,17 @@
+# The base policy plus verdict inheritance: a release-only candidate may
+# inherit the merge-gate verdict its base commit's queue run recorded instead
+# of running the lib job again.
+queue:
+  required:
+    - { context: merge-gate, workflow: ci.yml, job: merge-gate, aggregator: true }
+    - { context: title-guard, workflow: title-guard.yml, job: title-guard, guard: true }
+  release_job:
+    workflow: release-batch.yml
+    job: release
+    pre_tag_steps: [{id: verify-config, check: config}, {id: verify-workflows, check: workflows}]
+  bot_jobs:
+    - { workflow: cut-release.yml, job: cut, kind: cut-release }
+    - { workflow: nix-vendor-hash.yml, job: update, kind: vendor-hash }
+  inherit_verdict:
+    context: merge-gate
+    full_suite_job: lib

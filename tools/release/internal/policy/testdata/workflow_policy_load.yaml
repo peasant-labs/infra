@@ -34,7 +34,13 @@ required_names:
   - pre-tag-unknown-check
   - pre-tag-unknown-field
   - pre-tag-duplicate-id
+  - inherit-verdict-policy
+  - inherit-verdict-not-aggregator
+  - inherit-verdict-without-full-suite
 cases:
+  - {name: inherit-verdict-policy, input: {policy: "queue:\n  required: [{context: merge-gate, workflow: ci.yml, job: merge-gate, aggregator: true}]\n  inherit_verdict: {context: merge-gate, full_suite_job: check}\n"}, expected: {}, classification: must-pass, provenance: &inherit_p {source: requirement, ref: "release-only candidates inherit the base commit's queue verdict"}, mutation: &inherit_m {description: "Change one inherit_verdict field."}}
+  - {name: inherit-verdict-not-aggregator, input: {policy: "queue:\n  required: [{context: merge-gate, workflow: ci.yml, job: merge-gate}]\n  inherit_verdict: {context: merge-gate, full_suite_job: check}\n"}, expected: {want_contains: ["no required entry marked aggregator"]}, sibling: inherit-verdict-policy, classification: must-fail, provenance: *inherit_p, mutation: *inherit_m}
+  - {name: inherit-verdict-without-full-suite, input: {policy: "queue:\n  required: [{context: merge-gate, workflow: ci.yml, job: merge-gate, aggregator: true}]\n  inherit_verdict: {context: merge-gate}\n"}, expected: {want_contains: ["empty full_suite_job"]}, sibling: inherit-verdict-policy, classification: must-fail, provenance: *inherit_p, mutation: *inherit_m}
   - {name: typed-pre-tag-steps, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [{id: verify, check: contract}]\n"}, expected: {}, classification: must-pass, provenance: &pretag_p {source: requirement, ref: "typed pre-tag policy"}, mutation: &pretag_m {description: "Change one pre-tag declaration."}}
   - {name: bare-pre-tag-step, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [verify]\n"}, expected: {want_contains: ["mapping {id, check}"]}, sibling: typed-pre-tag-steps, classification: must-fail, provenance: *pretag_p, mutation: *pretag_m}
   - {name: pre-tag-missing-check, input: {policy: "queue:\n  required: [{context: title-guard, workflow: title-guard.yml, job: title-guard}]\n  release_job:\n    workflow: release-batch.yml\n    job: release\n    pre_tag_steps: [{id: verify}]\n"}, expected: {want_contains: ["unknown check"]}, sibling: typed-pre-tag-steps, classification: must-fail, provenance: *pretag_p, mutation: *pretag_m}

@@ -9,6 +9,15 @@
 # required_names is the manifest: every case must be listed and every listed
 # case must exist, so a dropped or stray sample fails loudly.
 required_names:
+  - accept-inherit-verdict
+  - accept-inherit-verdict-unset
+  - reject-inherit-verdict-no-full-suite-need
+  - reject-inherit-verdict-no-caller
+  - reject-inherit-verdict-caller-permissions
+  - reject-inherit-verdict-marker-missing
+  - reject-inherit-verdict-marker-unconditional
+  - reject-inherit-verdict-full-suite-name-expression
+  - reject-inherit-verdict-stray-marker
   - accept-pretag-checks
   - accept-no-pretag-steps
   - accept-range-floor-freeze-plan
@@ -3322,3 +3331,87 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "release create and publish gates" }
     mutation: { description: "Remove the list check from the schema create gate." }
+  - name: accept-inherit-verdict
+    input: { overlay: accept-inherit-verdict }
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "The aggregator needs the full suite and the inherit-verdict job, and ends with the three marker steps." }
+  - name: accept-inherit-verdict-unset
+    input: { overlay: "" }
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: [] }
+    sibling: ""
+    classification: must-pass
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "A policy without inherit_verdict asks nothing of the aggregator." }
+  - name: reject-inherit-verdict-no-full-suite-need
+    input:
+      overlay: accept-inherit-verdict
+      edits:
+        - {file: workflows/ci.yml, old: "needs: [changes, lib]", new: "needs: [changes]"}
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: ["does not need the full-suite job"] }
+    sibling: accept-inherit-verdict
+    classification: must-fail
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "Drop the full-suite job from the aggregator needs." }
+  - name: reject-inherit-verdict-no-caller
+    input:
+      overlay: accept-inherit-verdict
+      edits:
+        - {file: workflows/ci.yml, old: "release-intent inherit-verdict --base \"$BASE\" --head \"$HEAD\" --repo \"$GITHUB_REPOSITORY\"", new: "echo skip"}
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: ["no job the aggregator needs runs release-intent inherit-verdict"] }
+    sibling: accept-inherit-verdict
+    classification: must-fail
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "Stop proving the inherited verdict in the run." }
+  - name: reject-inherit-verdict-caller-permissions
+    input:
+      overlay: accept-inherit-verdict
+      edits:
+        - {file: workflows/ci.yml, old: "      checks: read\n", new: ""}
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: ["without permissions checks: read"] }
+    sibling: accept-inherit-verdict
+    classification: must-fail
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "Drop checks read from the job that reads the base verdict." }
+  - name: reject-inherit-verdict-marker-missing
+    input:
+      overlay: accept-inherit-verdict
+      edits:
+        - {file: workflows/ci.yml, old: "      - name: \"verdict-source: unaffected\"\n        if: needs.lib.result == 'skipped' && needs.changes.outputs.inherit != 'true'\n        run: echo unaffected\n", new: ""}
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: ["not the verdict marker steps in order"] }
+    sibling: accept-inherit-verdict
+    classification: must-fail
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "Remove the unaffected marker step." }
+  - name: reject-inherit-verdict-marker-unconditional
+    input:
+      overlay: accept-inherit-verdict
+      edits:
+        - {file: workflows/ci.yml, old: "        if: needs.lib.result == 'success'\n", new: ""}
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: ["has no if"] }
+    sibling: accept-inherit-verdict
+    classification: must-fail
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "Record the full marker on every run." }
+  - name: reject-inherit-verdict-full-suite-name-expression
+    input:
+      overlay: accept-inherit-verdict
+      edits:
+        - {file: workflows/ci.yml, old: "    name: make lib\n", new: "    name: make ${{ github.event_name }}\n"}
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: ["not one literal string"] }
+    sibling: accept-inherit-verdict
+    classification: must-fail
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "Name the full-suite job with an expression." }
+  - name: reject-inherit-verdict-stray-marker
+    input:
+      overlay: accept-inherit-verdict
+      edits:
+        - {file: workflows/ci.yml, old: "      - run: echo gate\n", new: "      - name: \"verdict-source: full\"\n        run: echo early\n"}
+    expected: { rule: inherited-verdicts-are-recorded, want_contains: ["uses the marker prefix outside the final marker steps"] }
+    sibling: accept-inherit-verdict
+    classification: must-fail
+    provenance: { source: requirement, ref: "release-only candidates inherit the base commit's queue verdict" }
+    mutation: { description: "Add a marker-named step before the final markers." }

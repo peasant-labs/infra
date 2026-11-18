@@ -84,6 +84,10 @@ func shapeOf(f intent.Flag) flagShape {
 		return flagShape{"FILE", "the freeze plan output"}
 	case intent.FlagFreezePlan:
 		return flagShape{"FILE", "the freeze plan used for the release commit"}
+	case intent.FlagRepo:
+		return flagShape{"OWNER/NAME", "the repository whose base-commit checks are read"}
+	case intent.FlagWait:
+		return flagShape{"DURATION", "how long to wait for a pending base verdict, for example 20m"}
 	case intent.FlagPrintRangeBase:
 		return flagShape{"", "print the final tag before the revision without judging"}
 	default:

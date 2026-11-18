@@ -261,3 +261,71 @@ declared check must run the matching single command; `contract` needs
 `schema-gen freeze --check`. An optional `nix develop -c` wrapper (or one
 literal flake reference before `-c`) is the only accepted wrapper. Empty
 `pre_tag_steps: []` is valid; bare string entries are not.
+
+## Verdict inheritance
+
+A release-only candidate inherits its exact base commit's merge-queue verdict
+instead of running the full suite again:
+
+```sh
+release-intent inherit-verdict --base "$BASE_SHA" --head "$HEAD_SHA" --repo "$GITHUB_REPOSITORY" [--wait 20m]
+```
+
+`--base` and `--head` are full commit SHAs. The release config, the queue
+policy and the aggregator's workflow are read at the base, so a candidate
+cannot widen what counts as release content.
+
+**Release-only.** The whole `base..head` tree diff (not a merge-base range)
+must modify in place the changelog and, optionally, version files whose only
+difference is the configured version field. An addition, deletion, rename,
+type or mode change, an unreadable version file, any other path, a diff that
+does not touch the changelog, and an empty diff all mean "not release-only".
+`protected_paths` and `freeze_outputs` never qualify: they authorize what the
+release bot writes, and spec-freeze outputs must run the full suite. The
+command prints `release_only=` and `reason=`; a change that is not
+release-only prints `inherit=false` and exits 0.
+
+**The base verdict.** The queue policy opts in:
+
+```yaml
+queue:
+  required:
+    - {context: merge-gate, workflow: tests.yml, job: merge-gate, aggregator: true}
+  inherit_verdict: {context: merge-gate, full_suite_job: check}
+```
+
+The command lists the base commit's check runs (`filter=all`, paginated) and
+accepts only the aggregator context from the `github-actions` app, on the one
+`merge_group` run of the aggregator's workflow whose head is the base. That
+run and the aggregator's latest attempt must both be completed with
+`success`; an older successful attempt does not count. A push or
+pull_request run on the same commit is not an input. Anything else exits 2
+with `inherit=false` and one of `base-verdict-missing`,
+`base-verdict-pending`, `base-verdict-failed`, `base-verdict-ambiguous` or
+`base-verdict-producer`: the gate fails closed and never falls back to
+running tests. API and read failures exit 1. `--wait` re-reads a missing or
+pending verdict every 30 seconds until the duration ends, for a merge group
+built on a group still ahead of it in the queue. The token (`GH_TOKEN` or
+`GITHUB_TOKEN`) needs `checks: read` and `actions: read`; it is never sent
+to a next-page URL off `GITHUB_API_URL`.
+
+**Transitivity.** The aggregator ends with three marker steps, named
+literally `verdict-source: full`, `verdict-source: inherited` and
+`verdict-source: unaffected`, exactly one of which runs per run. The command
+reads the marker from the jobs API and prints it as `verdict_source=`, with
+`inherited_from=<base>`. Any source is accepted, but `full` also requires the
+full-suite job's latest attempt in that run to have passed. An inherited
+verdict was itself granted only over a proven base, so every chain ends at a
+run where the full suite ran (or where the path filter found no code change
+over such a run).
+
+**Bootstrap.** A base whose aggregator has no marker steps was built before
+this rule. It is accepted as `legacy-full` only when the same run's
+full-suite job passed on its latest attempt; a pre-marker run that skipped
+the full suite is `base-verdict-failed`.
+
+`check-workflows` enforces the shape (`inherited-verdicts-are-recorded`):
+the aggregator needs the full-suite job and a job that runs `inherit-verdict`
+with `checks: read` and `actions: read`, the full-suite job has a literal
+name, and the aggregator ends with the three marker steps in order, each
+with an `if` and no `continue-on-error`.

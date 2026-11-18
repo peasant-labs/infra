@@ -139,6 +139,12 @@ const (
 	// CLI vocabulary the tool parses its own arguments with. A call that
 	// fails this fails at run time, after the check passed.
 	QueueRuleToolCalls QueueRule = "tool-calls-match-the-cli"
+	// QueueRuleInheritVerdict holds a repository that opts into verdict
+	// inheritance to a shape the tool can read back: the aggregator needs the
+	// full-suite job and a job that runs inherit-verdict with checks and
+	// actions read, the full-suite job has a literal name, and the aggregator
+	// ends with one marker step per recorded verdict source.
+	QueueRuleInheritVerdict QueueRule = "inherited-verdicts-are-recorded"
 )
 
 // AllQueueRules is the canonical ordered closed set, used by generators and
@@ -166,6 +172,7 @@ var AllQueueRules = []QueueRule{
 	QueueRuleToolPin,
 	QueueRuleClassify,
 	QueueRuleToolCalls,
+	QueueRuleInheritVerdict,
 }
 
 // String renders the rule for diagnostic messages and CLI output.
@@ -322,10 +329,21 @@ func botKindValid(kind intent.PRKind) bool {
 // BotJobs lists every other job that may push a branch. CommentJobs lists the
 // jobs that may comment without owning a branch.
 type QueueSection struct {
-	Required    []RequiredContext `yaml:"required"`
-	ReleaseJob  *ReleaseJobRule   `yaml:"release_job"`
-	BotJobs     []BotJobRule      `yaml:"bot_jobs"`
-	CommentJobs []CommentJobRule  `yaml:"comment_jobs"`
+	Required       []RequiredContext   `yaml:"required"`
+	ReleaseJob     *ReleaseJobRule     `yaml:"release_job"`
+	BotJobs        []BotJobRule        `yaml:"bot_jobs"`
+	CommentJobs    []CommentJobRule    `yaml:"comment_jobs"`
+	InheritVerdict *InheritVerdictRule `yaml:"inherit_verdict"`
+}
+
+// InheritVerdictRule opts a repository into verdict inheritance: a
+// release-only candidate inherits the merge-queue verdict its base commit
+// recorded under the aggregator Context instead of running FullSuiteJob. The
+// workflow is the aggregator's own; FullSuiteJob is a job id in it, whose
+// check name the tool reads from that workflow file.
+type InheritVerdictRule struct {
+	Context      string `yaml:"context"`
+	FullSuiteJob string `yaml:"full_suite_job"`
 }
 
 // validateQueueSection rejects a malformed queue section with an actionable
@@ -372,6 +390,15 @@ func validateQueueSection(path string, queue QueueSection) error {
 				return fmt.Errorf("%s pre_tag_steps[%d] has an unknown check %q or a duplicate id during merge-queue policy validation. Use distinct {id, check} entries with a check from %s", where, i, step.Check, closedset.Join(AllPreTagChecks, ", "))
 			}
 			seenSteps[step.ID] = true
+		}
+	}
+	if rule := queue.InheritVerdict; rule != nil {
+		where := prefix + " inherit_verdict"
+		if _, ok := inheritAggregator(queue, rule); !ok {
+			return fmt.Errorf("%s names context %q during merge-queue policy validation, which is no required entry marked aggregator: true. Name the aggregator context whose merge-queue verdict a release-only candidate inherits", where, rule.Context)
+		}
+		if rule.FullSuiteJob == "" {
+			return fmt.Errorf("%s has an empty full_suite_job during merge-queue policy validation. Name the job id in the aggregator's workflow that runs the full suite", where)
 		}
 	}
 	for i, bot := range queue.BotJobs {

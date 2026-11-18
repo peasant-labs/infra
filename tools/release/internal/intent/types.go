@@ -525,6 +525,14 @@ const (
 	ErrSurfaceMismatch       ErrorCode = "surface-mismatch"
 	ErrSurfaceUndeclared     ErrorCode = "surface-undeclared"
 	ErrFreezeOutputMissing   ErrorCode = "freeze-output-missing"
+	// The base-verdict codes refuse to let a release-only candidate inherit
+	// its base commit's merge-queue verdict. Pending and missing may turn
+	// into a verdict by waiting; the others cannot.
+	ErrBaseVerdictMissing   ErrorCode = "base-verdict-missing"
+	ErrBaseVerdictPending   ErrorCode = "base-verdict-pending"
+	ErrBaseVerdictFailed    ErrorCode = "base-verdict-failed"
+	ErrBaseVerdictAmbiguous ErrorCode = "base-verdict-ambiguous"
+	ErrBaseVerdictProducer  ErrorCode = "base-verdict-producer"
 )
 
 // AllErrorCodes is the canonical closed set of typed error codes.
@@ -553,6 +561,11 @@ var AllErrorCodes = []ErrorCode{
 	ErrSurfaceMismatch,
 	ErrSurfaceUndeclared,
 	ErrFreezeOutputMissing,
+	ErrBaseVerdictMissing,
+	ErrBaseVerdictPending,
+	ErrBaseVerdictFailed,
+	ErrBaseVerdictAmbiguous,
+	ErrBaseVerdictProducer,
 }
 
 func (c ErrorCode) String() string { return string(c) }
