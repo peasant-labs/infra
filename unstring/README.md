@@ -290,6 +290,7 @@ interfaces, untyped values, types without constants, unmatched values and
 ambiguous values are silent. Package loading errors fail the check; the Go
 packages and their test packages must build in the environment running the tool.
 Go `//line` directives do not change which files the pass scans.
+Findings name the physical file and line, even when a `//line` directive maps them elsewhere.
 An unexported constant in another package produces a finding without a
 replacement identifier: export the constant or move the comparison.
 
