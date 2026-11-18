@@ -8,6 +8,11 @@ required_names:
   - status-duplicate-top-level-key
   - status-duplicate-nested-key
   - valid-plan
+  - valid-plan-with-freeze-floor
+  - valid-plan-with-empty-freeze-floor
+  - plan-duplicate-freeze-floor
+  - plan-unknown-top-level-field-with-freeze-floor
+  - plan-non-scalar-freeze-floor
   - plan-missing-boolean
   - plan-unknown-field
   - plan-incoherent-version
@@ -46,3 +51,8 @@ cases:
   - {name: plan-unknown-surface, input: {kind: plan, document: "plan: 1\nsurfaces: [{name: other, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}]\n"}, expected: {}, classification: must-fail, sibling: valid-plan, provenance: *p, mutation: *m}
   - {name: plan-duplicate-top-level-key, input: {kind: plan, document: "plan: 1\nplan: 1\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}]\n"}, expected: {error: "duplicate YAML key \"plan\""}, classification: must-fail, sibling: valid-plan, provenance: *p, mutation: *m}
   - {name: plan-duplicate-nested-key, input: {kind: plan, document: "plan: 1\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true, freeze: true}]\n"}, expected: {error: "duplicate YAML key \"freeze\""}, classification: must-fail, sibling: valid-plan, provenance: *p, mutation: *m}
+  - {name: valid-plan-with-freeze-floor, input: {kind: plan, document: "plan: 1\nfreeze_floor: migration-sha\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.1.1, level: patch, breaking: false, freeze: true}]\n"}, expected: {freeze_floor: migration-sha}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: valid-plan-with-empty-freeze-floor, input: {kind: plan, document: "plan: 1\nfreeze_floor: \"\"\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}]\n"}, expected: {freeze_floor: "", equivalent: "plan: 1\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}]\n"}, classification: must-pass, provenance: *p, mutation: {description: "An explicit empty floor parses and round-trips like an absent floor."}}
+  - {name: plan-duplicate-freeze-floor, input: {kind: plan, document: "plan: 1\nfreeze_floor: a\nfreeze_floor: b\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.1.1, level: patch, breaking: false, freeze: true}]\n"}, expected: {error: "duplicate YAML key \"freeze_floor\""}, classification: must-fail, sibling: valid-plan-with-freeze-floor, provenance: *p, mutation: *m}
+  - {name: plan-unknown-top-level-field-with-freeze-floor, input: {kind: plan, document: "plan: 1\nfreeze_floor: migration-sha\nextra: true\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.1.1, level: patch, breaking: false, freeze: true}]\n"}, expected: {error: "field extra not found"}, classification: must-fail, sibling: valid-plan-with-freeze-floor, provenance: *p, mutation: *m}
+  - {name: plan-non-scalar-freeze-floor, input: {kind: plan, document: "plan: 1\nfreeze_floor: [migration]\nsurfaces: [{name: local-api, label: Local API, from: 0.1.0, to: 0.1.1, level: patch, breaking: false, freeze: true}]\n"}, expected: {error: "cannot unmarshal !!seq into string"}, classification: must-fail, sibling: valid-plan-with-freeze-floor, provenance: *p, mutation: *m}

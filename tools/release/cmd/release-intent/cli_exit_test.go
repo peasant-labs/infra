@@ -202,7 +202,8 @@ type cliExpected struct {
 	BareStdout []string  `yaml:"bare_stdout"`
 	AbsentKeys []wantKey `yaml:"absent_keys"`
 	// StderrRule is the queue rule the diagnostics on stderr must name.
-	StderrRule policy.QueueRule `yaml:"stderr_rule"`
+	StderrRule     policy.QueueRule `yaml:"stderr_rule"`
+	StderrContains string           `yaml:"stderr_contains"`
 }
 
 type cliCase = testcase.Case[cliInput, cliExpected]
@@ -560,6 +561,9 @@ func TestCLIExitCodes(t *testing.T) {
 			assertKeysAbsent(t, c.Name, result.Stdout, plainKeys(c.Expected.AbsentKeys))
 			if rule := c.Expected.StderrRule; rule != "" && !strings.Contains(result.Stderr, rule.String()) {
 				t.Fatalf("%s: stderr %q does not name rule %q", c.Name, result.Stderr, rule)
+			}
+			if text := c.Expected.StderrContains; text != "" && !strings.Contains(result.Stderr, text) {
+				t.Fatalf("%s: stderr %q does not contain %q", c.Name, result.Stderr, text)
 			}
 			if c.Input.GithubOutput {
 				got, err := os.ReadFile(outputFile)

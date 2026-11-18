@@ -2,12 +2,14 @@ package intent_test
 
 import (
 	_ "embed"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 	"github.com/peasant-labs/infra/tools/release/internal/testcase"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed testdata/freeze_corpus.yaml
@@ -53,8 +55,10 @@ type freezeDocumentInput struct {
 }
 
 type freezeDocumentExpected struct {
-	Code  intent.ErrorCode `yaml:"code"`
-	Error string           `yaml:"error"`
+	Code        intent.ErrorCode `yaml:"code"`
+	Error       string           `yaml:"error"`
+	FreezeFloor string           `yaml:"freeze_floor"`
+	Equivalent  string           `yaml:"equivalent"`
 }
 
 func TestFreezeDocuments(t *testing.T) {
@@ -62,11 +66,12 @@ func TestFreezeDocuments(t *testing.T) {
 	for _, c := range loadNamedCorpus[freezeDocumentInput, freezeDocumentExpected](t, freezeDocumentsYAML).Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			var err error
+			var plan intent.FreezePlan
 			switch c.Input.Kind {
 			case "status":
 				_, err = intent.ParseSurfaceStates([]byte(c.Input.Document), cfg)
 			case "plan":
-				_, err = intent.ParseFreezePlan([]byte(c.Input.Document), cfg)
+				plan, err = intent.ParseFreezePlan([]byte(c.Input.Document), cfg)
 			default:
 				t.Fatalf("unknown document kind %q", c.Input.Kind)
 			}
@@ -79,8 +84,32 @@ func TestFreezeDocuments(t *testing.T) {
 				if c.Expected.Error != "" && !strings.Contains(err.Error(), c.Expected.Error) {
 					t.Fatalf("error %q does not contain %q", err, c.Expected.Error)
 				}
-			} else if err != nil {
-				t.Fatal(err)
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if c.Input.Kind == "plan" {
+					if plan.FreezeFloor != c.Expected.FreezeFloor {
+						t.Fatalf("floor = %q, want %q", plan.FreezeFloor, c.Expected.FreezeFloor)
+					}
+					if c.Expected.Equivalent != "" {
+						equivalent, err := intent.ParseFreezePlan([]byte(c.Expected.Equivalent), cfg)
+						if err != nil || !reflect.DeepEqual(plan, equivalent) {
+							t.Fatalf("plan = %+v, equivalent = %+v, error %v", plan, equivalent, err)
+						}
+					}
+					data, err := yaml.Marshal(plan)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if strings.Contains(string(data), "freeze_floor:") != (c.Expected.FreezeFloor != "") {
+						t.Fatalf("unexpected freeze_floor field in %s", data)
+					}
+					roundTrip, err := intent.ParseFreezePlan(data, cfg)
+					if err != nil || !reflect.DeepEqual(roundTrip, plan) {
+						t.Fatalf("round trip = %+v, error %v; want %+v", roundTrip, err, plan)
+					}
+				}
 			}
 		})
 	}

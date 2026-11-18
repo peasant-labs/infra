@@ -12,16 +12,28 @@ import (
 )
 
 type commitCaseInput struct {
-	Scenario      string            `yaml:"scenario"`
-	Plan          string            `yaml:"plan"`
-	FreezeDir     string            `yaml:"freeze_dir"`
-	BaseFiles     map[string]string `yaml:"base_files"`
-	Files         map[string]string `yaml:"files"`
-	Current       bool              `yaml:"current"`
-	CurrentFiles  map[string]string `yaml:"current_files"`
-	NoCurrentPlan bool              `yaml:"no_current_plan"`
-	Stage         []string          `yaml:"stage"`
-	Symlinks      map[string]string `yaml:"symlinks"`
+	Scenario        string            `yaml:"scenario"`
+	Plan            string            `yaml:"plan"`
+	FreezeDir       string            `yaml:"freeze_dir"`
+	BaseFiles       map[string]string `yaml:"base_files"`
+	Files           map[string]string `yaml:"files"`
+	Current         bool              `yaml:"current"`
+	CurrentFiles    map[string]string `yaml:"current_files"`
+	NoCurrentPlan   bool              `yaml:"no_current_plan"`
+	Stage           []string          `yaml:"stage"`
+	Symlinks        map[string]string `yaml:"symlinks"`
+	GenerateFloor   bool              `yaml:"generate_floor"`
+	PlanFloorAction string            `yaml:"plan_floor_action"`
+	GeneratedTo     string            `yaml:"generated_to"`
+	ReleaseFloor    bool              `yaml:"release_floor"`
+	Migration       *migrationHistory `yaml:"migration"`
+}
+
+type migrationHistory struct {
+	PreSubject       string `yaml:"pre_subject"`
+	MigrationSubject string `yaml:"migration_subject"`
+	PostSubject      string `yaml:"post_subject"`
+	State            string `yaml:"state"`
 }
 type commitCaseExpected struct {
 	Exit        wantExit         `yaml:"exit"`
@@ -99,6 +111,8 @@ func TestReleaseCommit(t *testing.T) {
 		t.Run(row.Name, func(t *testing.T) {
 			s := row.Input.Scenario
 			var r *testRepo
+			var generatedPlan []byte
+			var migration, base string
 			hasCurrent := s == "unchanged" || s == "advanced" || s == "later" || s == "current-extra" || s == "current-unrelated" || s == "current-mode" || s == "current-conflict"
 			if hasCurrent {
 				setup := setupCurrentSame
@@ -129,6 +143,8 @@ func TestReleaseCommit(t *testing.T) {
 						r.Commit(titled(intent.TypeFix, "work", intent.LevelPatch, "later fix"))
 					}
 				}
+			} else if s == "migration-floor" {
+				r = newReleasedRepo(t, repoStandard)
 			} else {
 				r = newPendingRepo(t, repoStandard)
 			}
@@ -217,6 +233,71 @@ func TestReleaseCommit(t *testing.T) {
 				r.Commit(titled(intent.TypeFeat, "api", intent.LevelMinor, "freeze api"))
 				r.WriteFile("types.txt", "changed\n")
 				r.Commit(titled(intent.TypeFix, "types", intent.LevelPatch, "freeze types"))
+			case "migration-floor":
+				if row.Input.Migration == nil {
+					t.Fatal("migration history is required")
+				}
+				history := row.Input.Migration
+				base = r.Head()
+				r.cfg.ProtectedPaths = []string{"generated/*-[0-9]*"}
+				r.cfg.Surfaces = map[string][]string{"local-api": {"local"}}
+				r.cfg.SpecFreeze = true
+				r.cfg.FreezeDir = "generated"
+				r.WriteConfig(r.cfg)
+				r.WriteFile("feature.txt", "feature\n")
+				r.CommitRaw(history.PreSubject)
+				r.WriteFile("generated/local.json", "working spec\n")
+				r.CommitRaw(history.MigrationSubject)
+				migration = r.Head()
+				r.WriteFile("work.txt", "fix\n")
+				r.CommitRaw(history.PostSubject)
+				scratch := t.TempDir()
+				statePath := filepath.Join(scratch, "state.yaml")
+				planPath := filepath.Join(scratch, "plan.yaml")
+				if err := os.WriteFile(statePath, []byte(history.State), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				freezeArgs := argvOf(intent.CommandFreezePlan, intent.FlagBranch, r.Trunk().String(), intent.FlagState, statePath, intent.FlagOut, planPath)
+				if row.Input.GenerateFloor {
+					freezeArgs = append(freezeArgs, intent.FlagFreezeFloor.String(), migration)
+				}
+				if row.Input.ReleaseFloor {
+					freezeArgs = append(freezeArgs, intent.FlagFloor.String(), migration)
+				}
+				result := r.Run(freezeArgs...)
+				if result.Exit != exitAccepted {
+					t.Fatalf("generate freeze plan: %+v", result)
+				}
+				var err error
+				generatedPlan, err = os.ReadFile(planPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				parsed, err := intent.ParseFreezePlan(generatedPlan, r.cfg)
+				wantFloor := ""
+				if row.Input.GenerateFloor {
+					wantFloor = migration
+				}
+				if err != nil || parsed.FreezeFloor != wantFloor || len(parsed.Surfaces) != 1 || parsed.Surfaces[0].To.String() != row.Input.GeneratedTo {
+					t.Fatalf("generated plan = %+v, error %v; document:\n%s", parsed, err, generatedPlan)
+				}
+				switch row.Input.PlanFloorAction {
+				case "":
+				case "omit":
+					parsed.FreezeFloor = ""
+				case "base":
+					parsed.FreezeFloor = base
+				case "missing":
+					parsed.FreezeFloor = "not-on-chain"
+				default:
+					t.Fatalf("unknown plan floor action %q", row.Input.PlanFloorAction)
+				}
+				if row.Input.PlanFloorAction != "" {
+					generatedPlan, err = yaml.Marshal(parsed)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
 			case "duplicate":
 				r.cfg.VersionFiles = append(r.cfg.VersionFiles, r.cfg.VersionFiles[0])
 				r.WriteConfig(r.cfg)
@@ -269,7 +350,7 @@ func TestReleaseCommit(t *testing.T) {
 					}
 					r.WriteFile(name, "new spec\n")
 				}
-			case "freeze-outputs":
+			case "freeze-outputs", "migration-floor":
 				for name, content := range row.Input.Files {
 					r.WriteFile(name, content)
 				}
@@ -302,6 +383,9 @@ func TestReleaseCommit(t *testing.T) {
 				}
 			}
 			args := argvOf(intent.CommandReleasePR, intent.FlagBranch, r.Trunk().String(), intent.FlagCommit)
+			if row.Input.ReleaseFloor {
+				args = append(args, intent.FlagFloor.String(), migration)
+			}
 			if s == "protected-current" || s == "protected-current-changed" || s == "protected-current-plan" {
 				first := r.Run(args...)
 				if first.Exit != exitAccepted {
@@ -321,9 +405,13 @@ func TestReleaseCommit(t *testing.T) {
 				r.WriteFile(name, spec)
 				args = append(args, intent.FlagCurrent.String(), "refs/remotes/origin/release")
 			}
-			if row.Input.Plan != "" {
+			if row.Input.Plan != "" || generatedPlan != nil {
 				planPath := filepath.Join(t.TempDir(), "freeze.yaml")
-				if err := os.WriteFile(planPath, []byte(row.Input.Plan), 0o600); err != nil {
+				planData := []byte(row.Input.Plan)
+				if generatedPlan != nil {
+					planData = generatedPlan
+				}
+				if err := os.WriteFile(planPath, planData, 0o600); err != nil {
 					t.Fatal(err)
 				}
 				args = append(args, intent.FlagFreezePlan.String(), planPath)
@@ -404,8 +492,9 @@ func TestReleaseCommit(t *testing.T) {
 					}
 				}
 				for _, detail := range row.Expected.Details {
-					if !strings.Contains(result.Stderr, detail) {
-						t.Fatalf("stderr %q does not contain %q", result.Stderr, detail)
+					want := strings.ReplaceAll(detail, "${BASE}", base)
+					if !strings.Contains(result.Stderr, want) {
+						t.Fatalf("stderr %q does not contain %q", result.Stderr, want)
 					}
 				}
 				if r.Head() != headBefore {
@@ -491,7 +580,11 @@ func TestReleaseCommit(t *testing.T) {
 			if commitTimes != sourceTime+"|"+sourceTime {
 				t.Fatalf("commit dates %q do not both match source %q", commitTimes, sourceTime)
 			}
-			check := r.Run(argvOf(intent.CommandReleasePR, intent.FlagBranch, r.Trunk().String(), intent.FlagCheck)...)
+			checkArgs := argvOf(intent.CommandReleasePR, intent.FlagBranch, r.Trunk().String(), intent.FlagCheck)
+			if row.Input.ReleaseFloor {
+				checkArgs = append(checkArgs, intent.FlagFloor.String(), migration)
+			}
+			check := r.Run(checkArgs...)
 			if check.Exit != exitAccepted {
 				t.Fatalf("committed tree is not accepted by the production freshness check: %+v", check)
 			}

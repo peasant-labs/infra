@@ -2,6 +2,7 @@ required_names:
   - contract-accept
   - contract-reject-under-declared
   - contract-until-accept
+  - contract-until-migration-uses-full-release-range
   - contract-until-reject
   - contract-until-head-mismatch-exits-1
   - contract-until-base-mismatch-exits-1
@@ -10,6 +11,10 @@ required_names:
   - contract-missing-report
   - contract-malformed-report
   - freeze-plan-writes-plan
+  - freeze-plan-migration-floor-excludes-feature
+  - freeze-plan-no-migration-floor-includes-feature
+  - freeze-plan-migration-floor-not-on-chain
+  - freeze-plan-side-branch-floor-not-on-chain
   - freeze-plan-undeclared
   - freeze-plan-missing-state
   - freeze-plan-no-surfaces
@@ -22,6 +27,9 @@ required_names:
   - contract-no-earlier-tag
   - contract-multiple-stdin-lines
   - contract-functional-needs-release
+  - contract-docs-releasing-not-ahead
+  - contract-docs-releasing-ahead-on-base
+  - contract-docs-nonreleasing
   - contract-missing-surface-scope
   - contract-report-unknown-field
   - contract-print-base-with-title
@@ -59,6 +67,11 @@ cases:
     - {name: contract-missing-report, input: {command: check-contract, title: "feat(local-api)[minor]: change"}, expected: {exit: 1, stderr: "--report"}, classification: must-fail, sibling: contract-accept, provenance: *p, mutation: *m}
     - {name: contract-malformed-report, input: {command: check-contract, title: "feat(local-api)[minor]: change", report: "report: ["}, expected: {exit: 1, stderr: "report"}, classification: must-fail, sibling: contract-accept, provenance: *p, mutation: *m}
     - {name: freeze-plan-writes-plan, input: {command: freeze-plan, state: &state "status: 1\nsurfaces: [{name: local-api, label: Local API, frozen: 0.1.0, state: ahead}]\n"}, expected: {exit: 0, stdout: "frozen=local-api\nerror=\n", to: "0.2.0"}, classification: must-pass, provenance: *p, mutation: *m}
+    - {name: freeze-plan-migration-floor-excludes-feature, input: &migration_input {command: freeze-plan, migration_shape: true, pre_migration_subject: "feat(local-api)[minor]: pre-migration feature", migration_subject: "chore: migrate working specs", raw_subject: "fix(local-api)[patch]: post-migration fix", freeze_floor: "${MIGRATION}", state: *state}, expected: {exit: 0, stdout: "frozen=local-api\nerror=\n", to: "0.1.1"}, classification: must-pass, provenance: *p, mutation: {description: "Ignore the migration floor and the earlier minor incorrectly wins."}}
+    - {name: contract-until-migration-uses-full-release-range, input: {<<: *migration_input, command: check-contract, pre_migration_subject: "feat(local-api)![minor]: pre-migration break", freeze_floor: "", until: HEAD, report: *break}, expected: {exit: 0, stdout: "surfaces=local-api\nerror=\n"}, classification: must-pass, provenance: *p, mutation: {description: "Truncate check-contract at the migration and the pre-migration breaking declaration is lost."}}
+    - {name: freeze-plan-no-migration-floor-includes-feature, input: {<<: *migration_input, freeze_floor: ""}, expected: {exit: 0, stdout: "frozen=local-api\nerror=\n", to: "0.2.0"}, classification: must-pass, provenance: *p, mutation: *m}
+    - {name: freeze-plan-migration-floor-not-on-chain, input: {<<: *migration_input, freeze_floor: bogus}, expected: {exit: 2, stdout: "error=floor-not-on-chain\n", stderr: 'freeze floor "bogus"'}, classification: must-fail, sibling: freeze-plan-migration-floor-excludes-feature, provenance: *p, mutation: *m}
+    - {name: freeze-plan-side-branch-floor-not-on-chain, input: {<<: *migration_input, freeze_floor: "${SIDE}"}, expected: {exit: 2, stdout: "error=floor-not-on-chain\n", stderr: 'freeze floor "${SIDE}"'}, classification: must-fail, sibling: freeze-plan-migration-floor-excludes-feature, provenance: *p, mutation: {description: "Pass an existing Git commit that is not on the first-parent chain."}}
     - {name: freeze-plan-undeclared, input: {command: freeze-plan, landed_scope: other, state: *state}, expected: {exit: 2, stdout: "error=surface-undeclared\n", stderr: "surface-undeclared"}, classification: must-fail, sibling: freeze-plan-writes-plan, provenance: *p, mutation: *m}
     - {name: freeze-plan-missing-state, input: {command: freeze-plan}, expected: {exit: 1, stderr: "surface state"}, classification: must-fail, sibling: freeze-plan-writes-plan, provenance: *p, mutation: *m}
     - {name: freeze-plan-no-surfaces, input: {command: freeze-plan, no_surfaces: true, state: *state}, expected: {exit: 1, stderr: "surface"}, classification: must-fail, sibling: freeze-plan-writes-plan, provenance: *p, mutation: *m}
@@ -71,6 +84,9 @@ cases:
     - {name: contract-no-earlier-tag, input: {command: check-contract, until: HEAD, print_base: true, no_tag: true}, expected: {exit: 2, stdout: "error=no-final-tag\n", stderr: "no-final-tag"}, classification: must-fail, sibling: contract-print-range-base, provenance: *p, mutation: *m}
     - {name: contract-multiple-stdin-lines, input: {command: check-contract, title: "feat(local-api)[minor]: first\nfeat(local-api)[minor]: second", report: *report}, expected: {exit: 1, stderr: "multiple lines"}, classification: must-fail, sibling: contract-accept, provenance: *p, mutation: *m}
     - {name: contract-functional-needs-release, input: {command: check-contract, title: "docs(local-api): change", report: *report}, expected: {exit: 2, stdout: "error=spec-change-needs-bump\n", stderr: "spec-change-needs-bump"}, classification: must-fail, sibling: contract-accept, provenance: *p, mutation: *m}
+    - {name: contract-docs-releasing-not-ahead, input: {command: check-contract, title: "fix(local-api)[patch]: change", report: &docs_report "report: 1\nbase: ${BASE}\nhead: ${HEAD}\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: docs, ahead_on_base: false}]\n"}, expected: {exit: 2, stdout: "error=surface-mismatch\n", stderr: "drop [local-api]"}, classification: must-fail, sibling: contract-accept, provenance: *p, mutation: *m}
+    - {name: contract-docs-releasing-ahead-on-base, input: {command: check-contract, title: "fix(local-api)[patch]: change", report: "report: 1\nbase: ${BASE}\nhead: ${HEAD}\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: docs, ahead_on_base: true}]\n"}, expected: {exit: 0, stdout: "surfaces=local-api\nerror=\n"}, classification: must-pass, provenance: *p, mutation: *m}
+    - {name: contract-docs-nonreleasing, input: {command: check-contract, title: "docs(local-api): explain", report: *docs_report}, expected: {exit: 0, stdout: "surfaces=local-api\nerror=\n"}, classification: must-pass, provenance: *p, mutation: *m}
     - {name: contract-missing-surface-scope, input: {command: check-contract, title: "fix(other)[patch]: change", report: *report}, expected: {exit: 2, stdout: "error=surface-mismatch\n", stderr: "surface-mismatch"}, classification: must-fail, sibling: contract-accept, provenance: *p, mutation: *m}
     - {name: contract-report-unknown-field, input: {command: check-contract, title: "feat(local-api)[minor]: change", report: "report: 1\nbase: ${BASE}\nhead: ${HEAD}\ngo_api_breaking: false\nsurfaces: [{name: local-api, breaking: false, change: functional, ahead_on_base: false}]\nunexpected: true\n"}, expected: {exit: 1, stderr: "field unexpected not found"}, classification: must-fail, sibling: contract-accept, provenance: *p, mutation: *m}
     - {name: contract-print-base-with-title, input: {command: check-contract, until: HEAD, print_base: true, title: "feat(local-api)[minor]: change"}, expected: {exit: 1, stderr: "cannot be combined"}, classification: must-fail, sibling: contract-print-range-base, provenance: *p, mutation: *m}

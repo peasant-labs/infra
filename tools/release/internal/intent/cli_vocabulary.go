@@ -101,6 +101,8 @@ const (
 	FlagMode Flag = "--mode"
 	// FlagFloor names the recovery floor commit.
 	FlagFloor Flag = "--floor"
+	// FlagFreezeFloor names the migration boundary for freeze subjects only.
+	FlagFreezeFloor Flag = "--freeze-floor"
 	// FlagVerdict carries the pre-tag Verdict.
 	FlagVerdict Flag = "--verdict"
 	// FlagWrite writes the release content into the working tree.
@@ -130,7 +132,7 @@ var AllFlags = []Flag{
 	FlagConfig, FlagPolicy, FlagDir, FlagPrintRequired,
 	FlagBase, FlagHead, FlagAuthor, FlagHeadBranch,
 	FlagRev, FlagRef,
-	FlagBranch, FlagMode, FlagFloor, FlagVerdict,
+	FlagBranch, FlagMode, FlagFloor, FlagFreezeFloor, FlagVerdict,
 	FlagWrite, FlagCommit, FlagCheck, FlagCurrent,
 	FlagQueue, FlagReleasePR,
 	FlagTag, FlagReport, FlagUntil, FlagState, FlagOut, FlagFreezePlan, FlagPrintRangeBase,
@@ -169,7 +171,7 @@ func (c Command) Flags() []FlagUse {
 		// A report is mandatory except in print-range-base mode.
 		return []FlagUse{{FlagReport, true}, {FlagUntil, false}, {FlagFloor, false}, {FlagPrintRangeBase, false}}
 	case CommandFreezePlan:
-		return []FlagUse{{FlagBranch, true}, {FlagState, true}, {FlagOut, true}, {FlagUntil, false}, {FlagFloor, false}}
+		return []FlagUse{{FlagBranch, true}, {FlagState, true}, {FlagOut, true}, {FlagUntil, false}, {FlagFloor, false}, {FlagFreezeFloor, false}}
 	case CommandClassify:
 		return []FlagUse{{FlagAuthor, true}, {FlagHeadBranch, true}, {FlagRev, true}}
 	case CommandGroupPR:

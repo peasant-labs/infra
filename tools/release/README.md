@@ -94,6 +94,10 @@ parsing titles.
 An undeclared break returns `under-declared-breaking`. With `spec_freeze: true`,
 a functional change without a release returns `spec-change-needs-bump`, and
 missing or unjustified configured surface scopes return `surface-mismatch`.
+For a releasing title, a listed surface is justified only when it changed
+functionally or was already ahead on the base; a docs-only or unchanged
+surface that is not already ahead is rejected. A non-releasing docs-only
+title remains valid.
 Range checking can only determine whether any subject declares a break; it
 does not attribute a change to an individual title.
 
@@ -112,24 +116,51 @@ State is `clean`, `docs-ahead`, or `ahead`. The planner needs one entry for
 each configured surface and a valid bare version.
 
 ```sh
-release-intent freeze-plan --branch origin/main --state status.yaml --out freeze.yaml --floor "${RELEASE_BATCH_FLOOR}"
+release-intent freeze-plan --branch origin/main --state status.yaml --out freeze.yaml --floor "${RELEASE_BATCH_FLOOR}" --freeze-floor "${FREEZE_MIGRATION_SHA}"
 ```
 
 `--until REV` optionally selects a first-parent candidate on `--branch`.
+Both floors are optional. `--freeze-floor SHA` must be the full literal
+40-character commit SHA on the selected revision's first-parent chain; it
+excludes that commit and earlier subjects from freeze-level calculation only.
+When migrating to generated spec freezes, set it to the **first commit that
+added the working spec files**: subjects from before that migration must not
+affect the first freeze.
+Excluding the migration commit's own subject is also intentional.
+The release range base, recovery `--floor`, grammar epoch and freeze floor
+all bound the freeze subjects: the nearest boundary to the range tip wins.
+The range-base and floor commits are excluded; the epoch commit is included
+unless another boundary excludes it. After the first post-migration
+release, the range base is newer than the migration, so retaining the freeze
+floor has no further effect.
+
 For each `ahead` surface, the command uses the highest releasing title level
 that names it; no such declaration returns `surface-undeclared`. Other surfaces
 are unchanged. The output is a total plan in config order:
 
 ```yaml
 plan: 1
+freeze_floor: <migration-commit-sha>
 surfaces:
   - {name: types, label: Types, from: 0.1.0, to: 0.1.0, level: none, breaking: false, freeze: false}
   - {name: api, label: API, from: 0.1.0, to: 0.2.0, level: minor, breaking: false, freeze: true}
 ```
 
+`freeze_floor` is present only when a non-empty `--freeze-floor` was passed.
+The plan carries it to `release-pr --commit`, which validates the surfaces
+against that bounded freeze range. Without it the existing full release
+pending set is used for validation. The separate release `--floor` still
+bounds the changelog and module-version calculation; the freeze floor never
+shortens that release content.
+
 The plan is a file handoff, not a shell argument list. `release-intent` does
 not produce the state or perform the freeze. The consumer must validate the
-plan against its current tree before writing files.
+plan against its current tree before writing files. **The plan is trusted
+input:** the tool checks that its floor is on the first-parent chain and that
+its surfaces match the resulting range, but it does not determine whether that
+floor is the correct migration boundary. Whoever controls the plan controls
+the freeze decision. Generate it inside the trusted release job and never
+accept a plan supplied by a PR; the tool does not authenticate its origin.
 
 Both commands return 0 for acceptance, 2 for typed rejection (`error=<code>`
 on stdout and a six-part diagnostic on stderr), and 1 for a usage or read

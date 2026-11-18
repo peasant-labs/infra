@@ -29,13 +29,14 @@ commands:
       - {flag: --floor}
       - {flag: --print-range-base}
   - name: freeze-plan
-    usage: "usage: release-intent freeze-plan --branch REF --state FILE --out FILE [--until REV] [--floor SHA]"
+    usage: "usage: release-intent freeze-plan --branch REF --state FILE --out FILE [--until REV] [--floor SHA] [--freeze-floor SHA]"
     flags:
       - {flag: --branch, required: true}
       - {flag: --state, required: true}
       - {flag: --out, required: true}
       - {flag: --until}
       - {flag: --floor}
+      - {flag: --freeze-floor}
   - name: classify
     usage: "usage: release-intent classify --author LOGIN --head-branch BRANCH --rev REV"
     flags:
@@ -87,6 +88,7 @@ flags:
   - {flag: --branch, takes_value: true}
   - {flag: --mode, takes_value: true}
   - {flag: --floor, takes_value: true}
+  - {flag: --freeze-floor, takes_value: true}
   - {flag: --verdict, takes_value: true}
   - {flag: --write}
   - {flag: --commit}

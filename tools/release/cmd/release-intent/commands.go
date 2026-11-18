@@ -56,6 +56,8 @@ func shapeOf(f intent.Flag) flagShape {
 		return flagShape{"MODE", "the job mode, one of " + closedset.Join(intent.AllModes, " or ")}
 	case intent.FlagFloor:
 		return flagShape{"SHA", "the recovery floor commit"}
+	case intent.FlagFreezeFloor:
+		return flagShape{"SHA", "the migration floor commit for freeze subjects"}
 	case intent.FlagVerdict:
 		return flagShape{"VERDICT", "the pre-tag report, one of " + closedset.Join(reportedVerdicts(), " or ")}
 	case intent.FlagWrite:

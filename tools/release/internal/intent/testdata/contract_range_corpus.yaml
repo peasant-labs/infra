@@ -7,6 +7,17 @@ required_names:
   - range-unparseable-subject-fails
   - range-tag-at-tip-excluded
   - range-side-tag-excluded
+  - freeze-floor-excludes-pre-migration
+  - freeze-floor-omitted-includes-pre-migration
+  - freeze-floor-not-on-chain
+  - freeze-floor-older-than-range-base
+  - freeze-floor-yields-to-recovery-floor
+  - freeze-floor-yields-to-epoch
+  - freeze-floor-equals-epoch
+  - freeze-floor-at-tip
+  - freeze-floor-at-tip-undeclared-break
+  - freeze-floor-at-range-base
+  - recovery-floor-yields-to-freeze-floor
 cases:
   - name: range-declared-bang
     input:
@@ -24,3 +35,30 @@ cases:
   - {name: range-unparseable-subject-fails, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "not a title"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: *breaking}, expected: {code: malformed}, classification: must-fail, sibling: range-declared-bang, provenance: *p, mutation: *m}
   - {name: range-tag-at-tip-excluded, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "release[minor]: tag", changes_changelog: true}, {sha: content, subject: "fix(api)![minor]: break"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.2.0: tip, v0.1.0: base}}, report: *breaking}, expected: {base: v0.1.0, titles: 2}, classification: must-pass, provenance: *p, mutation: *m}
   - {name: range-side-tag-excluded, input: {config: *cfg, facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "fix(api)![minor]: break"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base, v0.3.0: side}}, report: *breaking}, expected: {base: v0.1.0, titles: 2}, classification: must-pass, provenance: *p, mutation: *m}
+  - name: freeze-floor-excludes-pre-migration
+    input:
+      config: *cfg
+      facts: {branch: main, epoch: epoch, freeze_floor: migration, commits: [{sha: tip, subject: "fix(local-api)[patch]: post"}, {sha: migration, subject: "chore: migrate"}, {sha: feature, subject: "feat(local-api)[minor]: pre"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}
+      report: {}
+    expected: {base: v0.1.0, titles: 1, subjects: ["fix(local-api)[patch]: post"], excluded: ["feat(local-api)[minor]: pre", "chore: migrate"]}
+    classification: must-pass
+    provenance: *p
+    mutation: {description: "Drop the freeze floor; the pre-migration feature must appear and the exact subject list must fail."}
+  - name: freeze-floor-omitted-includes-pre-migration
+    input:
+      config: *cfg
+      facts: {branch: main, epoch: epoch, commits: [{sha: tip, subject: "fix(local-api)[patch]: post"}, {sha: migration, subject: "chore: migrate"}, {sha: feature, subject: "feat(local-api)[minor]: pre"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}
+      report: {}
+    expected: {base: v0.1.0, titles: 4, subjects: ["fix(local-api)[patch]: post", "chore: migrate", "feat(local-api)[minor]: pre", "chore: adopt"]}
+    classification: must-pass
+    provenance: *p
+    mutation: *m
+  - {name: freeze-floor-not-on-chain, input: {config: *cfg, facts: {branch: main, epoch: epoch, freeze_floor: side, commits: [{sha: tip, subject: "fix(api)[patch]: post"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: {}}, expected: {code: floor-not-on-chain, error: 'freeze floor "side"'}, classification: must-fail, sibling: freeze-floor-excludes-pre-migration, provenance: *p, mutation: *m}
+  - {name: freeze-floor-older-than-range-base, input: {config: *cfg, facts: {branch: main, epoch: epoch, freeze_floor: migration, commits: [{sha: tip, subject: "fix(api)[patch]: post"}, {sha: base, subject: prior}, {sha: migration, subject: "chore: migrate"}, {sha: epoch, subject: "chore: adopt"}], tags: {v0.1.0: base}}, report: {}}, expected: {base: v0.1.0, titles: 1, subjects: ["fix(api)[patch]: post"]}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: freeze-floor-yields-to-recovery-floor, input: {config: *cfg, facts: {branch: main, epoch: epoch, floor: recovery, freeze_floor: migration, commits: [{sha: tip, subject: "fix(api)[patch]: post"}, {sha: recovery, subject: "chore: recover"}, {sha: migration, subject: "chore: migrate"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: {}}, expected: {base: v0.1.0, titles: 1, subjects: ["fix(api)[patch]: post"]}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: freeze-floor-yields-to-epoch, input: {config: *cfg, facts: {branch: main, epoch: epoch, freeze_floor: migration, commits: [{sha: tip, subject: "fix(api)[patch]: post"}, {sha: epoch, subject: "chore: adopt"}, {sha: migration, subject: "chore: migrate"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: {}}, expected: {base: v0.1.0, titles: 2, subjects: ["fix(api)[patch]: post", "chore: adopt"]}, classification: must-pass, provenance: *p, mutation: *m}
+  - {name: freeze-floor-equals-epoch, input: {config: *cfg, facts: {branch: main, epoch: epoch, freeze_floor: epoch, commits: [{sha: tip, subject: "fix(api)[patch]: post"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: {}}, expected: {base: v0.1.0, titles: 1, subjects: ["fix(api)[patch]: post"], excluded: ["chore: adopt"]}, classification: must-pass, provenance: *p, mutation: {description: "The freeze floor excludes its own commit even when that commit is the epoch."}}
+  - {name: freeze-floor-at-tip, input: {config: *cfg, facts: &tip_floor {branch: main, epoch: epoch, freeze_floor: tip, commits: [{sha: tip, subject: "fix(api)[patch]: post"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: {}}, expected: {base: v0.1.0, titles: 0, subjects: []}, classification: must-pass, provenance: *p, mutation: {description: "A floor at the tip yields an empty range and a non-breaking report is accepted."}}
+  - {name: freeze-floor-at-tip-undeclared-break, input: {config: *cfg, facts: *tip_floor, report: *breaking}, expected: {base: v0.1.0, titles: 0, subjects: [], code: under-declared-breaking}, classification: must-fail, sibling: freeze-floor-at-tip, provenance: *p, mutation: {description: "A breaking report cannot be declared by an empty range."}}
+  - {name: freeze-floor-at-range-base, input: {config: *cfg, facts: {branch: main, epoch: epoch, freeze_floor: base, commits: [{sha: tip, subject: "fix(api)[patch]: post"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: {}}, expected: {base: v0.1.0, titles: 2, subjects: ["fix(api)[patch]: post", "chore: adopt"]}, classification: must-pass, provenance: *p, mutation: {description: "A floor at the range base leaves the normal range unchanged."}}
+  - {name: recovery-floor-yields-to-freeze-floor, input: {config: *cfg, facts: {branch: main, epoch: epoch, floor: recovery, freeze_floor: migration, commits: [{sha: tip, subject: "fix(api)[patch]: post"}, {sha: migration, subject: "chore: migrate"}, {sha: recovery, subject: "chore: recover"}, {sha: epoch, subject: "chore: adopt"}, {sha: base, subject: prior}], tags: {v0.1.0: base}}, report: {}}, expected: {base: v0.1.0, titles: 1, subjects: ["fix(api)[patch]: post"]}, classification: must-pass, provenance: *p, mutation: {description: "A last-writer-wins recovery floor must not override the newer freeze floor."}}
