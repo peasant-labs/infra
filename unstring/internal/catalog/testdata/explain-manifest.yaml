@@ -10,5 +10,7 @@ required:
   - built-schema-ts-literal-member-uses-value-not-name
   - built-schema-ts-literal-member-owner
   - built-schema-ts-union-without-member
+  - built-schema-ts-type-argument-union-is-not-a-set
+  - built-schema-ts-wrapped-helper-key-is-not-a-set
   - built-schema-ts-does-not-use-unexported-member
   - built-schema-ts-does-not-use-unreexported-enums

@@ -165,8 +165,11 @@ JSDoc string-literal union, a Go typed string constant, and the schema module.
 The Go catalog uses the version required by `go.mod`. The TypeScript catalog
 uses the exact `@peasant-labs/schema` version in the TypeScript root's
 `package.json`. The tool fetches that module with `go mod download` and
-harvests the same kinds of members from it. A shape that is not one of those
-sources is not a catalog member.
+harvests the same kinds of members from it. In the schema's generated
+TypeScript, an unnamed string-literal union that is only a type argument
+(`Omit<S, "input" | "output">`) or an indexed-access operand (`S["a" | "b"]`)
+is type manipulation, not a set, and contributes no member. A shape that is not
+one of those sources is not a catalog member.
 
 `unstring show catalog` prints the members and where they are declared.
 `unstring show rules` prints every rule id.

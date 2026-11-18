@@ -13,6 +13,7 @@ closed-set-literal:
   - flags-member-from-jsdoc-typedef
   - flags-member-from-schema-go-constant
   - flags-member-from-schema-generated-ts
+  - passes-schema-type-helper-keys-are-not-members
   - flags-comparison-in-the-union-file
   - passes-in-closed-definition-file
   - passes-in-record-table-definition-file

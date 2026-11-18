@@ -30,6 +30,7 @@ required:
     - ts-schema-export-rejects-nested-object
     - ts-schema-export-rejects-array
     - ts-schema-export-rejects-template-string
+    - ts-type-position-unions-are-not-sets
     - ts-range-version-is-refused
     - ts-workspace-specifier-is-refused
     - ts-missing-pin

@@ -158,3 +158,25 @@ cases:
           } as const);
     fix: ["no TypeScript member", "schema.TranscriptVisibility"]
     fix_not: ['TranscriptVisibility.Public from "@peasant-labs/schema"', "schema.VisibilityPublic"]
+
+  - name: built-schema-ts-type-argument-union-is-not-a-set
+    # The 0.57.0 ClosedSet helper's Omit<S["_zod"], "input" | "output"> key
+    # union is no vocabulary: the literal falls back to the rule message and is
+    # never attributed to an unnamed schema set.
+    lang: ts
+    value: input
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *schema
+    fix: ["compare with the typed member"]
+    fix_not: ["the unnamed schema set", "no TypeScript member"]
+
+  - name: built-schema-ts-wrapped-helper-key-is-not-a-set
+    # The 0.57.1 helper's Omit<S, "_zod" | "optional" | "nullable" | "nullish">.
+    lang: ts
+    value: nullish
+    files:
+      package.json: '{ "dependencies": { "@peasant-labs/schema": "0.0.1" } }'
+    schema: *schema
+    fix: ["compare with the typed member"]
+    fix_not: ["the unnamed schema set", "no TypeScript member"]
