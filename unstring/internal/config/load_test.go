@@ -80,6 +80,7 @@ var requiredLoadCases = []string{
 	"refuses-mount-settings-without-enabled",
 	"refuses-include-tests-without-enabled",
 	"refuses-false-include-tests-without-enabled",
+	"refuses-null-router-setting-without-enabled",
 	"refuses-mount-router-not-import-path",
 	"refuses-repeated-mount-router",
 }

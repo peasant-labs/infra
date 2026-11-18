@@ -331,6 +331,15 @@ cases:
         goMountLiteral: {includeTests: false}
     error: ["includeTests without `enabled: true`"]
 
+  - name: refuses-null-router-setting-without-enabled
+    files: {server/a.go: ""}
+    config: |
+      version: 1
+      go: {roots: [server]}
+      typed:
+        goMountLiteral: {routers: null}
+    error: ["routers or typed.goMountLiteral.includeTests without `enabled: true`"]
+
   - name: refuses-mount-router-not-import-path
     files: {server/a.go: ""}
     config: |

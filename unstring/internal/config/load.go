@@ -81,15 +81,15 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 	var presence struct {
 		Typed struct {
 			Mount struct {
-				Routers      *[]string `yaml:"routers"`
-				IncludeTests *bool     `yaml:"includeTests"`
+				Routers      yaml.Node `yaml:"routers"`
+				IncludeTests yaml.Node `yaml:"includeTests"`
 			} `yaml:"goMountLiteral"`
 		} `yaml:"typed"`
 	}
 	if err := yaml.Unmarshal(data, &presence); err != nil {
 		return Config{}, fmt.Errorf("read mount option presence in %s: %w", name, err)
 	}
-	if !c.Typed.GoMountLiteral.Enabled && (presence.Typed.Mount.Routers != nil || presence.Typed.Mount.IncludeTests != nil) {
+	if !c.Typed.GoMountLiteral.Enabled && (presence.Typed.Mount.Routers.Kind != 0 || presence.Typed.Mount.IncludeTests.Kind != 0) {
 		return Config{}, failure.New(
 			fmt.Sprintf("%s sets typed.goMountLiteral.routers or typed.goMountLiteral.includeTests without `enabled: true`.", name),
 			"the mount pass runs only when it is enabled, so these settings would silently do nothing.",
