@@ -129,6 +129,67 @@
       return false
     }
   expect: [{set: Role, member: User, literal: user}]
+- name: narrowed property comparisons use declared set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool' | 'system'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool', System: 'system' } as const
+    interface Turn { role: Role }
+    function test(x: Turn) {
+      if (x.role === 'user') return 1
+      if (x.role === 'assistant') return 2
+      return 0
+    }
+  expect: [{set: Role, member: User, literal: user}, {set: Role, member: Assistant, literal: assistant}]
+- name: narrowed element comparisons use declared set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool' | 'system'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool', System: 'system' } as const
+    interface Turn { role: Role }
+    function test(x: Turn) {
+      if (x['role'] === 'user') return 1
+      if (x['role'] === 'assistant') return 2
+      return 0
+    }
+  expect: [{set: Role, member: User, literal: user}, {set: Role, member: Assistant, literal: assistant}]
+- name: narrowed mapped property uses declared set
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool' | 'system'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool', System: 'system' } as const
+    type Output<T> = { [K in keyof T]: T[K] extends { output: infer U } ? U : never }
+    type Turn = Output<{ role: { output: Role } }>
+    function test(x: Turn) {
+      if (x.role === 'user') return 1
+      if (x.role === 'assistant') return 2
+      return 0
+    }
+  expect: [{set: Role, member: User, literal: user}, {set: Role, member: Assistant, literal: assistant}]
+- name: narrowed unowned property stays silent
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant' | 'tool'
+    const Role = { User: 'user', Assistant: 'assistant', Tool: 'tool' } as const
+    type TypeOrigin = 'user' | 'assistant' | 'tool'
+    interface Turn { role: TypeOrigin }
+    function test(x: Turn) {
+      if (x.role === 'user') return 1
+      if (x.role === 'assistant') return 2
+      return 0
+    }
+  expect: []
+- name: narrowed broad property stays silent
+  language: ts
+  code: |
+    type Role = 'user' | 'assistant'
+    const Role = { User: 'user', Assistant: 'assistant' } as const
+    interface Turn { role: string }
+    function test(x: Turn) {
+      if (x.role === 'user') return x.role === 'user'
+      return false
+    }
+  expect: []
 - name: imported role property in jsdoc
   language: jsx
   files:

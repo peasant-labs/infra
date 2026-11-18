@@ -47,16 +47,24 @@ function namedSet(checker, type, receiverSymbol) {
 
 function memberFor(checker, receiver, literal) {
   let type = checker.getTypeAtLocation(receiver)
-  const receiverSymbol = checker.getSymbolAtLocation(receiver)
-  if (receiverSymbol?.valueDeclaration) {
-    type = checker.getTypeOfSymbolAtLocation(receiverSymbol, receiverSymbol.valueDeclaration)
+  // Never recover an identity for an expression that the checker regards as
+  // any or unknown. TypeFlags.Any | TypeFlags.Unknown is 3.
+  if (type.flags & 3) return null
+  const receiverSymbol = checker.getSymbolAtLocation(receiver) ??
+    checker.getSymbolAtLocation(receiver.name ?? receiver.argumentExpression ?? receiver)
+  // Synthetic property symbols (for example mapped or inferred types) can
+  // have declarations without a valueDeclaration. Query at that declaration
+  // to recover the complete declared type, not its control-flow narrowing.
+  const declaration = receiverSymbol?.valueDeclaration ?? receiverSymbol?.declarations?.[0]
+  if (declaration) {
+    type = checker.getTypeOfSymbolAtLocation(receiverSymbol, declaration)
   }
   if (!type.isUnion() || !type.types.every(part => part.isStringLiteral())) return null
   const alias = namedSet(checker, type, receiverSymbol)
-  const declaration = alias?.declarations?.[0]
-  if (!declaration) return null
+  const aliasDeclaration = alias?.declarations?.[0]
+  if (!aliasDeclaration) return null
   const name = alias.getName()
-  const value = checker.resolveName(name, declaration, VALUE_SYMBOL, false)
+  const value = checker.resolveName(name, aliasDeclaration, VALUE_SYMBOL, false)
   const valueDecl = value?.valueDeclaration
   // A runtime table must be a const binding, not a coincidentally named function,
   // mutable variable, or ambient type. TypeScript NodeFlags.Const is bit 1.

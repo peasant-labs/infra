@@ -10,7 +10,7 @@ import { parse } from 'yaml'
 import plugin from '../src/index.js'
 
 const corpus = parse(readFileSync(fileURLToPath(new URL('../../internal/typed/testdata/typescript.yaml', import.meta.url)), 'utf8'))
-const required = ['ts comparison', 'reversed comparison', 'switch case', 'structural twin', 'any receiver', 'string receiver', 'unknown receiver', 'inline union', 'no runtime value', 'non-member', 'js typedef frozen table', 'jsx comparison', 'closed value wire', 'mutable table is not a set', 'twin both types used', 'narrowed receiver retains declared set', 'imported role property in jsdoc', 'any property ignores same name', 'imported jsdoc parameter', 'imported structural twin without table', 'widened table members are not evidence']
+const required = ['ts comparison', 'reversed comparison', 'switch case', 'structural twin', 'any receiver', 'string receiver', 'unknown receiver', 'inline union', 'no runtime value', 'non-member', 'js typedef frozen table', 'jsx comparison', 'closed value wire', 'mutable table is not a set', 'twin both types used', 'narrowed receiver retains declared set', 'narrowed property comparisons use declared set', 'narrowed element comparisons use declared set', 'narrowed mapped property uses declared set', 'narrowed unowned property stays silent', 'narrowed broad property stays silent', 'imported role property in jsdoc', 'any property ignores same name', 'imported jsdoc parameter', 'imported structural twin without table', 'widened table members are not evidence']
 
 test('required conformance cases are present and unique', () => {
   const names = corpus.map(item => item.name)
