@@ -7,6 +7,7 @@ on:
   # or the image repo). Post-merge runs stay filtered to the paths that can
   # affect the stacks.
   pull_request:
+  merge_group:
   push:
     branches:
       - main
