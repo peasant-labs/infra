@@ -160,8 +160,10 @@ jobs:
         env:
           TAG: ${{ steps.plan.outputs.tag }}
           CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          RELEASE_BATCH_MODE: ${{ vars.RELEASE_BATCH_MODE }}
         run: |
           set -euo pipefail
+          test "${RELEASE_BATCH_MODE}" = tag || { echo "::error::The planner returned tag outside tag mode; refusing to prepare a tag"; exit 1; }
           git fetch --tags origin
           git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null && { echo "::error::tag ${TAG} already exists locally; refusing to move it"; exit 1; }
           git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1 && { echo "::error::tag ${TAG} already exists on origin; refusing to move it"; exit 1; }

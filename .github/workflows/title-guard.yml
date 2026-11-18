@@ -216,6 +216,7 @@ jobs:
         if: steps.classify.outputs.kind == 'release'
         env:
           CHECK_BRANCH: ${{ steps.pr.outputs.check_branch }}
+          RELEASE_BATCH_FLOOR: ${{ vars.RELEASE_BATCH_FLOOR }}
         run: |
           set -euo pipefail
-          release-intent release-pr --check --branch "${CHECK_BRANCH}" --floor "${{ vars.RELEASE_BATCH_FLOOR }}"
+          release-intent release-pr --check --branch "${CHECK_BRANCH}" --floor "${RELEASE_BATCH_FLOOR}"

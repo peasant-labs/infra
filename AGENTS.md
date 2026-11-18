@@ -284,9 +284,9 @@ The release automation and operator setup are documented in
 the change PR; the generated release notes link to it.
 
 Each consumer bumps its pin in one pull request: run the new version's
-    `check` to preview, fix (or, where the rule accepts one, mark) every new hit,
-    change the pin, run the update command, and commit the pin, the fixes and
-    the baseline together.
+`check` to preview, fix (or, where the rule accepts one, mark) every new hit,
+change the pin, run the update command, and commit the pin, the fixes and
+the baseline together.
 
 ## Validation
 

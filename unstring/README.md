@@ -49,6 +49,54 @@ The npm package and its version mirror are not part of this release workflow.
 After the package lands, add its `package.json` version field to the stream
 and add npm publication in a separately reviewed change.
 
+The release-tool SHA appears in four checkouts across `release-batch.yml`,
+`release.yml`, and `title-guard.yml`; all four must move together.
+`cut-release.yml` is the fourth release workflow but does not check out the tool.
+
+### Exercise the planner without a tag
+
+Run from the repository root with Go and Git installed. This clones into a
+scratch directory and copies existing tag references; it creates no tag and
+pushes nothing. The exercise uses the existing `unstring/v0.0.4` as its base.
+`close-pr`, `open-pr`, and `verify` print those values as `action=`; the queue
+command prints `gate=hold` (hold is a queue decision, not a planner action).
+The release-commit step writes only in the scratch clone.
+
+```bash
+set -euo pipefail
+repo="$(git rev-parse --show-toplevel)"
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/unstring-no-tag.XXXXXX")"
+go build -C "$repo/tools/release" -o "$scratch/release-intent" ./cmd/release-intent
+bin="$scratch/release-intent"
+git clone --quiet --no-local "$repo" "$scratch/repo"
+cd "$scratch/repo"
+export GIT_AUTHOR_NAME=Exercise GIT_AUTHOR_EMAIL=exercise@example.invalid
+export GIT_COMMITTER_NAME=Exercise GIT_COMMITTER_EMAIL=exercise@example.invalid
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+# The clone copies existing tags; no tag is created or pushed.
+tree=$(git rev-parse 'HEAD^{tree}')
+base=$(printf 'ci(unstring): adopt release automation\n' | git commit-tree "$tree" -p "unstring/v0.0.4^{commit}")
+git switch -q -c exercise "$base"
+printf '\nclose-pr:\n'
+"$bin" plan --branch exercise --mode tag
+next=$(printf 'feat(unstring)[patch]: exercise the planner\n' | git commit-tree "$tree" -p "$base")
+git update-ref refs/heads/exercise "$next"
+printf '\nopen-pr:\n'
+"$bin" plan --branch exercise --mode tag
+git switch -q -c automation/release exercise
+"$bin" release-pr --commit --branch exercise
+candidate=$(git rev-parse HEAD)
+git switch -q exercise
+git merge --ff-only -q "$candidate"
+printf '\nverify:\n'
+"$bin" plan --branch exercise --mode tag
+cat > "$scratch/queue.json" <<'JSON'
+{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":2,"nodes":[{"position":1,"pullRequest":{"number":11,"title":"fix(unstring)[patch]: queued fix"}},{"position":2,"pullRequest":{"number":12,"title":"release[patch]: unstring/v0.0.5"}}]}}}}}
+JSON
+printf '\nhold:\n'
+"$bin" queue-gate --queue "$scratch/queue.json" --release-pr 12
+```
+
 ## What it scans
 
 A run reads `.unstring.yaml` (or `--config`) and scans only the roots of the
