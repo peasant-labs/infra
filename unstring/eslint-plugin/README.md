@@ -26,15 +26,19 @@ example, pair `type Role = 'user' | 'assistant'` with
 `const Role = { User: 'user', Assistant: 'assistant' } as const`, then write
 `role === Role.User`. Frozen JSDoc tables and members with a literal `wire`
 property also work. The rule does not fix code; it ignores unnamed unions,
-`string`, `unknown`, `any`, and types without a matching const table. TypeScript
-can erase alias identity during structural type canonicalization;
-only types whose checker result retains their alias are eligible.
+`string`, `unknown`, `any`, and types without a matching const table. When the
+checker erases an alias, the rule also follows an explicit named type reference
+on a property or parameter, including a JSDoc import. It never identifies a set
+by matching union values alone. Generated declarations that inline a union
+without a named reference, or widen each table member to the whole union, cannot
+be resolved reliably and remain silent.
 
 ## Fixture contract
 
 `../internal/typed/testdata/typescript.yaml` is the shared conformance corpus.
 Each case has a unique `name`, `language` (`ts`, `js`, or `jsx`), source `code`,
-and an ordered `expect` list of `{set, member, literal}` findings; an empty list
+an optional `files` mapping of supporting filenames to source text, and an
+ordered `expect` list of `{set, member, literal}` findings; an empty list
 requires silence. The Go typed pass can consume the same cases when it supports
 the corresponding languages. Required case names are protected by the test
 manifest; add cases rather than replacing existing coverage.

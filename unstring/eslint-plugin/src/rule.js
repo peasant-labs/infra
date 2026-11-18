@@ -2,6 +2,48 @@
 // loading a second copy of the consumer's TypeScript compiler.
 const VALUE_SYMBOL = 111551
 const CONST_NODE = 2
+const ALIAS_SYMBOL = 2097152
+
+function namedSet(checker, type, receiverSymbol) {
+  if (type.aliasSymbol?.declarations?.length) return type.aliasSymbol
+
+  // Preserve the written type reference, not a structurally equal union found
+  // elsewhere. This also works for JSDoc @property and @param type nodes.
+  for (const declaration of receiverSymbol?.declarations ?? []) {
+    const nodes = [declaration.type, declaration.typeExpression?.type]
+    // In JavaScript, a parameter's annotation lives on its function's JSDoc,
+    // not on the parameter node itself.
+    if (declaration.name?.getText() === receiverSymbol.getName()) {
+      for (const doc of declaration.parent?.jsDoc ?? []) {
+        for (const tag of doc.tags ?? []) {
+          if (tag.tagName?.getText() === 'param' && tag.name?.getText() === receiverSymbol.getName()) {
+            nodes.push(tag.typeExpression?.type)
+          }
+        }
+      }
+    }
+    for (const node of nodes) {
+      const name = node?.typeName ?? node?.qualifier
+      if (!name) continue
+      let symbol = checker.getSymbolAtLocation(name)
+      if (symbol?.flags & ALIAS_SYMBOL) symbol = checker.getAliasedSymbol(symbol)
+      if (!symbol?.declarations?.length) continue
+      const declared = checker.getDeclaredTypeOfSymbol(symbol)
+      if (declared.isUnion() && declared.types.every(part => part.isStringLiteral()) &&
+          checker.isTypeAssignableTo(declared, type) && checker.isTypeAssignableTo(type, declared)) {
+        return symbol
+      }
+    }
+  }
+
+  const symbol = type.symbol
+  if (symbol?.declarations?.length) {
+    const declared = checker.getDeclaredTypeOfSymbol(symbol)
+    if (declared.isUnion() && declared.types.every(part => part.isStringLiteral()) &&
+        checker.isTypeAssignableTo(declared, type) && checker.isTypeAssignableTo(type, declared)) return symbol
+  }
+  return null
+}
 
 function memberFor(checker, receiver, literal) {
   let type = checker.getTypeAtLocation(receiver)
@@ -10,7 +52,7 @@ function memberFor(checker, receiver, literal) {
     type = checker.getTypeOfSymbolAtLocation(receiverSymbol, receiverSymbol.valueDeclaration)
   }
   if (!type.isUnion() || !type.types.every(part => part.isStringLiteral())) return null
-  const alias = type.aliasSymbol
+  const alias = namedSet(checker, type, receiverSymbol)
   const declaration = alias?.declarations?.[0]
   if (!declaration) return null
   const name = alias.getName()

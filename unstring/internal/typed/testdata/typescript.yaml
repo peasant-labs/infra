@@ -129,3 +129,47 @@
       return false
     }
   expect: [{set: Role, member: User, literal: user}]
+- name: imported role property in jsdoc
+  language: jsx
+  files:
+    role-schema.d.ts: |
+      type Infer<T> = T extends { value: infer V } ? V : never
+      export type Role = Infer<{ value: 'user' | 'assistant' }>
+      export declare const Role: { readonly User: 'user'; readonly Assistant: 'assistant' }
+      export interface TurnDetail { role: Role }
+      export type TypeOrigin = Infer<{ value: 'user' | 'assistant' }>
+      export interface OriginDetail { role: TypeOrigin }
+      export type WideRole = Infer<{ value: 'user' | 'assistant' }>
+      export declare const WideRole: { readonly User: WideRole; readonly Assistant: WideRole }
+  code: |
+    /** @typedef {import('./role-schema').TurnDetail} TurnDetail */
+    /** @typedef {{turn: TurnDetail}} TurnNodeData */
+    /** @param {TurnNodeData} d */
+    function View(d) { return <div>{d.turn.role === 'user' || d.turn.role === 'assistant'}</div> }
+  expect: [{set: Role, member: User, literal: user}, {set: Role, member: Assistant, literal: assistant}]
+- name: any property ignores same name
+  language: jsx
+  code: |
+    /** @typedef {'user' | 'assistant'} Role */
+    const Role = Object.freeze({ User: 'user', Assistant: 'assistant' })
+    /** @param {{turn: {role: any}}} d */
+    function View(d) { return <div>{d.turn.role === 'user'}</div> }
+  expect: []
+- name: imported jsdoc parameter
+  language: js
+  code: |
+    /** @param {import('./role-schema').Role} role */
+    function use(role) { return role === 'user' }
+  expect: [{set: Role, member: User, literal: user}]
+- name: imported structural twin without table
+  language: js
+  code: |
+    /** @param {import('./role-schema').OriginDetail} d */
+    function test(d) { return d.role === 'user' }
+  expect: []
+- name: widened table members are not evidence
+  language: js
+  code: |
+    /** @param {import('./role-schema').WideRole} role */
+    function test(role) { return role === 'user' }
+  expect: []
