@@ -132,7 +132,7 @@ cases:
       config: *release_config
       facts:
         commits:
-          - {sha: "cor", subject: "fix(changelog)[minor]: correct history", changes_changelog: true}
+          - {sha: "cor", subject: "docs(changelog): correct history", changes_changelog: true}
           - {sha: "fix", subject: "fix[patch]: repair behavior", changes_changelog: false}
           - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
         tags: {"v0.1.0": "b00"}

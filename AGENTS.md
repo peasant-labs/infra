@@ -184,8 +184,8 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   can be a candidate, and changelog-changing subjects stay out of the pending
   set, so keep releasing code changes separate from corrections. The title
   and changelog predicate identifies a candidate; it does not authenticate
-  the PR's author. Consumers must add a plan-job GitHub API provenance check
-  before adopting this behavior.
+  the PR's author. Consumers must add the
+  [plan-job provenance check](tools/release/README.md#before-re-pinning) before adopting.
 - **The queue policy file is `.github/release-queue.policy.yml`, top-level key
   `queue:` only.** `policy.DefaultPath` owns that path. Job-graph rules for a
   tag-triggered release workflow stay in schema's release-guard and its own

@@ -8,6 +8,7 @@ required_names:
   - group-shaped-base-passes
   - ordinary-scripts-edit-accepted
   - adopting-pr-accepted
+  - adopting-pr-releasing-changelog-rejected
   - version-document-corrupt-rejected
   - release-pr-version-edit-accepted
   - release-pr-content-accepted
@@ -28,9 +29,47 @@ required_names:
   - release-pr-changelog-added-without-base
   - changelog-deleted-with-headings
   - changelog-compared-at-merge-base
+  - feature-changelog-rejected
+  - fix-changelog-rejected
+  - human-release-changelog-rejected
+  - docs-changelog-accepted
+  - feature-without-changelog-accepted
 
 cases:
   cases:
+    - name: feature-changelog-rejected
+      input: &feature_changelog {title: "feat(x)[minor]: add", author: octocat, headBranch: feature/work, setup: changelog-edit, baseChangelog: "# Changelog\n## 0.1.0\nold\n", headChangelog: "# Changelog\n## 0.1.0\nnew\n"}
+      expected: &title_rejection {exit: 2, code: changelog-release-title, stdout: []}
+      classification: must-fail
+      sibling: docs-changelog-accepted
+      provenance: &title_p {source: requirement, ref: "changelog edits cannot conceal release intent"}
+      mutation: &title_m {description: "vary the title or changed path"}
+    - name: fix-changelog-rejected
+      input: {<<: *feature_changelog, title: "fix(x)[patch]: repair"}
+      expected: *title_rejection
+      classification: must-fail
+      sibling: docs-changelog-accepted
+      provenance: *title_p
+      mutation: *title_m
+    - name: human-release-changelog-rejected
+      input: {<<: *feature_changelog, title: "release[patch]: publish"}
+      expected: *title_rejection
+      classification: must-fail
+      sibling: docs-changelog-accepted
+      provenance: *title_p
+      mutation: *title_m
+    - name: docs-changelog-accepted
+      input: {<<: *feature_changelog, title: "docs(changelog): correct"}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: *title_p
+      mutation: *title_m
+    - name: feature-without-changelog-accepted
+      input: {title: "feat(x)[minor]: add", author: octocat, headBranch: feature/work, setup: ordinary-scripts-edit}
+      expected: {exit: 0, stdout: ["error="]}
+      classification: must-pass
+      provenance: *title_p
+      mutation: *title_m
     - name: changelog-body-edit-accepted
       input:
         title: "docs: correct historical notes"
@@ -202,11 +241,18 @@ cases:
       provenance: {source: requirement, ref: "a scripts-only version-file edit is accepted"}
       mutation: {description: "Edits only unprotected fields of a version file."}
     - name: adopting-pr-accepted
-      input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "adopting"}
+      input: {title: "docs(changelog): adopt release config", author: "octocat", headBranch: "feature/work", setup: "adopting"}
       expected: {exit: 0, stdout: ["error="]}
       classification: must-pass
-      provenance: {source: requirement, ref: "a PR that adds the config is judged on grammar alone, from the head config"}
+      provenance: {source: requirement, ref: "an adopting PR is judged using its head config"}
       mutation: {description: "Leaves the base without a config and adds it in the head."}
+    - name: adopting-pr-releasing-changelog-rejected
+      input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "adopting"}
+      expected: {exit: 2, code: changelog-release-title, stdout: []}
+      classification: must-fail
+      sibling: adopting-pr-accepted
+      provenance: *title_p
+      mutation: {description: "adopt configuration and a changelog with a releasing title"}
     - name: version-document-corrupt-rejected
       input: {title: "feat(graph)[minor]: add facet", author: "octocat", headBranch: "feature/work", setup: "raw-version-document", rawVersionDocument: "{not json"}
       expected: {exit: 2, code: "protected-path", stdout: []}

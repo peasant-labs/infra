@@ -4,6 +4,13 @@
 workflow checker separately reads `.github/release-queue.policy.yml`. A
 repository's tag-workflow guard and its policy remain separate.
 
+## Before re-pinning
+
+Before adopting changelog corrections, a consumer must add a plan-job GitHub
+API provenance check authenticating the release PR independently of its title
+and changed files. The planner's candidate predicate alone does not prove
+authorship.
+
 The landed release PR commit is the batch boundary. A fresh candidate is
 verified and tagged for the subjects in its snapshot, even if another releasing
 PR lands afterward. Later subjects remain in the full pending range and belong
@@ -187,11 +194,12 @@ section without dropping existing prose or duplicating the heading. Candidate
 freshness regenerates from the candidate's first parent. A normal correction
 is not a candidate; only a changelog-changing release-titled commit can be
 selected, and only a fresh candidate is eligible for tagging. The predicate
-does not authenticate PR authorship. Before adopting this behavior, consumers
-must add a plan-job GitHub API provenance check that authenticates the release
-PR independently of its title and changed files. All changelog-changing subjects remain
-outside the pending set, so keep releasing code changes separate from
-corrections.
+does not authenticate PR authorship. All changelog-changing subjects remain
+outside the pending set; the title guard requires normal changelog corrections
+to have no release level, so releasing code changes need a separate PR.
+Fixing a prior release date also requires the bot: its heading line is guarded.
+On rebuild, generated lines match exactly; rewording a generated line in an
+untagged section can cause the original line to reappear.
 
 `release-pr --commit --branch REF [--freeze-plan FILE] [--current REF]
 [--floor SHA]` generates the changelog and version-field changes, and may carry

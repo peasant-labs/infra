@@ -83,21 +83,27 @@ func checkTitle(ctx context.Context, runner GitRunner, base, head, author, headB
 	if ok {
 		current = version
 	}
-	if _, perr := intent.ParseTitle(cfg, current, title); perr != nil {
+	parsed, perr := intent.ParseTitle(cfg, current, title)
+	if perr != nil {
 		return rejectAs(intent.CommandCheckTitle, perr)
 	}
+	mergeBase, paths, err := runner.ChangedPaths(ctx, base, head)
+	if err != nil {
+		return fmt.Errorf("%s: cannot read the PR change between %q and %q: %w", intent.CommandCheckTitle, base, head, err)
+	}
+	kind := intent.ClassifyPR(cfg, author, headBranch)
 	if !adopting {
-		mergeBase, paths, err := runner.ChangedPaths(ctx, base, head)
-		if err != nil {
-			return fmt.Errorf("%s: cannot read the PR change between %q and %q: %w", intent.CommandCheckTitle, base, head, err)
-		}
 		changes, cerr := buildProtectedChanges(ctx, runner, cfg, mergeBase, head, paths)
 		if cerr != nil {
 			return cerr
 		}
-		kind := intent.ClassifyPR(cfg, author, headBranch)
 		if cerr := intent.CheckProtectedPaths(cfg, changes, kind); cerr != nil {
 			return rejectAs(intent.CommandCheckTitle, cerr)
+		}
+	}
+	for _, p := range paths {
+		if err := intent.CheckChangelogTitle(parsed, kind, p == cfg.Changelog); err != nil {
+			return rejectAs(intent.CommandCheckTitle, err)
 		}
 	}
 	return emit(out(intent.OutputError, ""))

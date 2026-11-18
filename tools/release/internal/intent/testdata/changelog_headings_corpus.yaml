@@ -16,7 +16,61 @@ required_names:
   - non-version-section-added
   - heading-whitespace
   - bare-heading-rename
+  - crlf-prose-edit
+  - crlf-whole-file
+  - fenced-heading-line-added
+  - fenced-heading-line-removed
+  - fenced-comment-lines
+  - reference-link-and-heading
+  - duplicate-unreleased
 cases:
+  - name: crlf-prose-edit
+    input: {base: "# Changelog\r\n## 0.1.0\r\nold\r\n", find: "old", replace: "new"}
+    expected: {headings_unchanged: true}
+    classification: must-pass
+    provenance: &extra_p {source: requirement, ref: "raw heading lines fail closed"}
+    mutation: &extra_m {description: "change prose or section heading bytes"}
+  - name: crlf-whole-file
+    input: {base: "# Changelog\r\n## 0.1.0\r\nold\r\n", find: "# Changelog\r\n## 0.1.0\r\nold\r\n", replace: "# Changelog\n## 0.1.0\nold\n"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: crlf-prose-edit
+    provenance: *extra_p
+    mutation: *extra_m
+  - name: fenced-heading-line-added
+    input: {base: "# Changelog\n```\nplain\n```\n", find: "plain", replace: "plain\n## heading"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: fenced-comment-lines
+    provenance: *extra_p
+    mutation: *extra_m
+  - name: fenced-heading-line-removed
+    input: {base: "# Changelog\n```\n## heading\n```\n", find: "## heading\n", replace: ""}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: fenced-comment-lines
+    provenance: *extra_p
+    mutation: *extra_m
+  - name: fenced-comment-lines
+    input: {base: "# Changelog\n```\n# comment\n```\n", find: "# comment", replace: "# another comment"}
+    expected: {headings_unchanged: true}
+    classification: must-pass
+    provenance: *extra_p
+    mutation: *extra_m
+  - name: reference-link-and-heading
+    input: {base: "## 0.1.0\n[0.1.0]: old\n", find: "## 0.1.0\n[0.1.0]: old", replace: "## 0.1.1\n[0.1.0]: new"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: reference-link
+    provenance: *extra_p
+    mutation: *extra_m
+  - name: duplicate-unreleased
+    input: {base: "## [Unreleased]\nold\n", find: "old\n", replace: "old\n## [Unreleased]\nnew\n"}
+    expected: {headings_unchanged: false, code: protected-path}
+    classification: must-fail
+    sibling: unreleased-body
+    provenance: *extra_p
+    mutation: *extra_m
   - name: prior-section-body
     input:
       base: &changelog |

@@ -216,6 +216,7 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 	accumulate := func(list []parsedCommit) (pending []Title, level Level, breaking bool, date string) {
 		pending = []Title{}
 		for _, p := range list {
+			// The title guard makes changelog edits either bot releases or level-less corrections.
 			if p.commit.ChangesChangelog || p.title.Level == LevelNone {
 				continue
 			}

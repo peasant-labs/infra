@@ -8,6 +8,23 @@ import (
 	"unicode/utf8"
 )
 
+// CheckChangelogTitle prevents releasing subjects from being hidden by a
+// changelog edit, which the release planner excludes from pending subjects.
+func CheckChangelogTitle(title Title, kind PRKind, touchesChangelog bool) error {
+	if !touchesChangelog || kind == PRKindRelease || (title.Level == LevelNone && title.Type != TypeRelease) {
+		return nil
+	}
+	return &Error{
+		Code:  ErrChangelogRelease,
+		What:  "a non-release PR changes the changelog and carries a release title or level",
+		Why:   "changelog-changing commits are excluded from release subjects, so this release would be lost",
+		Where: "PR change, checked by release-intent check-title",
+		When:  "checking the pull request or merge group",
+		Means: "the title guard rejects this PR before it can be merged",
+		Fix:   "retitle as docs(changelog): ... with no level, or move the changelog edit to its own PR",
+	}
+}
+
 // ProtectedChange is one changed path with the comparisons applicable to a
 // version file or changelog. The command layer reads both ends of the change
 // from git; this predicate only judges the answer. An unset comparison is

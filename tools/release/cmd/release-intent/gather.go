@@ -93,6 +93,8 @@ func candidateFresh(ctx context.Context, r GitRunner, command intent.Command, cf
 	if candidateIndex < 0 {
 		return false, fmt.Errorf("%s: cannot compare release candidate %q: it is absent from the first-parent history. Fetch the candidate and branch history before planning", command, dec.Candidate)
 	}
+	// A root or truncated first-parent history has no known parent; fall back
+	// to the available range base rather than indexing past the history.
 	baseRev := baseRevForRange(shas, tags, dec.RangeBase, epoch)
 	if candidateIndex+1 < len(commits) {
 		baseRev = commits[candidateIndex+1].SHA

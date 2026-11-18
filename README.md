@@ -106,7 +106,8 @@ Run its checks with `make release-tool-check` (gofmt, build, vet, test). The
 A normal reviewed PR may correct changelog prose, including earlier sections,
 reference-link definitions, and the `[Unreleased]` block. It may not add,
 remove, reorder, rename, or re-date a real release heading, or change a
-protected version field: those remain bot-only. `[Unreleased]` is the human
+protected version field: those remain bot-only, including prior release dates.
+`[Unreleased]` is the human
 channel; the generator carries its entries into the next section when they
 are present in its base input.
 
@@ -122,9 +123,11 @@ candidate, and changelog-changing subjects are excluded from the pending set;
 keep a releasing code change in a separate PR so its release intent is counted.
 Only a fresh release candidate is eligible for tagging. The planner recognizes
 that candidate by a release title and a changelog change; those facts do not by
-themselves authenticate who opened the PR. Before adopting this behavior,
-consumers must add a plan-job GitHub API provenance check that authenticates
-the release PR independently of its title and changed files.
+themselves authenticate who opened the PR. Before re-pinning, consumers must
+add the [plan-job provenance check](tools/release/README.md#before-re-pinning).
+The title guard requires changelog corrections to have no release level.
+Rebuilds match generated lines exactly: rewording one in an untagged section
+can cause the original line to reappear.
 
 ### Prepare a release branch locally
 
@@ -158,7 +161,8 @@ same validated title and fresh, in-scope content and merges
 cleanly; no commit is made. Omit `--current` when there is no existing branch.
 An unreadable current ref, a required push with no generated changes, or a
 version-only result with no changelog change is an error, not a no-op. The
-planner identifies release candidates by their release title and changelog change. After an
+planner identifies release candidates by their release title and changelog
+change. After an
 interrupted or failed staging operation, discard
 the incomplete checkout and retry from a clean one. The new mode requires a
 Unix runner; existing `--write` remains a working-tree-only operation.

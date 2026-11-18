@@ -43,6 +43,7 @@ var bracketHeading = regexp.MustCompile(
 		`(` + regexp.QuoteMeta(headingDateSep) + `(.+))?$`)
 
 // isSectionHeading reports whether a changelog line opens a section.
+// It is deliberately not fence-aware, so protected headings fail closed.
 func isSectionHeading(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), sectionMarker)
 }
@@ -56,6 +57,18 @@ func isUnreleased(text string) bool {
 // using the same section and Unreleased rules as the generator. Prose and the
 // Unreleased block are not release identities.
 func ChangelogHeadingsUnchanged(base, head string) bool {
+	unreleasedCount := func(changelog string) int {
+		count := 0
+		for _, line := range strings.Split(changelog, "\n") {
+			if isSectionHeading(line) && isUnreleased(strings.TrimSpace(line)[len(sectionMarker):]) {
+				count++
+			}
+		}
+		return count
+	}
+	if unreleasedCount(head) > 1 && unreleasedCount(head) > unreleasedCount(base) {
+		return false
+	}
 	headings := func(changelog string) []string {
 		var result []string
 		for _, line := range strings.Split(changelog, "\n") {

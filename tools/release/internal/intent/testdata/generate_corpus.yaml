@@ -20,7 +20,39 @@ required_names:
   - rebuild-existing-version-keeps-corrections
   - rebuild-existing-version-is-idempotent
   - rebuild-existing-version-keeps-reference-links
+  - link-retarget-keeps-generated-section
+  - link-before-retarget-generated-section
 cases:
+  - name: link-retarget-keeps-generated-section
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      pending: [{type: fix, level: patch, subject: "repair", pr: 1}]
+      base_changelog: "# Changelog\n\n## [v0.1.0]\n\n- old\n\n[v0.1.0]: https://example.test/new\n"
+      version: "0.1.1"
+      tag: "v0.1.1"
+      date: "2026-11-12"
+    expected:
+      changelog: "# Changelog\n\n## [v0.1.1]\n\n- repair (#1)\n\n## [v0.1.0]\n\n- old\n\n[v0.1.0]: https://example.test/new\n"
+      section: &link_section "## [v0.1.1]\n\n- repair (#1)\n"
+      versions: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "retargeting a prior link preserves the generated release section"}
+    mutation: {description: "retarget the previous version reference only"}
+  - name: link-before-retarget-generated-section
+    input:
+      config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
+      pending: [{type: fix, level: patch, subject: "repair", pr: 1}]
+      base_changelog: "# Changelog\n\n## [v0.1.0]\n\n- old\n\n[v0.1.0]: https://example.test/old\n"
+      version: "0.1.1"
+      tag: "v0.1.1"
+      date: "2026-11-12"
+    expected:
+      changelog: "# Changelog\n\n## [v0.1.1]\n\n- repair (#1)\n\n## [v0.1.0]\n\n- old\n\n[v0.1.0]: https://example.test/old\n"
+      section: *link_section
+      versions: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "the generated section before the link retarget"}
+    mutation: {description: "use the original previous version reference"}
   - name: rebuild-existing-version-keeps-corrections
     input:
       config: &rebuild_config {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
