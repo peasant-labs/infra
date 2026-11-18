@@ -93,6 +93,43 @@ func ParseConfig(data []byte) (Config, error) {
 			"keep a single document in the config",
 		)
 	}
+	// A present null streams key is not the legacy configuration: it must
+	// fail the same one-stream requirement as an empty mapping.
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err == nil && len(document.Content) > 0 {
+		root := document.Content[0]
+		if root.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(root.Content); i += 2 {
+				if root.Content[i].Value == "streams" && cfg.Streams == nil {
+					cfg.Streams = map[string]Stream{}
+				}
+			}
+		}
+	}
+	if cfg.Streams != nil {
+		streamFail := func(what, fix string) (Config, error) {
+			return Config{}, &Error{Code: ErrStreamInvalid, What: what, Why: "the release tool selects exactly one unambiguous stream", Where: "intent.ParseConfig", When: "loading the release config", Means: "no release can be planned", Fix: fix}
+		}
+		if len(cfg.Streams) != 1 {
+			return streamFail("streams must contain exactly one entry", "a second stream needs a --stream selector, which does not exist yet; configure exactly one stream")
+		}
+		if cfg.TagPrefix != "" || cfg.Changelog != "" || len(cfg.VersionFiles) != 0 {
+			return streamFail("top-level release content is configured alongside streams", "move tag_prefix, changelog and version_files into the stream")
+		}
+		for name, stream := range cfg.Streams {
+			if !scopePattern.MatchString(name) || stream.TagPrefix == "" || stream.Changelog == "" || len(stream.Scopes) == 0 {
+				return streamFail("stream "+strconv.Quote(name)+" lacks a valid name, prefix, changelog, or scopes", "configure a named stream with a tag prefix, changelog, and at least one title scope")
+			}
+			seen := map[string]bool{}
+			for _, scope := range stream.Scopes {
+				if !scopePattern.MatchString(scope) || seen[scope] {
+					return streamFail("stream has invalid or duplicate scope "+strconv.Quote(scope), "list each valid lowercase scope once")
+				}
+				seen[scope] = true
+			}
+			cfg.TagPrefix, cfg.Changelog, cfg.VersionFiles = stream.TagPrefix, stream.Changelog, stream.VersionFiles
+		}
+	}
 	if err := checkConfig(cfg, "release config bytes, parsed by intent.ParseConfig"); err != nil {
 		return Config{}, err
 	}

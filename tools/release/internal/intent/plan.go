@@ -211,7 +211,7 @@ func Plan(cfg Config, facts Facts) (Decision, error) {
 	accumulate := func(list []parsedCommit) (pending []Title, level Level, breaking bool, date string) {
 		pending = []Title{}
 		for _, p := range list {
-			if p.commit.ChangesChangelog || p.title.Level == LevelNone {
+			if p.commit.ChangesChangelog || p.title.Level == LevelNone || (p.title.Type != TypeRelease && !cfg.BelongsToStream(p.title.Scopes)) {
 				continue
 			}
 			if date == "" {

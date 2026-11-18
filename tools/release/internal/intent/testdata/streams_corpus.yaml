@@ -1,0 +1,182 @@
+required_names:
+  - stream-title
+  - outside-title
+  - outside-bump
+  - second-stream
+  - overlapping-prefixes
+  - mixed-top-level
+  - null-streams
+  - stream-missing-level
+  - landed-release
+  - releasing-other-type
+  - mixed-range
+  - malformed-outside-range
+  - forced-release
+  - multi-scope-member
+  - unscoped-bump
+cases:
+  - name: stream-title
+    input:
+      document: &config |
+        releases: true
+        automation_author: bot
+        streams:
+          unstring:
+            tag_prefix: unstring/v
+            changelog: unstring/CHANGELOG.md
+            version_files: [{path: unstring/package.json, field: version}]
+            scopes: [unstring]
+      title: "feat(unstring)[minor]: add a rule"
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "stream membership"}
+    mutation: {description: "release the stream"}
+  - name: outside-title
+    input:
+      document: *config
+      title: "fix(runner-router): repair the router"
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "unrelated changes do not release"}
+    mutation: {description: "use a different scope"}
+  - name: outside-bump
+    input:
+      document: *config
+      title: "fix(runner-router)[patch]: repair the router"
+    expected: {code: bump-on-no-stream}
+    classification: must-fail
+    sibling: outside-title
+    provenance: {source: requirement, ref: "unrelated changes cannot request a release"}
+    mutation: {description: "add a bracket outside the stream"}
+  - name: second-stream
+    input:
+      document: |
+        releases: true
+        automation_author: bot
+        streams:
+          unstring: {tag_prefix: unstring/v, changelog: unstring/CHANGELOG.md, scopes: [unstring]}
+          other: {tag_prefix: other/v, changelog: other/CHANGELOG.md, scopes: [other]}
+    expected: {code: stream-invalid}
+    classification: must-fail
+    sibling: stream-title
+    provenance: {source: requirement, ref: "exactly one stream"}
+    mutation: {description: "add another stream"}
+  - name: overlapping-prefixes
+    input:
+      document: |
+        releases: true
+        automation_author: bot
+        streams:
+          unstring: {tag_prefix: unstring/v, changelog: unstring/CHANGELOG.md, scopes: [unstring]}
+          other: {tag_prefix: unstring/v1, changelog: other/CHANGELOG.md, scopes: [other]}
+    expected: {code: stream-invalid}
+    classification: must-fail
+    sibling: stream-title
+    provenance: {source: requirement, ref: "overlapping prefixes are refused"}
+    mutation: {description: "add a stream whose prefix overlaps"}
+  - name: mixed-top-level
+    input:
+      document: |
+        releases: true
+        automation_author: bot
+        tag_prefix: v
+        streams:
+          unstring: {tag_prefix: unstring/v, changelog: unstring/CHANGELOG.md, scopes: [unstring]}
+    expected: {code: stream-invalid}
+    classification: must-fail
+    sibling: stream-title
+    provenance: {source: requirement, ref: "one release content source"}
+    mutation: {description: "add a top-level prefix"}
+  - name: null-streams
+    input:
+      document: |
+        releases: true
+        automation_author: bot
+        tag_prefix: v
+        changelog: CHANGELOG.md
+        streams:
+    expected: {code: stream-invalid}
+    classification: must-fail
+    sibling: stream-title
+    provenance: {source: requirement, ref: "present streams needs one entry"}
+    mutation: {description: "set streams to null"}
+  - name: stream-missing-level
+    input: {document: *config, title: "feat(unstring): add a rule"}
+    expected: {code: missing-bump}
+    classification: must-fail
+    sibling: stream-title
+    provenance: {source: requirement, ref: "stream feats need levels"}
+    mutation: {description: "omit the level"}
+  - name: landed-release
+    input: {document: *config, title: "release[minor]: unstring/v0.2.0 (#42)"}
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "landed release title"}
+    mutation: {description: "use an unscoped release request"}
+  - name: releasing-other-type
+    input: {document: *config, title: "refactor(unstring)[patch]: improve a rule"}
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "optional release types in stream"}
+    mutation: {description: "use a refactor with a level"}
+  - name: mixed-range
+    input:
+      document: *config
+      facts:
+        commits:
+          - {sha: c, subject: "fix(runner-router): repair router"}
+          - {sha: b, subject: "feat(unstring)[minor]: add rule"}
+          - {sha: a, subject: "chore: adopt config"}
+        tags: {"unstring/v0.1.0": a, "runner-router-v9.9.9": c}
+        epoch: a
+        mode: tag
+        verdict: ""
+    expected: {tag: "unstring/v0.2.0", pending: ["add rule"]}
+    classification: must-pass
+    provenance: {source: requirement, ref: "mixed range is scoped to stream"}
+    mutation: {description: "add unrelated fix and tag above the stream release"}
+  - name: malformed-outside-range
+    input:
+      document: *config
+      facts:
+        commits:
+          - {sha: c, subject: "not a valid title"}
+          - {sha: b, subject: "feat(unstring)[minor]: add rule"}
+          - {sha: a, subject: "chore: adopt config"}
+        tags: {"unstring/v0.1.0": a}
+        epoch: a
+        mode: tag
+        verdict: ""
+    expected: {code: malformed}
+    classification: must-fail
+    sibling: mixed-range
+    provenance: {source: requirement, ref: "every landed title is parsed"}
+    mutation: {description: "replace the unrelated fix with a malformed title"}
+  - name: forced-release
+    input:
+      document: *config
+      facts:
+        commits:
+          - {sha: c, subject: "release[minor]: cut a release"}
+          - {sha: a, subject: "chore: adopt config"}
+        tags: {"unstring/v0.1.0": a}
+        epoch: a
+        mode: tag
+        verdict: ""
+    expected: {tag: "unstring/v0.2.0", pending: ["cut a release"]}
+    classification: must-pass
+    provenance: {source: requirement, ref: "scope-less release request remains releasing"}
+    mutation: {description: "land an explicit release request"}
+  - name: multi-scope-member
+    input: {document: *config, title: "fix(runner-router,unstring)[patch]: repair rule"}
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "membership matches any scope in the list"}
+    mutation: {description: "include both unrelated and stream scopes"}
+  - name: unscoped-bump
+    input: {document: *config, title: "fix[patch]: repair router"}
+    expected: {code: bump-on-no-stream}
+    classification: must-fail
+    sibling: outside-title
+    provenance: {source: requirement, ref: "unscoped changes cannot request a release"}
+    mutation: {description: "use a bracket without scopes"}

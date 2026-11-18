@@ -139,7 +139,7 @@ func QueueGate(cfg Config, current SemVer, entries []QueueEntry, releasePR int) 
 			}
 			return "", err
 		}
-		if title.Level != LevelNone {
+		if title.Level != LevelNone && (title.Type == TypeRelease || cfg.BelongsToStream(title.Scopes)) {
 			return GateHold, nil
 		}
 	}

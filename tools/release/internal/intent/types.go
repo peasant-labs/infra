@@ -509,6 +509,8 @@ const (
 	ErrFloorNotOnChain     ErrorCode = "floor-not-on-chain"
 	ErrReleaseContentStale ErrorCode = "release-content-stale"
 	ErrConfigInvalid       ErrorCode = "config-invalid"
+	ErrStreamInvalid       ErrorCode = "stream-invalid"
+	ErrBumpOnNoStream      ErrorCode = "bump-on-no-stream"
 	ErrPolicyViolation     ErrorCode = "policy-violation"
 	// ErrReleaseContentScope rejects a release PR that changes paths outside
 	// its configured release scope, or a cut-release PR that changes any path.
@@ -539,6 +541,8 @@ var AllErrorCodes = []ErrorCode{
 	ErrFloorNotOnChain,
 	ErrReleaseContentStale,
 	ErrConfigInvalid,
+	ErrStreamInvalid,
+	ErrBumpOnNoStream,
 	ErrPolicyViolation,
 	ErrReleaseContentScope,
 	ErrTagUnverified,
@@ -610,11 +614,20 @@ type VersionFile struct {
 	Field string `yaml:"field"`
 }
 
+// Stream identifies the release content and title scopes of one product.
+type Stream struct {
+	TagPrefix    string        `yaml:"tag_prefix"`
+	Changelog    string        `yaml:"changelog"`
+	VersionFiles []VersionFile `yaml:"version_files"`
+	Scopes       []string      `yaml:"scopes"`
+}
+
 // Config is one repo's release configuration, read from its release-intent
 // file. BotBranches maps a bot PR kind to the one head branch that PR uses,
 // so every workflow compares against the same names.
 type Config struct {
 	Releases         bool                `yaml:"releases"`
+	Streams          map[string]Stream   `yaml:"streams,omitempty"`
 	TagPrefix        string              `yaml:"tag_prefix"`
 	AutomationAuthor string              `yaml:"automation_author"`
 	Changelog        string              `yaml:"changelog"`

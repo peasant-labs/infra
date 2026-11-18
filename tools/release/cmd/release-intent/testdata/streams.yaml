@@ -1,0 +1,41 @@
+required_names:
+  - mixed-range-and-release-content
+cases:
+  cases:
+    - name: mixed-range-and-release-content
+      input:
+        config: |
+          releases: true
+          automation_author: app/peasant-labs-releaser
+          streams:
+            unstring:
+              tag_prefix: unstring/v
+              changelog: unstring/CHANGELOG.md
+              version_files:
+                - {path: unstring/eslint-plugin/package.json, field: version}
+              scopes: [unstring]
+          protected_paths: []
+          surfaces: {}
+          bot_branches:
+            release: automation/release
+        outside: "fix(runner-router): repair the router"
+        inside: "feat(unstring)[minor]: add a rule"
+        queue: '{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":1,"nodes":[{"position":1,"pullRequest":{"number":5,"title":"fix(runner-router): repair the router"}}]}}}}}'
+        invalid_queue: '{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":1,"nodes":[{"position":1,"pullRequest":{"number":5,"title":"not a title"}}]}}}}}'
+        releasing_queue: '{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":1,"nodes":[{"position":1,"pullRequest":{"number":5,"title":"feat(unstring)[minor]: add a rule"}}]}}}}}'
+        second_config: |
+          releases: true
+          automation_author: app/peasant-labs-releaser
+          streams:
+            unstring: {tag_prefix: unstring/v, changelog: unstring/CHANGELOG.md, scopes: [unstring]}
+            other: {tag_prefix: other/v, changelog: other/CHANGELOG.md, scopes: [other]}
+      expected:
+        tag: unstring/v0.2.0
+        version: 0.2.0
+        gate: arm
+        release_paths:
+          - unstring/CHANGELOG.md
+          - unstring/eslint-plugin/package.json
+      classification: must-pass
+      provenance: {source: requirement, ref: "stream scope governs production CLI paths"}
+      mutation: {description: "a stream commit and an unrelated fix share a range"}

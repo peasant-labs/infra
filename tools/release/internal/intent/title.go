@@ -141,9 +141,16 @@ func ParseTitle(cfg Config, current SemVer, raw string) (Title, error) {
 			"drop the bracket and the breaking mark, for example "+exampleTitle(TypeFeat, "graph", false, LevelNone, "add a facet"))
 	}
 
+	member := cfg.BelongsToStream(scopes)
+	if cfg.Streams != nil && typ == TypeRelease && len(scopes) != 0 {
+		return Title{}, rejection(ErrMalformed, raw, "release titles cannot carry scopes", "a release request applies to the configured stream", "the title-guard check is red", "remove the scope from the release title")
+	}
+	if cfg.Streams != nil && typ != TypeRelease && typ.Class() != ClassNeverRelease && !member && (level != LevelNone || breaking) {
+		return Title{}, rejection(ErrBumpOnNoStream, raw, "the title carries a release marker without a stream scope", "only a named stream may be released", "the title-guard check is red", "remove the marker or name a stream scope")
+	}
 	switch typ.Class() {
 	case ClassMustRelease:
-		if cfg.Releases && level == LevelNone {
+		if cfg.Releases && level == LevelNone && (typ == TypeRelease || member) {
 			return Title{}, rejection(ErrMissingBump, raw,
 				"type "+typ.String()+" releases but the title has no level",
 				"the types "+typeList(typesOf(ClassMustRelease))+" always release, and nothing is inferred from the type",
@@ -215,6 +222,23 @@ func ParseTitle(cfg Config, current SemVer, raw string) (Title, error) {
 		Subject:  m[7],
 		PR:       pr,
 	}, nil
+}
+
+// BelongsToStream reports scope membership; legacy configs include every title.
+func (cfg Config) BelongsToStream(scopes []string) bool {
+	if cfg.Streams == nil {
+		return true
+	}
+	for _, stream := range cfg.Streams {
+		for _, scope := range scopes {
+			for _, streamScope := range stream.Scopes {
+				if scope == streamScope {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // bangWhy states the breaking rule for the repo's side of 1.0.
