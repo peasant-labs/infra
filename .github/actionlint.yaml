@@ -5,3 +5,17 @@
 self-hosted-runner:
   labels:
     - microvm
+
+paths:
+  .github/workflows/cut-release.yml:
+    ignore:
+      # Git expands the token later; the release policy requires single quotes.
+      - 'shellcheck reported issue in this script: SC2016:info:1:26:'
+  .github/workflows/release-batch.yml:
+    ignore:
+      # The tag and branch pushes use the same policy-required Git helper.
+      - 'shellcheck reported issue in this script: SC2016:info:1:26:'
+  .github/workflows/runner-image.yml:
+    ignore:
+      # The installed actionlint predates this existing hosted runner label.
+      - 'label "ubuntu-26\.04" is unknown'

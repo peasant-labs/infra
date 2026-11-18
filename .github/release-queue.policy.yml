@@ -1,0 +1,12 @@
+queue:
+  required:
+    - {context: release-tool, workflow: release-tool.yml, job: release-tool}
+    - {context: title-guard, workflow: title-guard.yml, job: title-guard, guard: true}
+  release_job:
+    workflow: release-batch.yml
+    job: release
+    pre_tag_steps:
+      - {id: verify-config, check: config}
+      - {id: verify-workflows, check: workflows}
+  bot_jobs:
+    - {workflow: cut-release.yml, job: cut, kind: cut-release}

@@ -1,0 +1,148 @@
+name: Release unstring
+
+on:
+  push:
+    tags: ['unstring/v*']
+
+concurrency:
+  group: unstring-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Check out the repository (full history and tags)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the release-intent tool
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: peasant-labs/infra
+          ref: 43394587177062bec422a727db44d3bdb1c4df5e
+          path: infra-tool
+          sparse-checkout: |
+            tools/release
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+          cache: false
+
+      - name: Build release-intent
+        env:
+          GOWORK: "off"
+        run: go build -C infra-tool/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent
+
+      # Pushing a tag needs only the right to write tags, so the tag may name a
+      # commit that never landed. The tool checks the name against the
+      # default branch's release config and that the default branch reaches
+      # the tag's commit; nothing publishes until it passes.
+      - name: Verify the tag is a release tag on the default branch
+        run: '"${RUNNER_TEMP}/release-intent" verify-tag --tag "${GITHUB_REF_NAME}" --branch "origin/${DEFAULT_BRANCH}"'
+
+  notes:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Extract release notes
+        run: |
+          set -euo pipefail
+          version="${TAG#unstring/v}"
+          mkdir -p notes
+          awk -v version="$version" '
+            /^## / {
+              if (found) exit
+              heading=$0
+              sub(/^## /, "", heading)
+              bracketed = "[" version "]"
+              if (heading == version || heading == bracketed ||
+                  index(heading, bracketed " ") == 1) found=1
+              next
+            }
+            found { print }
+            END { if (!found) exit 1 }
+          ' unstring/CHANGELOG.md > notes/notes.md
+          printf '\nGo module: github.com/peasant-labs/infra/unstring@v%s\n' "$version" >> notes/notes.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-notes
+          path: notes
+          retention-days: 1
+
+  module:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: unstring/go.mod
+          cache: false
+      - name: Build and vet the Go module
+        working-directory: unstring
+        run: |
+          go build ./...
+          go vet ./...
+
+  release:
+    name: publish GitHub Release
+    needs: [verify, notes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create/update the GitHub Release
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-notes
+          path: notes
+
+      - name: Look for an existing GitHub Release (idempotent re-run)
+        id: view
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
+
+      - name: Update the notes of the existing GitHub Release
+        if: steps.view.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes/notes.md
+
+      - name: Create the GitHub Release
+        if: steps.view.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes/notes.md

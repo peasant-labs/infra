@@ -27,6 +27,8 @@ concurrency:
 
 jobs:
   guard:
+    permissions:
+      contents: read
     name: Check deployment request
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -38,6 +40,8 @@ jobs:
           exit 1
 
   plan:
+    permissions:
+      contents: read
     name: Plan ${{ inputs.stack }}
     needs: guard
     runs-on: ubuntu-24.04
@@ -56,6 +60,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check production destruction guards
         run: bash scripts/check-production-guards.sh
@@ -89,6 +95,8 @@ jobs:
           compression-level: 0
 
   apply:
+    permissions:
+      contents: read
     name: Apply ${{ inputs.stack }}
     if: inputs.operation == 'apply'
     needs:
@@ -110,6 +118,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check production destruction guards
         run: bash scripts/check-production-guards.sh

@@ -17,6 +17,8 @@ permissions:
 
 jobs:
   services:
+    permissions:
+      contents: read
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 15
     services:
@@ -83,6 +85,8 @@ jobs:
             cat /w/probe.txt | grep -qx probe
 
   container-job:
+    permissions:
+      contents: read
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 15
     # A JavaScript action inside a job container runs on the runner's own
@@ -92,6 +96,8 @@ jobs:
     steps:
       - name: Check out inside the job container
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: The checkout is in the workspace
         run: test -d "${GITHUB_WORKSPACE}/.github/workflows"

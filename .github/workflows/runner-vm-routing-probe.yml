@@ -19,6 +19,8 @@ permissions:
 
 jobs:
   route:
+    permissions:
+      contents: read
     uses: ./.github/workflows/runner-router.yml
     with:
       labels: '["self-hosted","linux","x64","microvm"]'
@@ -27,6 +29,8 @@ jobs:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   probe:
+    permissions:
+      contents: read
     name: Probe
     needs: route
     runs-on: ${{ fromJson(needs.route.outputs.runner) }}

@@ -17,6 +17,8 @@ permissions:
 
 jobs:
   go-tests:
+    permissions:
+      contents: read
     # The scale set's labels; the dispatcher boots exactly one VM for this job.
     runs-on: [self-hosted, linux, x64, microvm]
     # Go download plus a full -race suite takes minutes; this bounds execution,

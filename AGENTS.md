@@ -279,17 +279,14 @@ changes no count is PATCH.
 
 ### Release
 
-1. Merge to `main` with the `unstring` job green.
-2. Create and push the tag `unstring/vX.Y.Z` on the merge commit (the Go
-   convention for a module in a subdirectory).
-3. Confirm `go list -m github.com/peasant-labs/infra/unstring@vX.Y.Z` resolves
-   through the module proxy.
-4. Publish the release note with the per-rule changes and the measured line
-   counts.
-5. Each consumer bumps its pin in one pull request: run the new version's
-   `check` to preview, fix (or, where the rule accepts one, mark) every new hit,
-   change the pin, run the update command, and commit the pin, the fixes and
-   the baseline together.
+The release automation and operator setup are documented in
+`unstring/README.md`. Include per-rule changes and measured line counts in
+the change PR; the generated release notes link to it.
+
+Each consumer bumps its pin in one pull request: run the new version's
+`check` to preview, fix (or, where the rule accepts one, mark) every new hit,
+change the pin, run the update command, and commit the pin, the fixes and
+the baseline together.
 
 ## Validation
 

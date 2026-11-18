@@ -25,6 +25,8 @@ permissions:
 
 jobs:
   determine-runner:
+    permissions:
+      contents: read
     uses: ./.github/workflows/runner-router.yml
     with:
       fallback: '["ubuntu-24.04"]'
@@ -32,6 +34,8 @@ jobs:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   validate:
+    permissions:
+      contents: read
     name: Validate ${{ matrix.stack }}
     needs: determine-runner
     runs-on: ${{ fromJson(needs.determine-runner.outputs.runner) }}
@@ -45,6 +49,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check production destruction guards
         run: bash scripts/check-production-guards.sh

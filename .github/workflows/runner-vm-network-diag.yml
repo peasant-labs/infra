@@ -13,6 +13,8 @@ permissions:
 
 jobs:
   diagnose:
+    permissions:
+      contents: read
     runs-on: [self-hosted, linux, x64, microvm]
     timeout-minutes: 10
     steps:

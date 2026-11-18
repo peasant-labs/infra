@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   route:
+    permissions:
+      contents: read
     uses: ./.github/workflows/runner-router.yml
     with:
       fallback: '["ubuntu-24.04"]'
@@ -23,6 +25,8 @@ jobs:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   route-wide:
+    permissions:
+      contents: read
     uses: ./.github/workflows/runner-router.yml
     with:
       fallback: '["ubuntu-24.04"]'
@@ -31,6 +35,8 @@ jobs:
       RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   assert:
+    permissions:
+      contents: read
     needs: route
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -64,6 +70,8 @@ jobs:
           esac
 
   assert-wide:
+    permissions:
+      contents: read
     needs: [route, route-wide]
     runs-on: ubuntu-latest
     timeout-minutes: 5

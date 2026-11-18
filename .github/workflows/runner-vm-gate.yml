@@ -26,6 +26,8 @@ permissions:
 
 jobs:
   busy:
+    permissions:
+      contents: read
     runs-on: [self-hosted, linux, x64, microvm]
     # Bounds execution, not queue time: a pool that is down leaves the run
     # waiting until it is cancelled.
