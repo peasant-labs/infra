@@ -4,6 +4,14 @@
 workflow checker separately reads `.github/release-queue.policy.yml`. A
 repository's tag-workflow guard and its policy remain separate.
 
+The landed release PR commit is the batch boundary. A fresh candidate is
+verified and tagged for the subjects in its snapshot, even if another releasing
+PR lands afterward. Later subjects remain in the full pending range and belong
+to the next release after the candidate is tagged. A candidate whose own
+release content is stale is still rebuilt instead of tagged. `candidate_fresh`
+is judged against the candidate's `Before` sub-range only; a later subject is
+for the next release, not evidence of staleness.
+
 ## Per-tool release stream
 
 `streams` is optional; without it, the existing repository-wide release

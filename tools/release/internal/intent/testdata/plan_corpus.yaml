@@ -37,18 +37,20 @@ required_names:
   - stale-candidate-later-subject
   - older-fresh-newer-stale-no-tag
   - fresh-candidate-later-subject-taggable
-  - fresh-candidate-later-subject-verify
-  - commits-after-fresh-candidate
+  - snapshot-candidate-verifies-before-next-release
+  - snapshot-candidate-tags-before-next-release
   - stale-candidate-close-pr-when-empty
   - plan-only-with-fresh-candidate
   - mode-outside-the-set-is-an-error
   - verdict-outside-the-set-is-an-error
-  - later-patch-stales-candidate
+  - later-patch-next-release
   - later-docs-keeps-candidate-fresh
   - later-chore-keeps-candidate-fresh
   - later-unbracketed-feat-rejected
   - later-docs-before-releasing-fix
-  - later-breaking-minor-stales-candidate
+  - later-breaking-minor-next-release
+  - later-patch-after-candidate-tag
+  - later-breaking-after-candidate-tag
 cases:
   - name: tag-mode-off-gives-none
     input:
@@ -1004,7 +1006,7 @@ cases:
       range_base: "v0.1.0"
       version_base: "v0.1.0"
       candidate: "r11"
-      candidate_fresh: "stale"
+      candidate_fresh: "fresh"
       pending:
         - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "later", pr: 25}
         - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
@@ -1133,18 +1135,17 @@ cases:
         verdict: "taggable"
         fresh: {"r11": true}
     expected:
-      action: "open-pr"
+      action: "tag"
       range_base: "v0.1.0"
       version_base: "v0.1.0"
       candidate: "r11"
-      candidate_fresh: "stale"
+      candidate_fresh: "fresh"
       pending:
-        - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "later", pr: 25}
         - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
-      level: "minor"
+      level: "patch"
       breaking: false
-      version: "0.2.0"
-      tag: "v0.2.0"
+      version: "0.1.1"
+      tag: "v0.1.1"
       before:
         pending:
           - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
@@ -1158,10 +1159,10 @@ cases:
         version: "0.2.0"
         tag: "v0.2.0"
         date: "2026-11-13"
-      date: "2026-11-13"
+      date: "2026-11-11"
     classification: must-pass
     provenance: {source: requirement, ref: "planner: Full holds everything pending whatever the verdict"}
-    mutation: {description: "a later releasing subject makes the candidate stale"}
+    mutation: {description: "tag the candidate snapshot while retaining the full pending range"}
   - name: full-set-without-candidate
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
@@ -1213,25 +1214,24 @@ cases:
         verdict: "taggable"
         fresh: {"r11": true}
     expected:
-      action: "open-pr"
+      action: "tag"
       range_base: "v0.1.0"
       version_base: "v0.1.0"
       candidate: "r11"
-      candidate_fresh: "stale"
+      candidate_fresh: "fresh"
       pending:
-        - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "later", pr: 15}
         - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
-      level: "minor"
+      level: "patch"
       breaking: false
-      version: "0.2.0"
-      tag: "v0.2.0"
+      version: "0.1.1"
+      tag: "v0.1.1"
       before:
         pending:
           - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
         version: "0.1.1"
         tag: "v0.1.1"
         date: "2026-11-11"
-      date: "2026-11-13"
+      date: "2026-11-11"
       full:
         pending:
           - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "later", pr: 15}
@@ -1240,9 +1240,9 @@ cases:
         tag: "v0.2.0"
         date: "2026-11-13"
     classification: must-pass
-    provenance: {source: requirement, ref: "planner: later releasing subjects stale the candidate"}
+    provenance: {source: requirement, ref: "planner: the release commit is the batch boundary"}
     mutation: {description: "a later minor landing after a fresh release commit"}
-  - name: fresh-candidate-later-subject-verify
+  - name: snapshot-candidate-verifies-before-next-release
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
       facts:
@@ -1258,25 +1258,24 @@ cases:
         verdict: ""
         fresh: {"r11": true}
     expected:
-      action: "open-pr"
+      action: "verify"
       range_base: "v0.1.0"
       version_base: "v0.1.0"
       candidate: "r11"
-      candidate_fresh: "stale"
+      candidate_fresh: "fresh"
       pending:
-        - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "later", pr: 15}
         - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
-      level: "minor"
+      level: "patch"
       breaking: false
-      version: "0.2.0"
-      tag: "v0.2.0"
+      version: "0.1.1"
+      tag: "v0.1.1"
       before:
         pending:
           - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
         version: "0.1.1"
         tag: "v0.1.1"
         date: "2026-11-11"
-      date: "2026-11-13"
+      date: "2026-11-11"
       full:
         pending:
           - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "later", pr: 15}
@@ -1285,9 +1284,9 @@ cases:
         tag: "v0.2.0"
         date: "2026-11-13"
     classification: must-pass
-    provenance: {source: requirement, ref: "planner: later releasing subjects stale the candidate"}
+    provenance: {source: requirement, ref: "planner: the release commit is the batch boundary"}
     mutation: {description: "a later minor awaiting its pre-tag report"}
-  - name: commits-after-fresh-candidate
+  - name: snapshot-candidate-tags-before-next-release
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
       facts:
@@ -1303,25 +1302,24 @@ cases:
         verdict: "taggable"
         fresh: {"r12": true}
     expected:
-      action: "open-pr"
+      action: "tag"
       range_base: "v0.1.0"
       version_base: "v0.1.0"
       candidate: "r12"
-      candidate_fresh: "stale"
+      candidate_fresh: "fresh"
       pending:
-        - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "later", pr: 13}
         - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
-      level: "minor"
+      level: "patch"
       breaking: false
-      version: "0.2.0"
-      tag: "v0.2.0"
+      version: "0.1.1"
+      tag: "v0.1.1"
       before:
         pending:
           - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
         version: "0.1.1"
         tag: "v0.1.1"
         date: "2026-11-11"
-      date: "2026-11-13"
+      date: "2026-11-11"
       full:
         pending:
           - {type: "feat", scopes: ["x"], breaking: false, level: "minor", subject: "later", pr: 13}
@@ -1330,7 +1328,7 @@ cases:
         tag: "v0.2.0"
         date: "2026-11-13"
     classification: must-pass
-    provenance: {source: requirement, ref: "planner: later releasing subjects stale the candidate"}
+    provenance: {source: requirement, ref: "planner: the release commit is the batch boundary"}
     mutation: {description: "a releasing subject queued behind a fresh release commit"}
   - name: verdict-taggable-no-candidate
     input:
@@ -1472,7 +1470,7 @@ cases:
     sibling: tag-mode-off-gives-none
     provenance: {source: boundary, ref: "planner: a verdict outside the closed set is refused, never read as no report"}
     mutation: {description: "passed a verdict word no member holds"}
-  - name: later-patch-stales-candidate
+  - name: later-patch-next-release
     input:
       config: *release_config
       facts:
@@ -1487,13 +1485,12 @@ cases:
         verdict: "taggable"
         fresh: {"r11": true}
     expected:
-      action: "open-pr"
+      action: "tag"
       range_base: "v0.1.0"
       version_base: "v0.1.0"
       candidate: "r11"
-      candidate_fresh: "stale"
-      pending: &both_patches
-        - {type: "fix", scopes: ["x"], breaking: false, level: "patch", subject: "later", pr: 22}
+      candidate_fresh: "fresh"
+      pending:
         - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
       level: "patch"
       version: "0.1.1"
@@ -1503,10 +1500,15 @@ cases:
           - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
         version: "0.1.1"
         tag: "v0.1.1"
-      full: {pending: *both_patches, version: "0.1.1", tag: "v0.1.1"}
+      full:
+        pending: &both_patches
+          - {type: "fix", scopes: ["x"], breaking: false, level: "patch", subject: "later", pr: 22}
+          - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
+        version: "0.1.1"
+        tag: "v0.1.1"
     classification: must-pass
-    provenance: {source: requirement, ref: "newer releasing fix stales the candidate"}
-    mutation: {description: "Remove the newer-releasing check; the planner incorrectly tags the candidate."}
+    provenance: {source: requirement, ref: "later fix belongs to the next release"}
+    mutation: {description: "Include a later fix in the tagged candidate snapshot."}
   - name: later-docs-keeps-candidate-fresh
     input:
       config: *release_config
@@ -1578,12 +1580,13 @@ cases:
           - {sha: "f11", subject: "fix[patch]: one (#11)", changes_changelog: false}
           - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
     expected:
-      action: "open-pr"
+      action: "tag"
       range_base: "v0.1.0"
       version_base: "v0.1.0"
       candidate: "r11"
-      candidate_fresh: "stale"
-      pending: *both_patches
+      candidate_fresh: "fresh"
+      pending:
+        - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
       level: "patch"
       breaking: false
       version: "0.1.1"
@@ -1591,9 +1594,9 @@ cases:
       before: *earlier_patch
       full: {pending: *both_patches, version: "0.1.1", tag: "v0.1.1"}
     classification: must-pass
-    provenance: {source: requirement, ref: "scan past newer non-releasing commits to find a newer release"}
-    mutation: {description: "Stop scanning after the first non-releasing commit and incorrectly tag the candidate."}
-  - name: later-breaking-minor-stales-candidate
+    provenance: {source: requirement, ref: "newer docs and fix do not change the candidate snapshot"}
+    mutation: {description: "Include a later fix in the tagged candidate snapshot."}
+  - name: later-breaking-minor-next-release
     input:
       config: *release_config
       facts:
@@ -1604,20 +1607,77 @@ cases:
           - {sha: "f11", subject: "fix[patch]: one (#11)", changes_changelog: false}
           - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
     expected:
-      action: "open-pr"
+      action: "tag"
       range_base: "v0.1.0"
       version_base: "v0.1.0"
       candidate: "r11"
-      candidate_fresh: "stale"
-      pending: &breaking_pending
-        - {type: "feat", scopes: ["x"], breaking: true, level: "minor", subject: "breaking change", pr: 22}
+      candidate_fresh: "fresh"
+      pending:
         - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
+      level: "patch"
+      breaking: false
+      version: "0.1.1"
+      tag: "v0.1.1"
+      before: *earlier_patch
+      full:
+        pending:
+          - {type: "feat", scopes: ["x"], breaking: true, level: "minor", subject: "breaking change", pr: 22}
+          - {type: "fix", scopes: [], breaking: false, level: "patch", subject: "one", pr: 11}
+        version: "0.2.0"
+        tag: "v0.2.0"
+    classification: must-pass
+    provenance: {source: requirement, ref: "a later breaking release belongs to the next batch"}
+    mutation: {description: "Include the later breaking release in the candidate snapshot."}
+  - name: later-patch-after-candidate-tag
+    input:
+      config: *release_config
+      facts: &tagged_candidate_facts
+        commits:
+          - {sha: "f22", subject: "fix(x)[patch]: later (#22)", changes_changelog: false}
+          - {sha: "r11", subject: "release[patch]: v0.1.1 (#12)", changes_changelog: true}
+          - {sha: "f11", subject: "fix[patch]: one (#11)", changes_changelog: false}
+          - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
+        tags: {"v0.1.0": "b00", "v0.1.1": "r11"}
+        epoch: "b00"
+        mode: "tag"
+        verdict: "taggable"
+        fresh: {}
+    expected:
+      action: "open-pr"
+      range_base: "v0.1.1"
+      version_base: "v0.1.1"
+      candidate_fresh: "unknown"
+      pending: &next_patch
+        - {type: "fix", scopes: ["x"], breaking: false, level: "patch", subject: "later", pr: 22}
+      level: "patch"
+      version: "0.1.2"
+      tag: "v0.1.2"
+      full: {pending: *next_patch, version: "0.1.2", tag: "v0.1.2"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "the later fix becomes the next release after the candidate is tagged"}
+    mutation: {description: "Include the previous release snapshot in the next pending range."}
+  - name: later-breaking-after-candidate-tag
+    input:
+      config: *release_config
+      facts:
+        <<: *tagged_candidate_facts
+        commits:
+          - {sha: "k22", subject: "feat(x)![minor]: breaking change (#22)", changes_changelog: false}
+          - {sha: "r11", subject: "release[patch]: v0.1.1 (#12)", changes_changelog: true}
+          - {sha: "f11", subject: "fix[patch]: one (#11)", changes_changelog: false}
+          - {sha: "b00", subject: "chore: adopt the release config", changes_changelog: false}
+    expected:
+      action: "open-pr"
+      range_base: "v0.1.1"
+      version_base: "v0.1.1"
+      candidate_fresh: "unknown"
+      pending: &next_breaking
+        - {type: "feat", scopes: ["x"], breaking: true, level: "minor", subject: "breaking change", pr: 22}
       level: "minor"
       breaking: true
       version: "0.2.0"
       tag: "v0.2.0"
-      before: *earlier_patch
-      full: {pending: *breaking_pending, version: "0.2.0", tag: "v0.2.0"}
+      full: {pending: *next_breaking, version: "0.2.0", tag: "v0.2.0"}
     classification: must-pass
-    provenance: {source: requirement, ref: "newer breaking release stales the candidate and stays in the full batch"}
-    mutation: {description: "Ignore newer breaking releases or drop their breaking flag from the batch."}
+    provenance: {source: requirement, ref: "the later breaking change becomes the next release after the candidate is tagged"}
+    mutation: {description: "Drop the next batch's breaking declaration or use the old version base."}

@@ -26,17 +26,17 @@ const (
 	freshOlderFreshNewerStale freshScenario = "older-fresh-newer-stale"
 	// freshReadError deletes the version file in the release commit.
 	freshReadError freshScenario = "read-error"
-	// freshRejectedLaterMinor lands a minor after a fresh release, then writes.
-	freshRejectedLaterMinor freshScenario = "rejected-later-minor-writes-full"
-	// freshLaterSubjectChecksFull does the same, then checks the written tree.
-	freshLaterSubjectChecksFull freshScenario = "fresh-candidate-later-subject-checks-full"
+	// snapshotTagsBeforeLaterMinor tags the snapshot, then writes the full set.
+	snapshotTagsBeforeLaterMinor freshScenario = "snapshot-tags-before-later-minor"
+	// snapshotTagChecksFull also checks the written full set.
+	snapshotTagChecksFull freshScenario = "snapshot-tag-checks-full"
 	// freshStaleRebuild rebuilds after a stale release commit.
 	freshStaleRebuild freshScenario = "stale-rebuild-single-section"
 )
 
 var allFreshScenarios = []freshScenario{
 	freshAfterWrite, freshStaleNewReleasing, freshCheckStaleTree, freshOlderFreshNewerStale,
-	freshReadError, freshRejectedLaterMinor, freshLaterSubjectChecksFull, freshStaleRebuild,
+	freshReadError, snapshotTagsBeforeLaterMinor, snapshotTagChecksFull, freshStaleRebuild,
 }
 
 func (s *freshScenario) UnmarshalYAML(node *yaml.Node) error {
@@ -183,16 +183,17 @@ func TestFreshness(t *testing.T) {
 					t.Fatalf("%s: exit = %d, want %d\nstdout: %q", c.Name, result.Exit, c.Expected.Exit.Status, result.Stdout)
 				}
 				assertKeysAbsent(t, c.Name, result.Stdout, plainKeys(c.Expected.AbsentKeys))
-			case freshRejectedLaterMinor, freshLaterSubjectChecksFull:
+			case snapshotTagsBeforeLaterMinor, snapshotTagChecksFull:
 				candidate := r.Commit(titleCut, at(dateRelease))
-				// A later minor stales the candidate even when it touches no
-				// changelog file; the rebuilt content uses the full set.
+				// The candidate is the batch boundary; a later minor stays in
+				// the full set without changing the candidate's snapshot.
 				commitLater(r, titleLaterMinor)
 				plan := r.Run(argvPlan...)
 				output := outputValues(t, c.Name, plan.Stdout)
-				if plan.Exit != exitAccepted || output[intent.OutputCandidateFresh] != strconv.FormatBool(false) ||
-					output[intent.OutputAction] != intent.ActionOpenPR.String() || output[intent.OutputCandidate] != candidate {
-					t.Fatalf("%s: newer release must stale the candidate and rebuild, got exit=%d stdout=%q", c.Name, plan.Exit, plan.Stdout)
+				if plan.Exit != exitAccepted || output[intent.OutputCandidateFresh] != strconv.FormatBool(true) ||
+					output[intent.OutputAction] != intent.ActionTag.String() || output[intent.OutputCandidate] != candidate ||
+					output[intent.OutputVersion] != "0.1.1" || output[intent.OutputTag] != "v0.1.1" {
+					t.Fatalf("%s: the candidate must tag its snapshot, got exit=%d stdout=%q", c.Name, plan.Exit, plan.Stdout)
 				}
 				write := r.Run(argvWrite...)
 				assertRunLines(t, c.Name, write, c.Expected.Exit.Status, c.Expected.Lines)
@@ -206,7 +207,7 @@ func TestFreshness(t *testing.T) {
 				if got := r.ReadVersionField(0); got != version {
 					t.Fatalf("%s: rewritten version field = %q, want %q", c.Name, got, version)
 				}
-				if c.Input.Scenario == freshLaterSubjectChecksFull {
+				if c.Input.Scenario == snapshotTagChecksFull {
 					// The check compares the tree with the same full set.
 					assertRunLines(t, c.Name, r.Run(argvCheck...), c.Expected.Exit.Status, c.Expected.CheckLines)
 				}
