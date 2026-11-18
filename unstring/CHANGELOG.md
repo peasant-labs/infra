@@ -2,6 +2,10 @@
 
 The release automation generates this file from landed release intents.
 
+## [0.2.1]
+
+- discover schema members from literal enum values (#99)
+
 ## [0.2.0]
 
 - add the Go typed closed-set-literal pass (#97)
