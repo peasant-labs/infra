@@ -74,8 +74,9 @@ func (b *builder) Build(ctx context.Context, req BuildRequest) (Catalog, error) 
 
 // schemaMembers resolves the pinned schema module and harvests its Go typed
 // constants (outside internal/ and cmd/) and the string-literal unions of its
-// generated TS. Both join the catalog of either language: they are the one
-// contract both sides compare against.
+// generated TS, except a union that is only a type argument or an
+// indexed-access operand, which names no set. Both join the catalog of either
+// language: they are the one contract both sides compare against.
 func (b *builder) schemaMembers(ctx context.Context, req BuildRequest) ([]Member, map[schemaTSKey]string, error) {
 	pin, err := pinnedSchema(req)
 	if err != nil {

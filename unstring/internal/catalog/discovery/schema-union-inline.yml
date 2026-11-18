@@ -1,0 +1,33 @@
+# Keep this rule in sync with union-inline.yml except for its final exclusion.
+# Utility-type keys and indexed-access keys are not value vocabularies.
+# Qualified or aliased utility names are not excluded; neither schema 0.57.0 nor 0.57.1 uses them in its helper.
+id: unstring-discover-schema-union-inline
+language: tsx
+severity: hint
+message: string member of an inline literal union in the schema module
+utils:
+  union-chain:
+    any: [{ kind: union_type }, { kind: parenthesized_type }]
+rule:
+  kind: string
+  inside:
+    kind: literal_type
+    all:
+      - inside:
+          stopBy: { not: { matches: union-chain } }
+          kind: union_type
+      - not:
+          inside:
+            stopBy: { not: { matches: union-chain } }
+            kind: type_alias_declaration
+      - not:
+          inside:
+            stopBy: { not: { matches: union-chain } }
+            any:
+              - kind: lookup_type
+              - kind: type_arguments
+                inside:
+                  kind: generic_type
+                  has:
+                    field: name
+                    regex: '^(Omit|Pick|Exclude|Extract)$'
