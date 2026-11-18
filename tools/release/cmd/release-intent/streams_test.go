@@ -14,13 +14,14 @@ import (
 // binary, exercising the same config, git reads and writes as the workflows.
 func TestStreamCommands(t *testing.T) {
 	type input struct {
-		Config         string `yaml:"config"`
-		Outside        string `yaml:"outside"`
-		Inside         string `yaml:"inside"`
-		Queue          string `yaml:"queue"`
-		InvalidQueue   string `yaml:"invalid_queue"`
-		ReleasingQueue string `yaml:"releasing_queue"`
-		SecondConfig   string `yaml:"second_config"`
+		Config           string `yaml:"config"`
+		Outside          string `yaml:"outside"`
+		Inside           string `yaml:"inside"`
+		Queue            string `yaml:"queue"`
+		InvalidQueue     string `yaml:"invalid_queue"`
+		ReleasingQueue   string `yaml:"releasing_queue"`
+		OutsideBumpQueue string `yaml:"outside_bump_queue"`
+		SecondConfig     string `yaml:"second_config"`
 	}
 	type expected struct {
 		Tag          string   `yaml:"tag"`
@@ -143,6 +144,13 @@ func TestStreamCommands(t *testing.T) {
 			result = r.Run("queue-gate", "--queue", queue, "--release-pr", "10")
 			if result.Exit != exitAccepted || outputValues(t, "stream queue", result.Stdout)[intent.OutputGate] != "hold" {
 				t.Fatalf("stream queue: %+v", result)
+			}
+			if err := os.WriteFile(queue, []byte(c.Input.OutsideBumpQueue), 0600); err != nil {
+				t.Fatal(err)
+			}
+			result = r.Run("queue-gate", "--queue", queue, "--release-pr", "10")
+			if result.Exit != exitAccepted || outputValues(t, "out-of-stream bracket queue", result.Stdout)[intent.OutputGate] != "hold" {
+				t.Fatalf("out-of-stream bracket queue: %+v", result)
 			}
 			result = r.Run("verify-tag", "--tag", "unstring/v0.1.0", "--branch", "HEAD")
 			if result.Exit != exitAccepted {

@@ -23,6 +23,7 @@ cases:
         queue: '{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":1,"nodes":[{"position":1,"pullRequest":{"number":5,"title":"fix(runner-router): repair the router"}}]}}}}}'
         invalid_queue: '{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":1,"nodes":[{"position":1,"pullRequest":{"number":5,"title":"not a title"}}]}}}}}'
         releasing_queue: '{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":1,"nodes":[{"position":1,"pullRequest":{"number":5,"title":"feat(unstring)[minor]: add a rule"}}]}}}}}'
+        outside_bump_queue: '{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":1,"nodes":[{"position":1,"pullRequest":{"number":5,"title":"fix(runner-router)[patch]: repair the router"}}]}}}}}'
         second_config: |
           releases: true
           automation_author: app/peasant-labs-releaser

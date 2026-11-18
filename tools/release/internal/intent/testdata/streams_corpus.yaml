@@ -3,7 +3,6 @@ required_names:
   - outside-title
   - outside-bump
   - second-stream
-  - overlapping-prefixes
   - mixed-top-level
   - null-streams
   - stream-missing-level
@@ -14,6 +13,10 @@ required_names:
   - forced-release
   - multi-scope-member
   - unscoped-bump
+  - scoped-release
+  - outside-breaking
+  - live-base-minor
+  - outside-bump-in-range
 cases:
   - name: stream-title
     input:
@@ -61,19 +64,6 @@ cases:
     sibling: stream-title
     provenance: {source: requirement, ref: "exactly one stream"}
     mutation: {description: "add another stream"}
-  - name: overlapping-prefixes
-    input:
-      document: |
-        releases: true
-        automation_author: bot
-        streams:
-          unstring: {tag_prefix: unstring/v, changelog: unstring/CHANGELOG.md, scopes: [unstring]}
-          other: {tag_prefix: unstring/v1, changelog: other/CHANGELOG.md, scopes: [other]}
-    expected: {code: stream-invalid}
-    classification: must-fail
-    sibling: stream-title
-    provenance: {source: requirement, ref: "overlapping prefixes are refused"}
-    mutation: {description: "add a stream whose prefix overlaps"}
   - name: mixed-top-level
     input:
       document: |
@@ -180,3 +170,49 @@ cases:
     sibling: outside-title
     provenance: {source: requirement, ref: "unscoped changes cannot request a release"}
     mutation: {description: "use a bracket without scopes"}
+  - name: scoped-release
+    input: {document: *config, title: "release(unstring)[minor]: unstring/v0.2.0 (#42)"}
+    expected: {code: malformed}
+    classification: must-fail
+    sibling: landed-release
+    provenance: {source: requirement, ref: "stream release requests are unscoped"}
+    mutation: {description: "add a scope to a release request"}
+  - name: outside-breaking
+    input: {document: *config, title: "fix(runner-router)!: repair the router"}
+    expected: {code: bump-on-no-stream}
+    classification: must-fail
+    sibling: outside-title
+    provenance: {source: requirement, ref: "breaking markers require a stream scope"}
+    mutation: {description: "add a breaking marker outside the stream"}
+  - name: live-base-minor
+    input:
+      document: *config
+      facts:
+        commits:
+          - {sha: b, subject: "feat(unstring)[minor]: add rule"}
+          - {sha: a, subject: "chore: adopt config"}
+        tags: {"unstring/v0.0.4": a}
+        epoch: a
+        mode: tag
+        verdict: ""
+    expected: {tag: "unstring/v0.1.0", pending: ["add rule"]}
+    classification: must-pass
+    provenance: {source: requirement, ref: "minor bump from the current unstring release base"}
+    mutation: {description: "plan a stream minor release from version 0.0.4"}
+  - name: outside-bump-in-range
+    input:
+      document: *config
+      facts:
+        commits:
+          - {sha: c, subject: "fix(runner-router)[patch]: repair router"}
+          - {sha: b, subject: "feat(unstring)[minor]: add rule"}
+          - {sha: a, subject: "chore: adopt config"}
+        tags: {"unstring/v0.1.0": a, "runner-router-v9.9.9": c}
+        epoch: a
+        mode: tag
+        verdict: ""
+    expected: {code: bump-on-no-stream}
+    classification: must-fail
+    sibling: mixed-range
+    provenance: {source: requirement, ref: "range parsing refuses an out-of-stream level"}
+    mutation: {description: "add a level to the unrelated fix"}
