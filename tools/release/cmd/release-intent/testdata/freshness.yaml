@@ -7,8 +7,8 @@ required_names:
   - fresh-no-section
   - stale-new-releasing
   - older-fresh-newer-stale
-  - rejected-later-minor-writes-full
-  - fresh-candidate-later-subject-checks-full
+  - snapshot-tags-before-later-minor
+  - snapshot-tag-checks-full
   - check-stale
   - read-error
   - stale-rebuild-single-section
@@ -51,14 +51,14 @@ cases:
       classification: must-pass
       provenance: {source: requirement, ref: "a newer stale candidate never tags, whatever came before"}
       mutation: {description: "Leaves the older fresh release untagged and hand-builds the newer release stale."}
-    - name: rejected-later-minor-writes-full
-      input: {baseChangelog: "# changelog\n\n## 0.1.0\n\n- old\n", scenario: "rejected-later-minor-writes-full"}
+    - name: snapshot-tags-before-later-minor
+      input: {baseChangelog: "# changelog\n\n## 0.1.0\n\n- old\n", scenario: "snapshot-tags-before-later-minor"}
       expected: {exit: 0, lines: ["fresh=true", "push=true", "version=0.2.0", "error="]}
       classification: must-pass
-      provenance: {source: requirement, ref: "a rejected candidate plus a later minor writes the full set"}
+      provenance: {source: requirement, ref: "a fresh candidate tags its snapshot and the full set includes the later minor"}
       mutation: {description: "Lands a minor after a fresh release without touching the changelog."}
-    - name: fresh-candidate-later-subject-checks-full
-      input: {baseChangelog: "# changelog\n\n## 0.1.0\n\n- old\n", scenario: "fresh-candidate-later-subject-checks-full"}
+    - name: snapshot-tag-checks-full
+      input: {baseChangelog: "# changelog\n\n## 0.1.0\n\n- old\n", scenario: "snapshot-tag-checks-full"}
       expected:
         exit: 0
         lines: ["fresh=true", "push=true", "version=0.2.0", "error="]

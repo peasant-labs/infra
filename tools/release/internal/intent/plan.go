@@ -67,9 +67,11 @@ func planError(code ErrorCode, what, why, means, fix string) *Error {
 
 // Plan reduces branch facts to the one release decision. Every subject in the
 // range is parsed; one unparseable subject fails the whole plan with its code.
-// A stale or unreadable candidate never verifies or tags: the action falls
-// back to open-pr or close-pr, and freshness reports unknown when no entry
-// was recorded for the candidate.
+// Freshness measures the candidate's release content against its own older
+// sub-range; a later releasing subject belongs to the next release and does
+// not make the candidate stale. A stale or unreadable candidate never verifies
+// or tags: the action falls back to open-pr or close-pr, and freshness reports
+// unknown when no entry was recorded for the candidate.
 func Plan(cfg Config, facts Facts) (Decision, error) {
 	if !facts.Mode.IsValid() {
 		return Decision{}, inputError(

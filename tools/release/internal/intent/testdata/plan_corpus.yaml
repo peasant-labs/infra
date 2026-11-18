@@ -37,8 +37,8 @@ required_names:
   - stale-candidate-later-subject
   - older-fresh-newer-stale-no-tag
   - fresh-candidate-later-subject-taggable
-  - fresh-candidate-later-subject-verify
-  - commits-after-fresh-candidate
+  - snapshot-candidate-verifies-before-next-release
+  - snapshot-candidate-tags-before-next-release
   - stale-candidate-close-pr-when-empty
   - plan-only-with-fresh-candidate
   - mode-outside-the-set-is-an-error
@@ -1242,7 +1242,7 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "planner: the release commit is the batch boundary"}
     mutation: {description: "a later minor landing after a fresh release commit"}
-  - name: fresh-candidate-later-subject-verify
+  - name: snapshot-candidate-verifies-before-next-release
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
       facts:
@@ -1286,7 +1286,7 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "planner: the release commit is the batch boundary"}
     mutation: {description: "a later minor awaiting its pre-tag report"}
-  - name: commits-after-fresh-candidate
+  - name: snapshot-candidate-tags-before-next-release
     input:
       config: {releases: true, tag_prefix: "v", automation_author: "bot", changelog: "CHANGELOG.md", version_files: [], protected_paths: [], surfaces: {}, bot_branches: {}}
       facts:
