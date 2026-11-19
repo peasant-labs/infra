@@ -238,10 +238,13 @@ one artifact holding git bundles.
   expression and `path: reviewed`, and a `workflow_run` comment job's download
   must also set `run-id` to `${{ github.event.workflow_run.id }}` and
   `github-token` to `${{ github.token }}` (see below); no other download takes
-  either input.
-  No setup action, no upload, no reusable workflow, no container. A
-  release-upload action such as `softprops/action-gh-release` is refused with
-  a message naming the one atomic `gh release create` form below.
+  either input. A tag-triggered publish job may also use `actions/setup-go`
+  (`go-version-file`, `cache`), and its `actions/checkout` may take
+  `repository: peasant-labs/infra` with `ref`, `path` and `sparse-checkout`:
+  that is how the job builds the release tool (see **Prepared Release
+  assets**). No other setup action, no upload, no reusable workflow, no
+  container. A release-upload action such as `softprops/action-gh-release` is
+  refused with a message naming the `release-publish` template.
 - **`credential-jobs-run-no-general-steps`.** Every run step of that job is one
   plumbing template or one credential template. The job runs on one literal
   GitHub-hosted label (`ubuntu-latest`, `ubuntu-24.04`, `ubuntu-22.04`), never
@@ -249,17 +252,22 @@ one artifact holding git bundles.
   or a group: a hosted runner is a fresh machine per job. No service container,
   no `working-directory`, and every step's env (workflow, job and step) holds
   only `GH_TOKEN`, `GITHUB_TOKEN`, `APP_TOKEN`, `JOURNEY_APP_TOKEN`, `TAG`,
-  `TITLE`, `BODY`, `PRERELEASE`, `LATEST`, `PR_NUMBER` and `EVIDENCE_DIR`.
-  `PR_NUMBER`, `EVIDENCE_DIR` and `JOURNEY_APP_TOKEN` are comment-job-only.
+  `TITLE`, `BODY`, `PRERELEASE`, `LATEST`, `PR_NUMBER`, `EVIDENCE_DIR` and
+  `GOWORK`. `PR_NUMBER`, `EVIDENCE_DIR` and `JOURNEY_APP_TOKEN` are
+  comment-job-only; `GOWORK` is publish-job-only, and only the tool build's own
+  step env may set it.
   Every `needs.<job>` it reads is in its `needs:`,
   and every artifact it downloads is uploaded by a job in its `needs:`.
 - **`credential-steps-run-one-template`.** A step that receives a credential
   runs exactly one credential template, on the job's own bot branch from the
   release config, the triggering tag, or the triggering PR as appropriate.
   A comment job and its comment steps must not set `continue-on-error`.
-- **`release-assets-one-atomic-create`.** A publish job whose
-  `gh release create` names assets uses the one atomic shape under
-  **Prepared Release assets** below: one creator, one gated publish edit.
+- **`release-assets-one-atomic-create`.** A publish job that publishes
+  release assets is exactly the five-step publisher under **Prepared Release
+  assets** below: tool checkout, setup-go, build, `release-dist` download, one
+  `release-intent publish-release`, in that order, with no `if` and no
+  `continue-on-error` on any of them. A `gh release create` that names assets
+  is the retired form and is refused. (The rule id is kept from that form.)
 - **`tag-publish-verifies-the-tag`.** In every workflow that runs on pushed
   tags, every job that can publish (`contents: write` or `id-token: write`)
   needs a **tag-verify job**, and its `if` calls no status function
@@ -388,6 +396,7 @@ operator step per repository; it does not replace any check above.
 | `fetch-bundle-branch` | `git fetch [--no-tags] <file>.bundle <own bot branch>:<own bot branch>` |
 | `fetch-bundle-tag` (release job) | `git fetch [--no-tags] <file>.bundle "refs/tags/${TAG}:refs/tags/${TAG}"` |
 | `check-tag-ancestor` (release job) | `git merge-base --is-ancestor "refs/tags/${TAG}" "${GITHUB_SHA}"` |
+| `build-release-tool` (publish job) | `go build -C <tool checkout>/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent`, with `GOWORK: "off"` in that step's env |
 
 | credential template | command |
 |---|---|
@@ -397,18 +406,14 @@ operator step per repository; it does not replace any check above.
 | `pr-edit`, `pr-close` | `gh pr edit\|close [--title\|--body\|--comment <text>] [--] <own bot branch>` |
 | `pr-merge` | `gh pr merge (--auto [--squash\|--merge\|--rebase] \| --disable-auto) [--] <own bot branch>`; in the release job only in the arm and hold steps |
 | `merge-queue-read` | `gh api graphql [-F name=literal]... -f query='<a mergeQueue query>' [> file]` |
-| `release-view`, `release-edit`, `release-create`, `release-list` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`; `create` passes `--verify-tag`, and `create`/`edit` may pass `--draft[=<true\|false>]`; `create` may name assets only with `--draft` (see **Prepared Release assets**) |
+| `release-view`, `release-edit`, `release-create` (publish jobs) | `gh release view\|edit\|create <triggering tag> [...]`; `create` passes `--verify-tag`, and `create`/`edit` may pass `--draft[=<true\|false>]`; none names assets, and `view` takes no `--json`/`--jq` |
+| `release-publish` (publish jobs) | `"${RUNNER_TEMP}/release-intent" publish-release --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets dist/<dir> --notes dist/<file> --prerelease "$PRERELEASE" --latest "$LATEST" [--require-immutable]` (see **Prepared Release assets**) |
 | `pr-comment` (`pull_request` comment job only) | `gh pr comment "$PR_NUMBER" [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] (--body-file\|-F) <file>` |
 | `run-reviewed-script` (comment job, both modes) | `node reviewed/<policy reviewed_script>` |
 
-The read-only `release-view` may pass `--json` with a literal, non-repeating
-comma-separated selection of `isDraft`, `isImmutable` and `assets`, and optionally `--jq`
-with a literal filter, for example `'.isDraft, (.assets | length)'` to inspect
-draft state and asset count. This form must name the current repository with
-`--repo "$GITHUB_REPOSITORY"` (or `-R`) without overriding that runner variable.
-The filter cannot read the environment or input,
-run system commands, use variables, or import jq modules. `--jq` requires
-`--json`. The plain view remains an existence check.
+The `gh release list` template and the `--json`/`--jq` form of `release-view`
+are retired: `release-publish` reads and verifies the release itself. The
+plain view remains an existence check for notes-only flows.
 
 The variable parts are typed:
 
@@ -630,79 +635,71 @@ This is the same accepted exception as the `pull_request` reviewed script: the
 checker does not make the script, its dependencies or hostile evidence safe.
 
 **Prepared Release assets.** Release assets reach a Release through exactly
-one command: `gh release create` with `--draft` and the asset words. There is
-no release-upload action and no second creator. The one supported shape in a
-tag-only publish job is:
+one command, `release-intent publish-release`, built in the publish job from a
+pinned infra commit. It creates the tag's release as a draft, uploads every
+file of the asset directory to that draft by release id, verifies the draft is
+exactly the local manifest (each file's name, size and SHA-256, compared with
+GitHub's per-asset `digest`; nothing missing, nothing extra), publishes it by
+id and verifies the published release again (and that it is immutable, with
+`--require-immutable`). Everything goes by release id, never by tag lookup.
+There is no `gh` step, no jq, and no release-upload action. The publish job is
+exactly these five steps, in this order, none with an `if` or a
+`continue-on-error` key:
 
-1. **Download** the sole `release-dist` upload from the credential-free
-   `build` job into `dist`, unconditionally, with no checkout after it. The
-   job needs `build` and the tag verifier. Every upload-artifact name in the
-   workflow is literal, so a different job cannot alias `release-dist`.
-2. **View**, unconditionally, with `continue-on-error: true`:
-   `gh release view "$TAG" --repo "$GITHUB_REPOSITORY"`.
-3. **Refuse an existing release for the tag**, gated on
-   `steps.<view>.outcome == 'failure'`, without `continue-on-error`, on one line:
-
-   ```sh
-   gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error("...") else "..." end'
-   ```
-
-   A failed view may be a rate limit, a 5xx or an authentication error rather
-   than an absent release, and GitHub keeps several drafts for one tag. gh
-   lists drafts unless `--exclude-drafts` is passed
-   (`pkg/cmd/release/list/list.go:59`, `http.go:97`), so this check fails when
-   any release or leftover draft names the tag, and it fails closed on any API
-   error, stopping the run before anything is created. The flags are exactly
-   these; the filter is literal, compares `.tagName == env.TAG`, calls
-   `error()`, and reads the environment only as `env.TAG` (gh evaluates `--jq`
-   with gojq and the process environment). `TAG` maps from
-   `${{ github.ref_name }}`.
-4. **Create**, gated on
-   `steps.<view>.outcome == 'failure' && steps.<list>.outcome == 'success'`, on one line:
+1. **Tool checkout**: `actions/checkout@<40-hex>` with
+   `repository: peasant-labs/infra`, `ref: <40-hex>`, `path: <dir>`,
+   `persist-credentials: false` and optionally `sparse-checkout: tools/release`.
+2. **setup-go**: `actions/setup-go@<40-hex>` with
+   `go-version-file: <dir>/tools/release/go.mod` and `cache: false`.
+3. **Build**: `go build -C <dir>/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent`
+   with `GOWORK: "off"` in that step's own env. Steps 1-3 are the tag-verify
+   job's shapes, and the build runs before the untrusted artifact arrives.
+4. **Download** the sole `release-dist` upload from the credential-free `build`
+   job into `dist`, with no checkout after it. The job needs `build` and the
+   tag verifier. Every upload-artifact name in the workflow is literal, so a
+   different job cannot alias `release-dist`.
+5. **Publish**, with `GH_TOKEN: ${{ github.token }}` in its env, on one line:
 
    ```sh
-   gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$TAG" --notes-file <literal path> --prerelease="$PRERELEASE" 'dist/*'
+   "${RUNNER_TEMP}/release-intent" publish-release --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets dist/assets --notes dist/release-notes.md --prerelease "$PRERELEASE" --latest "$LATEST" [--require-immutable]
    ```
 
-   The assets are one quoted literal `<dir>/*` under `dist`, or literal file
-   paths under `dist`. A glob is accepted only in that asset position; a glob
-   in any other word, and any command substitution, is refused. gh expands the
-   quoted glob itself and fails when it matches nothing; it does not upload
-   directories, so `dist` must hold only files. `--draft` (or `--draft=true`)
-   is required whenever assets are named. `PRERELEASE` reads the `prerelease`
-   output of a needed release-kind job. The create must not set
-   `continue-on-error`.
-5. **Verify** (optional, recommended): single-line
-   `gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json <fields> --jq '<literal>'`
-   steps, for example one that errors unless the release is a draft with
-   assets before publishing, and one that errors unless it is published,
-   immutable and has assets after.
-6. **Publish**, gated on `steps.<create>.outcome == 'success'` (optionally
-   with `steps.<view>.outcome == 'failure' &&`) and no status function:
-   `gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE" --latest="$LATEST"`.
-   Exactly one such edit, after the create. `PRERELEASE` and `LATEST` read
-   the same needed job's declared `prerelease` and `latest` outputs, or a
-   comparison of another output of that job that exactly matches how the job
-   declares them (schema's guard `kind`). The checker binds the values to the
-   declared outputs; it does not verify how the job computes them.
+   `TAG` maps from `${{ github.ref_name }}`. `--assets` and `--notes` are
+   literal paths under `dist`, the notes outside the asset directory, which
+   holds only flat regular files. `PRERELEASE` and `LATEST` read the same
+   needed job's declared `prerelease` and `latest` outputs, or a comparison of
+   another output of that job that exactly matches how the job declares them
+   (schema's guard `kind`). The checker binds the values to the declared
+   outputs; it does not verify how the job computes them. `--rehearse` is
+   refused in a workflow.
 
-A failed create or upload skips publication. On a rerun where the release
-already exists, create and publish do nothing. A draft left by a failed run is
-deleted by its id (`gh api -X DELETE repos/<owner>/<repo>/releases/<id>`),
-never with `gh release delete <tag>`, which resolves a tag with several drafts
-to one of them. A published release is immutable: fix forward.
+What the command does on each path (`tools/release/README.md` has the
+details):
+
+- It lists every release of the repository, drafts included, page by page,
+  and fails closed (`release-list-truncated`) if the list does not end within
+  the page cap. Any draft for the tag, which this run did not create, fails
+  (`draft-exists`) with the by-id delete command for each; the command never
+  deletes what it did not create.
+- A published release for the tag is the rerun path: it is accepted unchanged
+  (`state=already-published`, exit 0) only when it is exactly the manifest;
+  otherwise `published-release-incomplete` or `published-release-differs`:
+  fix forward with a new tag.
+- With no release, it checks the tag exists (`tag-missing` otherwise), creates
+  the draft, uploads, verifies, publishes and verifies. Any failure before the
+  publish deletes the run's own draft by id, so a rerun just works; if that
+  delete fails it prints the id and the delete command. A failure after the
+  publish changes nothing: a published release is immutable, fix forward.
 
 Notes-only release edits that name no assets, such as
 `gh release edit "$TAG" --notes-file <file> --prerelease=... --latest=...`, are
 unchanged by this rule.
 
-Why one command: with assets, gh creates the release, then uploads to the
-upload URL of the release it just created, not to a release found by tag
-(`pkg/cmd/release/create/create.go`, around lines 500-565 at v2.104.0).
-Without `--draft`, gh creates a draft while uploading, publishes it after, and
-deletes its draft if an upload fails; with `--draft` it leaves the draft for
-the verify and publish steps, so a failed upload leaves a draft that is never
-published.
+Why one process: the `gh` flow it replaces created the draft, then looked the
+release up by tag in separate steps, and checked only that the asset count was
+not zero. A partial upload passed, and when a tag has only drafts GitHub's tag
+lookup returns the oldest draft. Working by release id, and comparing the
+manifest the same process computed, removes both.
 
 History. Schema GitHub Releases v0.55.0 through v0.57.1 were published
 immutable with no assets. In run 44295390680, `gh release create --draft`
