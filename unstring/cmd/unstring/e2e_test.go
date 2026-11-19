@@ -160,11 +160,18 @@ func unstringBinary(t *testing.T) string {
 }
 
 func TestMain(m *testing.M) {
-	code := testutil.RunWithIsolatedGitConfig(m)
-	if binPath != "" {
-		os.RemoveAll(filepath.Dir(binPath))
-	}
-	os.Exit(code)
+	os.Exit(testutil.RunWithIsolatedGitConfig(&cleanupRunner{m: m}))
+}
+
+type cleanupRunner struct{ m *testing.M }
+
+func (r *cleanupRunner) Run() int {
+	defer func() {
+		if binPath != "" {
+			os.RemoveAll(filepath.Dir(binPath))
+		}
+	}()
+	return r.m.Run()
 }
 
 // requireTool fails the test when a tool the harness runs is missing.
