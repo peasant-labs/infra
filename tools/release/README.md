@@ -386,7 +386,12 @@ source, every release built on one would lose inheritance.
 This is the one way release assets reach a GitHub Release; the workflow
 policy requires the publish job shape in the top-level README ("Prepared
 Release assets"). `--prerelease` and `--latest` take `true` or `false`, never
-both `true`. The token is `GH_TOKEN` (or `GITHUB_TOKEN`) with
+both `true`. The command assumes it is the only run for its tag: a second
+run overlapping it would create, verify and publish its own release. The
+policy therefore requires the workflow or the publish job to set
+`concurrency: {group: release-${{ github.ref_name }}, cancel-in-progress: false}`
+(`github.ref` is accepted too; every `concurrency` it sets must write out
+`cancel-in-progress: false`). The token is `GH_TOKEN` (or `GITHUB_TOKEN`) with
 `contents: write`.
 
 1. **Manifest, before any request.** `--assets` holds at least one entry, all

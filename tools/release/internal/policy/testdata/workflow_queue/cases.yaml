@@ -38,6 +38,13 @@ required_names:
   - accept-comment-pat
   - accept-reviewed-script
   - accept-atomic-release-assets
+  - accept-publisher-job-concurrency
+  - reject-publisher-no-concurrency
+  - reject-publisher-concurrency-cancels
+  - reject-publisher-concurrency-cancel-implicit
+  - reject-publisher-concurrency-not-keyed
+  - reject-publisher-concurrency-keyed-on-sha
+  - reject-publisher-concurrency-scalar
   - reject-retired-gh-assets-publisher
   - reject-retired-schema-gh-publisher
   - reject-publisher-build-after-download
@@ -447,6 +454,99 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "release assets handoff" }
     mutation: { description: "Publish the verified build artifact through the pinned action." }
+  - name: accept-publisher-job-concurrency
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: ""
+        - file: workflows/release.yml
+          old: "    needs: [verify, build]\n    runs-on: ubuntu-24.04\n"
+          new: "    needs: [verify, build]\n    runs-on: ubuntu-24.04\n    concurrency:\n      group: publish-${{ github.ref }}\n      cancel-in-progress: false\n"
+    expected: { rule: release-assets-one-atomic-create }
+    classification: must-pass
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "The publish job, not the workflow, holds one run per tag." }
+
+  - name: reject-publisher-no-concurrency
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: ""
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["without a concurrency group keyed on the tag"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "Drop the concurrency group: two runs of one tag can each publish." }
+
+  - name: reject-publisher-concurrency-cancels
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: true\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["cancel-in-progress: false"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "Let a second run cancel a publish between its upload and its cleanup." }
+
+  - name: reject-publisher-concurrency-cancel-implicit
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency:\n  group: release-${{ github.ref_name }}\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["literal cancel-in-progress: false"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "Leave cancel-in-progress to its default instead of writing it out." }
+
+  - name: reject-publisher-concurrency-not-keyed
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency:\n  group: release\n  cancel-in-progress: false\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["keyed on the tag"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "One group for every tag would serialize, but not key, the publish; the rule wants the tag." }
+
+  - name: reject-publisher-concurrency-keyed-on-sha
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency:\n  group: release-${{ github.sha }}\n  cancel-in-progress: false\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["keyed on the tag"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "Key the group on the commit: two tags on one commit share it, and a retagged run does not." }
+
+  - name: reject-publisher-concurrency-scalar
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency: release-${{ github.ref_name }}\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["without cancel-in-progress: false"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "The scalar form cannot write cancel-in-progress out." }
+
   - name: reject-retired-gh-assets-publisher
     input:
       overlay: reject-retired-gh-assets-publisher

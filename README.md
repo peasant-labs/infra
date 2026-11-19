@@ -266,7 +266,8 @@ one artifact holding git bundles.
   release assets is exactly the five-step publisher under **Prepared Release
   assets** below: tool checkout, setup-go, build, `release-dist` download, one
   `release-intent publish-release`, in that order, with no `if` and no
-  `continue-on-error` on any of them. A `gh release create` that names assets
+  `continue-on-error` on any of them, under a `concurrency` group keyed on the
+  tag with `cancel-in-progress: false`. A `gh release create` that names assets
   is the retired form and is refused. (The rule id is kept from that form.)
 - **`tag-publish-verifies-the-tag`.** In every workflow that runs on pushed
   tags, every job that can publish (`contents: write` or `id-token: write`)
@@ -672,6 +673,22 @@ exactly these five steps, in this order, none with an `if` or a
    (schema's guard `kind`). The checker binds the values to the declared
    outputs; it does not verify how the job computes them. `--rehearse` is
    refused in a workflow.
+
+**One publish run per tag.** Two runs overlapping on one tag would each
+create, verify and publish their own release. The workflow or the publish job
+sets `concurrency` with a `group` keyed only on the triggering tag and a
+written-out `cancel-in-progress: false`:
+
+```yaml
+concurrency:
+  group: release-${{ github.ref_name }}   # or release-${{ github.ref }}
+  cancel-in-progress: false
+```
+
+Every `concurrency` the workflow or the job sets must say
+`cancel-in-progress: false`: a cancelled publish stops between its upload and
+its cleanup and leaves its draft behind. Schema and peasant already set
+`release-${{ github.ref }}` at the workflow level, so their migration keeps it.
 
 What the command does on each path (`tools/release/README.md` has the
 details):

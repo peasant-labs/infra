@@ -247,7 +247,9 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   tool checkout, `actions/setup-go` with `cache: false`, the tool build with
   `GOWORK: "off"` (the tag-verify job's three shapes, so the tool is built
   before untrusted bytes arrive), the build job's `release-dist` download,
-  and one `release-publish` template (`release-intent publish-release`). Its
+  and one `release-publish` template (`release-intent publish-release`),
+  under a `concurrency` group keyed only on the tag with a written-out
+  `cancel-in-progress: false` (one publish run per tag). Its
   `PRERELEASE` and `LATEST` read one needed release-kind job's declared
   outputs, directly or by matching that job's own output comparison; the
   checker does not validate the producer's computation. `--rehearse` is

@@ -215,7 +215,7 @@ func (c *queueChecker) checkReleaseAssets() {
 				label+" "+why,
 				"release assets reach a Release only through one publish-release built in the job before the release artifact arrives; it creates, uploads, verifies and publishes by release id, so no release is published empty or partial and no leftover draft is filled",
 				rejected,
-				"make the publish job exactly: "+publisherShapes()+"; no if and no continue-on-error on any of them"))
+				"make the publish job exactly: "+publisherShapes()+"; no if and no continue-on-error on any of them; and run one publish per tag with concurrency: {group: release-${{ github.ref_name }}, cancel-in-progress: false}"))
 		}
 	})
 }
@@ -268,6 +268,9 @@ func (c *queueChecker) publisherFault(file string, doc, job *yaml.Node) (string,
 			return "is not the " + string(want) + " step: " + why, i, step
 		}
 	}
+	if why := publisherConcurrencyFault(doc, job); why != "" {
+		return why, 0, nil
+	}
 	for i, step := range steps {
 		if i != 2 {
 			if _, set := effectiveEnv(doc, job, step)[TemplateEnvGoWork.String()]; set {
@@ -276,6 +279,50 @@ func (c *queueChecker) publisherFault(file string, doc, job *yaml.Node) (string,
 		}
 	}
 	return "", 0, nil
+}
+
+// publisherConcurrencyFault requires one run per tag: two runs of one tag
+// would each create, verify and publish their own release. The workflow or
+// the job sets concurrency.group keyed only on the triggering tag
+// (github.ref_name or github.ref), and every concurrency it sets has
+// cancel-in-progress: false, written out: a cancelled publish stops between
+// upload and cleanup and leaves its draft behind.
+func publisherConcurrencyFault(doc, job *yaml.Node) string {
+	const want = "set concurrency: {group: release-${{ github.ref_name }}, cancel-in-progress: false} on the workflow or the publish job"
+	keyed := false
+	for _, scope := range []*yaml.Node{doc, job} {
+		c := mappingValue(scope, "concurrency")
+		if c == nil {
+			continue
+		}
+		if c.Kind != yaml.MappingNode {
+			return "sets concurrency " + quote(c.Value) + " without cancel-in-progress: false; " + want
+		}
+		cancel := mappingValue(c, "cancel-in-progress")
+		if cancel == nil || cancel.Kind != yaml.ScalarNode || cancel.Value != "false" {
+			return "sets concurrency without a literal cancel-in-progress: false, so a second run of the tag can cancel a publish between its upload and its cleanup; " + want
+		}
+		keyed = keyed || groupKeyedOnTag(valueOf(mappingValue(c, "group")))
+	}
+	if !keyed {
+		return "runs without a concurrency group keyed on the tag, so two runs of one tag can each create, verify and publish a release; " + want
+	}
+	return ""
+}
+
+// groupKeyedOnTag accepts a group whose every expression is the triggering
+// ref (github.ref_name or github.ref), with at least one of them.
+func groupKeyedOnTag(group string) bool {
+	exprs := expressionBodies(group)
+	if len(exprs) == 0 {
+		return false
+	}
+	for _, e := range exprs {
+		if e = strings.TrimSpace(e); e != triggeringRefName && e != "github.ref" {
+			return false
+		}
+	}
+	return true
 }
 
 // publisherStepFault says why one step is not the publisher step expected at
