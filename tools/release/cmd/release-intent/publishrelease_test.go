@@ -49,6 +49,8 @@ type publishServerRelease struct {
 	LocalAssets bool     `yaml:"local_assets"`
 	Drop        []string `yaml:"drop"`
 	Corrupt     []string `yaml:"corrupt"`
+	// FillerAssets adds this many more assets, to page the asset list.
+	FillerAssets int `yaml:"filler_assets"`
 }
 
 type publishFaults struct {
@@ -77,6 +79,13 @@ type publishFaults struct {
 	DigestNullReads int `yaml:"digest_null_reads"`
 	// CreateLost creates the draft, then answers the create with 502.
 	CreateLost bool `yaml:"create_lost"`
+	// RewriteLocalOnUpload rewrites a local file (same size, other bytes)
+	// when another asset's upload lands: a file changing after the manifest
+	// was hashed and before its own upload.
+	RewriteLocalOnUpload struct {
+		At   string `yaml:"at"`
+		File string `yaml:"file"`
+	} `yaml:"rewrite_local_on_upload"`
 }
 
 type publishServer struct {
@@ -98,7 +107,9 @@ type publishAfter struct {
 type publishCase struct {
 	Name  string `yaml:"name"`
 	Input struct {
-		Tag              string        `yaml:"tag"`
+		Tag string `yaml:"tag"`
+		// ExtraLocalAssets stages this many more small local files.
+		ExtraLocalAssets int           `yaml:"extra_local_assets"`
 		Prerelease       string        `yaml:"prerelease"`
 		Latest           string        `yaml:"latest"`
 		RequireImmutable bool          `yaml:"require_immutable"`
@@ -229,6 +240,8 @@ type fakeReleaseServer struct {
 	assetReads map[int64]int
 	requests   []string
 	server     *httptest.Server
+	// localDir is the run's asset directory, for RewriteLocalOnUpload.
+	localDir string
 }
 
 func digestOf(content []byte) string {
@@ -256,6 +269,10 @@ func newFakeReleaseServer(t *testing.T, cfg publishServer, local []publishAssetF
 				s.assetID++
 				rel.Assets = append(rel.Assets, fakeAsset{ID: s.assetID, Name: a.Name, Size: int64(len(a.Content)), Digest: digest, State: intent.AssetStateUploaded})
 			}
+		}
+		for i := 0; i < r.FillerAssets; i++ {
+			s.assetID++
+			rel.Assets = append(rel.Assets, fakeAsset{ID: s.assetID, Name: fmt.Sprintf("filler-%05d.json", i), Size: 2, Digest: digestOf([]byte("{}")), State: intent.AssetStateUploaded})
 		}
 		s.releases = append(s.releases, rel)
 	}
@@ -506,6 +523,17 @@ func (s *fakeReleaseServer) upload(w http.ResponseWriter, r *http.Request, rel *
 	if name != f.Drop {
 		rel.Assets = append(rel.Assets, asset)
 	}
+	if rw := f.RewriteLocalOnUpload; rw.At == name && s.localDir != "" {
+		target := filepath.Join(s.localDir, rw.File)
+		content, err := os.ReadFile(target)
+		if err == nil && len(content) > 0 {
+			content[0] ^= 0x01
+			err = os.WriteFile(target, content, 0o644)
+		}
+		if err != nil {
+			s.t.Errorf("rewrite %s: %v", target, err)
+		}
+	}
 	if name == f.PublishOnUpload {
 		rel.Draft, rel.Immutable = false, true
 	}
@@ -534,10 +562,18 @@ func TestPublishRelease_Process(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			for i := 0; i < c.Input.ExtraLocalAssets; i++ {
+				if err := os.WriteFile(filepath.Join(assets, fmt.Sprintf("bulk-%03d.json", i)), []byte(fmt.Sprintf(`{"n":%d}`, i)), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := os.WriteFile(filepath.Join(dir, "dist", "release-notes.md"), []byte(f.Notes), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			api := newFakeReleaseServer(t, c.Input.Server, f.Assets)
+			api.mu.Lock()
+			api.localDir = assets
+			api.mu.Unlock()
 			outFile := filepath.Join(t.TempDir(), "github-output")
 			if err := os.WriteFile(outFile, nil, 0o644); err != nil {
 				t.Fatal(err)

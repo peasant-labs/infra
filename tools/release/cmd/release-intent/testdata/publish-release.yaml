@@ -44,6 +44,9 @@ required_names:
   - redirect-refused
   - digest-reported-late
   - create-answer-lost
+  - asset-list-past-page-one
+  - asset-list-past-page-cap
+  - file-changes-after-manifest
 cases:
   - name: final-publishes
     input:
@@ -399,6 +402,52 @@ cases:
     sibling: final-publishes
     provenance: {source: requirement, ref: "a lost create answer may leave a draft the run cannot identify"}
     mutation: {description: "GitHub creates the draft but the answer is a 502."}
+  - name: asset-list-past-page-one
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      extra_local_assets: 150
+      server: {tags: [v0.59.0]}
+    expected:
+      exit: 0
+      lines: [release_id=9001, state=published]
+      stderr: ["manifest of 153 files", "uploaded 153/153"]
+      after: [{id: 9001, draft: false, make_latest: "true", assets: 153}]
+    classification: must-pass
+    provenance: {source: requirement, ref: "the asset list is read past its first 100-asset page"}
+    mutation: {description: "153 assets: the draft and published checks each read two asset pages."}
+  - name: asset-list-past-page-cap
+    input:
+      tag: v0.58.0
+      prerelease: "false"
+      latest: "true"
+      server:
+        tags: [v0.58.0]
+        releases: [{id: 450679062, tag: v0.58.0, immutable: true, local_assets: true, filler_assets: 5000}]
+    expected:
+      exit: 1
+      lines: [release_id=450679062]
+      stderr: ["more than 50 pages of assets; refusing to judge a partial list"]
+      after: [{id: 450679062, draft: false, assets: 5003}]
+    classification: must-fail
+    sibling: rerun-complete-no-op
+    provenance: {source: boundary, ref: "50 pages of 100 assets is the cap; a partial asset list is never judged"}
+    mutation: {description: "The published release carries 5003 assets, one page past the cap."}
+  - name: file-changes-after-manifest
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {rewrite_local_on_upload: {at: annotation-push-request-0.10.0.schema.json, file: annotation-push-request-0.12.0.schema.json}}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["1 changed (annotation-push-request-0.12.0.schema.json)", "deleted this run's draft id 9001"]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "the manifest is hashed once at the start; GitHub's digest of what was uploaded is compared with it"}
+    mutation: {description: "A file is rewritten, same size, after the manifest is hashed and before its own upload."}
 
 # The writer's allow-list (permit), for repo peasant-labs/schema and tag
 # v0.58.0 against github.com. call is the allowed call, or "" for a refusal,
