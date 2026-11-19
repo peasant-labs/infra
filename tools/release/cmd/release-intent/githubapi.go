@@ -14,9 +14,10 @@ import (
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
-// The GitHub REST reader behind inherit-verdict. It is the tool's only
-// network seam: read-only GETs over the standard library, no client library,
-// and no other command uses it. Every failure is returned as an error, which
+// The GitHub REST reader behind inherit-verdict: read-only GETs over the
+// standard library, no client library, and no other command uses it. The
+// only other network seam is publish-release's writer (githubwriter.go),
+// which shares these transport rules. Every failure is returned as an error, which
 // the command turns into exit 1, so an API fault is never a verdict.
 
 const (

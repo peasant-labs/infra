@@ -67,6 +67,7 @@ func TestClosedSets(t *testing.T) {
 		intent.OutputTag, intent.OutputError, intent.OutputPR, intent.OutputGate, intent.OutputFresh,
 		intent.OutputPush, intent.OutputKind, intent.OutputOK, intent.OutputSurfaces, intent.OutputFrozen, intent.OutputTitle, intent.OutputSource,
 		intent.OutputReleaseOnly, intent.OutputReason, intent.OutputInherit, intent.OutputInheritedFrom, intent.OutputVerdictSource,
+		intent.OutputReleaseID, intent.OutputState,
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllOutputKeys = %v, want %v", got, want)
 	}
@@ -105,6 +106,16 @@ func TestClosedSets(t *testing.T) {
 		intent.ErrBaseVerdictFailed,
 		intent.ErrBaseVerdictAmbiguous,
 		intent.ErrBaseVerdictProducer,
+		intent.ErrReleaseAssetsInvalid,
+		intent.ErrReleaseListTruncated,
+		intent.ErrDraftExists,
+		intent.ErrReleaseAmbiguous,
+		intent.ErrTagMissing,
+		intent.ErrRehearsalRefused,
+		intent.ErrDraftIncomplete,
+		intent.ErrPublishedReleaseIncomplete,
+		intent.ErrPublishedReleaseDiffers,
+		intent.ErrReleaseNotImmutable,
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllErrorCodes = %v, want %v", got, want)
 	}
@@ -128,7 +139,7 @@ func TestErrorCodeCoverage(t *testing.T) {
 		contentCorpusYAML, policyCorpusYAML, verifyTagCorpusYAML,
 		contractCorpusYAML, freezeCorpusYAML, freezeOutputCorpusYAML,
 		streamsCorpusYAML, changelogTitleCorpusYAML,
-		releaseOnlyCorpusYAML, baseVerdictCorpusYAML,
+		releaseOnlyCorpusYAML, baseVerdictCorpusYAML, publishCorpusYAML,
 	} {
 		var doc struct {
 			Cases []struct {

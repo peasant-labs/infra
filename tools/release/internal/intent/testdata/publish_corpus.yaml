@@ -1,0 +1,359 @@
+# Publish corpus: rows of the publish-release judgments over GitHub facts.
+# The facts are recorded from peasant-labs/schema on 2026-11-18:
+#   - /tmp/opencode/publish-release-github-tag-v0.58.0.json
+#     (GET repos/peasant-labs/schema/releases/tags/v0.58.0: release id
+#     450679062, immutable, 352 assets; the first three assets are used
+#     here with their real names, sizes and sha256 digests)
+#   - /tmp/opencode/publish-release-github-releases.json
+#     (GET repos/peasant-labs/schema/releases, first page: 75 releases,
+#     including the real leftover draft id 449898580 for v0.57.1 beside the
+#     published v0.57.1)
+# Each reject row changes one fact of its accept sibling.
+required_names:
+  - local-flat-files
+  - local-empty
+  - local-symlink
+  - local-renamed-name
+  - local-leading-period
+  - select-nothing
+  - select-published
+  - select-truncated
+  - select-real-leftover-draft
+  - select-two-published
+  - rehearsal-fresh-tag
+  - rehearsal-release-tag
+  - rehearsal-bare-prefix
+  - rehearsal-pushed-tag
+  - tag-present
+  - tag-absent
+  - draft-exact
+  - draft-missing-asset
+  - draft-extra-asset
+  - draft-digest-mismatch
+  - draft-upload-incomplete
+  - draft-no-digest
+  - draft-already-published
+  - published-exact-immutable
+  - published-rerun-exact
+  - published-still-draft
+  - published-rerun-missing
+  - published-rerun-digest
+  - published-duplicate-name
+  - published-not-immutable
+cases:
+  - name: local-flat-files
+    input:
+      op: local
+      entries: &entries_real
+        - {name: annotation-push-request-0.10.0.schema.json, regular: true}
+        - {name: annotation-push-request-0.11.0.schema.json, regular: true}
+        - {name: annotation-push-request-0.12.0.schema.json, regular: true}
+    expected: {}
+    classification: must-pass
+    provenance: &rec_tag {source: requirement, ref: "schema v0.58.0 asset names, /tmp/opencode/publish-release-github-tag-v0.58.0.json"}
+    mutation: {description: "Three real schema asset names, all regular files."}
+  - name: local-empty
+    input: {op: local, entries: []}
+    expected: {code: release-assets-invalid, contains: ["empty"]}
+    classification: must-fail
+    sibling: local-flat-files
+    provenance: {source: boundary, ref: "an empty asset directory"}
+    mutation: {description: "Stage nothing."}
+  - name: local-symlink
+    input:
+      op: local
+      entries:
+        - {name: annotation-push-request-0.10.0.schema.json, regular: true}
+        - {name: annotation-push-request-0.11.0.schema.json, regular: false}
+    expected: {code: release-assets-invalid, contains: ["not a regular file"]}
+    classification: must-fail
+    sibling: local-flat-files
+    provenance: {source: requirement, ref: "assets are flat regular files"}
+    mutation: {description: "One entry is a symlink or a subdirectory."}
+  - name: local-renamed-name
+    input:
+      op: local
+      entries: [{name: "annotation push request.json", regular: true}]
+    expected: {code: release-assets-invalid, contains: ["GitHub keeps"]}
+    classification: must-fail
+    sibling: local-flat-files
+    provenance: {source: requirement, ref: "GitHub renames assets with special characters"}
+    mutation: {description: "A name with spaces, which GitHub would rename."}
+  - name: local-leading-period
+    input:
+      op: local
+      entries: [{name: .hidden.json, regular: true}]
+    expected: {code: release-assets-invalid}
+    classification: must-fail
+    sibling: local-flat-files
+    provenance: {source: requirement, ref: "GitHub renames assets with a leading period"}
+    mutation: {description: "A leading period."}
+
+  - name: select-nothing
+    input:
+      op: select
+      tag: v0.59.0
+      releases: &releases_real
+        - {id: 449898580, tag: v0.57.1, draft: true}
+        - {id: 450679062, tag: v0.58.0, draft: false, immutable: true}
+        - {id: 449898000, tag: v0.57.1, draft: false}
+    expected: {published: 0}
+    classification: must-pass
+    provenance: &rec_list {source: bug, ref: "schema release list, /tmp/opencode/publish-release-github-releases.json"}
+    mutation: {description: "A new tag; the real list holds no release for it."}
+  - name: select-published
+    input: {op: select, tag: v0.58.0, releases: *releases_real}
+    expected: {published: 450679062}
+    classification: must-pass
+    provenance: *rec_list
+    mutation: {description: "The real published v0.58.0 is the rerun candidate."}
+  - name: select-truncated
+    input: {op: select, tag: v0.59.0, releases: *releases_real, truncated: true}
+    expected: {code: release-list-truncated}
+    classification: must-fail
+    sibling: select-nothing
+    provenance: {source: requirement, ref: "list every release; fail closed at the page cap"}
+    mutation: {description: "The list ran into the page cap."}
+  - name: select-real-leftover-draft
+    input: {op: select, tag: v0.57.1, releases: *releases_real}
+    expected: {code: draft-exists, contains: ["id 449898580", "gh api -X DELETE repos/peasant-labs/schema/releases/449898580"]}
+    classification: must-fail
+    sibling: select-published
+    provenance: *rec_list
+    mutation: {description: "The real leftover v0.57.1 draft sits beside its published release."}
+  - name: select-two-published
+    input:
+      op: select
+      tag: v0.58.0
+      releases:
+        - {id: 450679062, tag: v0.58.0, draft: false}
+        - {id: 450679063, tag: v0.58.0, draft: false}
+    expected: {code: release-ambiguous}
+    classification: must-fail
+    sibling: select-published
+    provenance: {source: boundary, ref: "two published releases for one tag"}
+    mutation: {description: "A second published release for the tag."}
+
+  - name: rehearsal-fresh-tag
+    input: {op: rehearsal, tag: rehearsal-1763500000}
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "rehearsal only on a fresh rehearsal-* tag"}
+    mutation: {description: "A never-pushed rehearsal tag."}
+  - name: rehearsal-release-tag
+    input: {op: rehearsal, tag: v0.59.0}
+    expected: {code: rehearsal-refused, contains: ["rehearsal-"]}
+    classification: must-fail
+    sibling: rehearsal-fresh-tag
+    provenance: {source: requirement, ref: "a rehearsal never comes near a release tag"}
+    mutation: {description: "A release tag instead of a rehearsal tag."}
+  - name: rehearsal-bare-prefix
+    input: {op: rehearsal, tag: rehearsal-}
+    expected: {code: rehearsal-refused}
+    classification: must-fail
+    sibling: rehearsal-fresh-tag
+    provenance: {source: boundary, ref: "the prefix alone names no rehearsal"}
+    mutation: {description: "The prefix with nothing after it."}
+  - name: rehearsal-pushed-tag
+    input: {op: rehearsal, tag: rehearsal-1763500000, tag_exists: true}
+    expected: {code: rehearsal-refused, contains: ["exists"]}
+    classification: must-fail
+    sibling: rehearsal-fresh-tag
+    provenance: {source: requirement, ref: "a rehearsal tag must not exist on the remote"}
+    mutation: {description: "The rehearsal tag was pushed."}
+
+  - name: tag-present
+    input: {op: tag, tag: v0.58.0, tag_exists: true}
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "publish only for a pushed tag"}
+    mutation: {description: "The tag exists."}
+  - name: tag-absent
+    input: {op: tag, tag: v0.58.0}
+    expected: {code: tag-missing}
+    classification: must-fail
+    sibling: tag-present
+    provenance: {source: requirement, ref: "publishing would create the tag at the default branch"}
+    mutation: {description: "The tag ref is absent."}
+
+  - name: draft-exact
+    input:
+      op: draft
+      release: &draft {id: 450679062, tag: v0.58.0, draft: true}
+      local: &local_real
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, sha256: 9351cd0a713f697b31797dc02fc56e32be8df8fb01b953b8d36145f17c6a788b}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, sha256: b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890}
+        - {name: annotation-push-request-0.12.0.schema.json, size: 13455, sha256: eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2}
+      remote: &remote_real
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, digest: "sha256:9351cd0a713f697b31797dc02fc56e32be8df8fb01b953b8d36145f17c6a788b", state: uploaded}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
+        - {name: annotation-push-request-0.12.0.schema.json, size: 13455, digest: "sha256:eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2", state: uploaded}
+    expected: {}
+    classification: must-pass
+    provenance: *rec_tag
+    mutation: {description: "The real assets as a draft; local manifest equal."}
+  - name: draft-missing-asset
+    input:
+      op: draft
+      release: *draft
+      local: *local_real
+      remote:
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, digest: "sha256:9351cd0a713f697b31797dc02fc56e32be8df8fb01b953b8d36145f17c6a788b", state: uploaded}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
+    expected: {code: draft-incomplete, contains: ["1 missing (annotation-push-request-0.12.0.schema.json)"]}
+    classification: must-fail
+    sibling: draft-exact
+    provenance: {source: bug, ref: "a partial upload passed the old length-only check"}
+    mutation: {description: "Drop one asset from the draft."}
+  - name: draft-extra-asset
+    input:
+      op: draft
+      release: *draft
+      local: *local_real
+      remote:
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, digest: "sha256:9351cd0a713f697b31797dc02fc56e32be8df8fb01b953b8d36145f17c6a788b", state: uploaded}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
+        - {name: annotation-push-request-0.12.0.schema.json, size: 13455, digest: "sha256:eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2", state: uploaded}
+        - {name: stray.json, size: 2, digest: "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", state: uploaded}
+    expected: {code: draft-incomplete, contains: ["1 extra (stray.json)"]}
+    classification: must-fail
+    sibling: draft-exact
+    provenance: {source: requirement, ref: "nothing extra"}
+    mutation: {description: "An asset no local file names."}
+  - name: draft-digest-mismatch
+    input:
+      op: draft
+      release: *draft
+      local: *local_real
+      remote:
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
+        - {name: annotation-push-request-0.12.0.schema.json, size: 13455, digest: "sha256:eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2", state: uploaded}
+    expected: {code: draft-incomplete, contains: ["1 changed (annotation-push-request-0.10.0.schema.json)"]}
+    classification: must-fail
+    sibling: draft-exact
+    provenance: {source: requirement, ref: "same size, other bytes: the three real files are all 13455 bytes"}
+    mutation: {description: "The first asset carries another asset's digest at the same size."}
+  - name: draft-upload-incomplete
+    input:
+      op: draft
+      release: *draft
+      local: *local_real
+      remote:
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, digest: "sha256:9351cd0a713f697b31797dc02fc56e32be8df8fb01b953b8d36145f17c6a788b", state: uploaded}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
+        - {name: annotation-push-request-0.12.0.schema.json, size: 13455, digest: "sha256:eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2", state: starter}
+    expected: {code: draft-incomplete, contains: ["not uploaded"]}
+    classification: must-fail
+    sibling: draft-exact
+    provenance: {source: requirement, ref: "an asset whose upload did not complete is in state starter"}
+    mutation: {description: "The last asset's upload never completed."}
+  - name: draft-no-digest
+    input:
+      op: draft
+      release: *draft
+      local: *local_real
+      remote:
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, state: uploaded}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
+        - {name: annotation-push-request-0.12.0.schema.json, size: 13455, digest: "sha256:eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2", state: uploaded}
+    expected: {code: draft-incomplete, contains: ["changed"]}
+    classification: must-fail
+    sibling: draft-exact
+    provenance: {source: boundary, ref: "a missing digest proves nothing"}
+    mutation: {description: "GitHub reports no digest for one asset."}
+  - name: draft-already-published
+    input:
+      op: draft
+      release: {id: 450679062, tag: v0.58.0, draft: false}
+      local: *local_real
+      remote: *remote_real
+    expected: {code: draft-incomplete, contains: ["no longer a draft"]}
+    classification: must-fail
+    sibling: draft-exact
+    provenance: {source: boundary, ref: "the draft changed state under the run"}
+    mutation: {description: "The draft was published before this run's publish step."}
+
+  - name: published-exact-immutable
+    input:
+      op: published
+      release: &published {id: 450679062, tag: v0.58.0, draft: false, immutable: true}
+      local: *local_real
+      remote: *remote_real
+      require_immutable: true
+    expected: {}
+    classification: must-pass
+    provenance: *rec_tag
+    mutation: {description: "The real v0.58.0 release, immutable, verified after publish."}
+  - name: published-rerun-exact
+    input: {op: published, release: *published, local: *local_real, remote: *remote_real, require_immutable: true, rerun: true}
+    expected: {}
+    classification: must-pass
+    provenance: *rec_tag
+    mutation: {description: "The same release met by a rerun."}
+  - name: published-still-draft
+    input:
+      op: published
+      release: {id: 450679062, tag: v0.58.0, draft: true, immutable: true}
+      local: *local_real
+      remote: *remote_real
+    expected: {code: published-release-incomplete, contains: ["still a draft"]}
+    classification: must-fail
+    sibling: published-exact-immutable
+    provenance: {source: boundary, ref: "publish edit accepted but the release stayed a draft"}
+    mutation: {description: "The release did not leave the draft state."}
+  - name: published-rerun-missing
+    input:
+      op: published
+      release: *published
+      local: *local_real
+      remote:
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, digest: "sha256:9351cd0a713f697b31797dc02fc56e32be8df8fb01b953b8d36145f17c6a788b", state: uploaded}
+      rerun: true
+    expected: {code: published-release-incomplete, contains: ["2 missing", "fix forward with a new tag"]}
+    classification: must-fail
+    sibling: published-rerun-exact
+    provenance: {source: bug, ref: "a partial published release passed the old length-only rerun check"}
+    mutation: {description: "A previous run published only one of three assets."}
+  - name: published-rerun-digest
+    input:
+      op: published
+      release: *published
+      local:
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, sha256: 0000000000000000000000000000000000000000000000000000000000000000}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, sha256: b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890}
+        - {name: annotation-push-request-0.12.0.schema.json, size: 13455, sha256: eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2}
+      remote: *remote_real
+      rerun: true
+    expected: {code: published-release-differs}
+    classification: must-fail
+    sibling: published-rerun-exact
+    provenance: {source: requirement, ref: "a rerun with other bytes is not this build's release"}
+    mutation: {description: "The rebuild produced other bytes for one file."}
+  - name: published-duplicate-name
+    input:
+      op: published
+      release: *published
+      local: *local_real
+      remote:
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, digest: "sha256:9351cd0a713f697b31797dc02fc56e32be8df8fb01b953b8d36145f17c6a788b", state: uploaded}
+        - {name: annotation-push-request-0.10.0.schema.json, size: 13455, digest: "sha256:9351cd0a713f697b31797dc02fc56e32be8df8fb01b953b8d36145f17c6a788b", state: uploaded}
+        - {name: annotation-push-request-0.11.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
+        - {name: annotation-push-request-0.12.0.schema.json, size: 13455, digest: "sha256:eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2", state: uploaded}
+    expected: {code: published-release-incomplete, contains: ["1 extra"]}
+    classification: must-fail
+    sibling: published-exact-immutable
+    provenance: {source: boundary, ref: "a second asset of one name is extra"}
+    mutation: {description: "One asset name appears twice."}
+  - name: published-not-immutable
+    input:
+      op: published
+      release: {id: 450679062, tag: v0.58.0, draft: false, immutable: false}
+      local: *local_real
+      remote: *remote_real
+      require_immutable: true
+    expected: {code: release-not-immutable}
+    classification: must-fail
+    sibling: published-exact-immutable
+    provenance: {source: requirement, ref: "schema requires immutable releases"}
+    mutation: {description: "GitHub reports the release mutable."}

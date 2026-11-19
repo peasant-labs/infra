@@ -44,6 +44,9 @@ const (
 	// CommandInheritVerdict decides whether a release-only candidate inherits
 	// its base commit's merge-queue verdict instead of running the full suite.
 	CommandInheritVerdict Command = "inherit-verdict"
+	// CommandPublishRelease creates, fills, verifies and publishes the
+	// GitHub Release of a tag, by release id, from a local asset directory.
+	CommandPublishRelease Command = "publish-release"
 )
 
 // AllCommands is the canonical closed set of subcommands the tool
@@ -62,6 +65,7 @@ var AllCommands = []Command{
 	CommandQueueGate,
 	CommandVerifyTag,
 	CommandInheritVerdict,
+	CommandPublishRelease,
 }
 
 func (c Command) String() string { return string(c) }
@@ -121,7 +125,7 @@ const (
 	FlagQueue Flag = "--queue"
 	// FlagReleasePR carries the release PR number.
 	FlagReleasePR Flag = "--release-pr"
-	// FlagTag names the release tag to verify.
+	// FlagTag names the release tag to verify or publish.
 	FlagTag            Flag = "--tag"
 	FlagReport         Flag = "--report"
 	FlagUntil          Flag = "--until"
@@ -129,10 +133,24 @@ const (
 	FlagOut            Flag = "--out"
 	FlagFreezePlan     Flag = "--freeze-plan"
 	FlagPrintRangeBase Flag = "--print-range-base"
-	// FlagRepo names the OWNER/NAME repository whose checks are read.
+	// FlagRepo names the OWNER/NAME repository the command reads or
+	// publishes to.
 	FlagRepo Flag = "--repo"
 	// FlagWait bounds how long a pending base verdict is waited for.
 	FlagWait Flag = "--wait"
+	// FlagAssets names the directory of files to publish as release assets.
+	FlagAssets Flag = "--assets"
+	// FlagNotes names the release notes file.
+	FlagNotes Flag = "--notes"
+	// FlagPrerelease carries whether the release is a prerelease.
+	FlagPrerelease Flag = "--prerelease"
+	// FlagLatest carries whether the release becomes the latest release.
+	FlagLatest Flag = "--latest"
+	// FlagRequireImmutable requires GitHub to report the release immutable.
+	FlagRequireImmutable Flag = "--require-immutable"
+	// FlagRehearse creates, fills and verifies a draft for a never-pushed
+	// rehearsal tag, then deletes it. It never publishes.
+	FlagRehearse Flag = "--rehearse"
 )
 
 // AllFlags is the canonical closed set of flags across every subcommand.
@@ -145,6 +163,7 @@ var AllFlags = []Flag{
 	FlagQueue, FlagReleasePR,
 	FlagTag, FlagReport, FlagUntil, FlagState, FlagOut, FlagFreezePlan, FlagPrintRangeBase,
 	FlagRepo, FlagWait,
+	FlagAssets, FlagNotes, FlagPrerelease, FlagLatest, FlagRequireImmutable, FlagRehearse,
 }
 
 func (f Flag) String() string { return string(f) }
@@ -195,6 +214,8 @@ func (c Command) Flags() []FlagUse {
 		return []FlagUse{{FlagTag, true}, {FlagBranch, true}}
 	case CommandInheritVerdict:
 		return []FlagUse{{FlagBase, true}, {FlagHead, true}, {FlagRepo, true}, {FlagWait, false}}
+	case CommandPublishRelease:
+		return []FlagUse{{FlagTag, true}, {FlagRepo, true}, {FlagAssets, true}, {FlagNotes, true}, {FlagPrerelease, true}, {FlagLatest, true}, {FlagRequireImmutable, false}, {FlagRehearse, false}}
 	default:
 		return nil
 	}

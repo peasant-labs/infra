@@ -81,6 +81,17 @@ commands:
       - {flag: --head, required: true}
       - {flag: --repo, required: true}
       - {flag: --wait, required: false}
+  - name: publish-release
+    usage: "usage: release-intent publish-release --tag TAG --repo OWNER/NAME --assets DIR --notes FILE --prerelease BOOL --latest BOOL [--require-immutable] [--rehearse]"
+    flags:
+      - {flag: --tag, required: true}
+      - {flag: --repo, required: true}
+      - {flag: --assets, required: true}
+      - {flag: --notes, required: true}
+      - {flag: --prerelease, required: true}
+      - {flag: --latest, required: true}
+      - {flag: --require-immutable}
+      - {flag: --rehearse}
 flags:
   - {flag: --config, takes_value: true}
   - {flag: --policy, takes_value: true}
@@ -112,6 +123,12 @@ flags:
   - {flag: --print-range-base}
   - {flag: --repo, takes_value: true}
   - {flag: --wait, takes_value: true}
+  - {flag: --assets, takes_value: true}
+  - {flag: --notes, takes_value: true}
+  - {flag: --prerelease, takes_value: true}
+  - {flag: --latest, takes_value: true}
+  - {flag: --require-immutable}
+  - {flag: --rehearse}
 git_subcommands: [merge-base, log, diff, show, ls-tree, for-each-ref, merge-tree]
 exit_statuses: [0, 1, 2]
 reported_verdicts: [taggable, rejected]

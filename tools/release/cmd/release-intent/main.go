@@ -5,8 +5,13 @@
 //
 // The tool never imports a GitHub client library. Its impure seams are the
 // git runner, which reads commits, tags and files from git through a
-// hardened structured argv, and, for inherit-verdict alone, a read-only
-// GitHub REST reader over the standard library (githubapi.go).
+// hardened structured argv, and two GitHub REST seams over the standard
+// library: inherit-verdict reads the network (githubapi.go) and
+// publish-release writes it (githubwriter.go); no other command does. The
+// writer may call only the release endpoints of --repo in its allow-list,
+// runs only in a publish job built from a pinned infra SHA before the
+// release artifact is downloaded, and receives the token only in its own
+// step env.
 package main
 
 import (
@@ -62,6 +67,8 @@ func run(command intent.Command, args []string) error {
 		return runVerifyTag(flags)
 	case intent.CommandInheritVerdict:
 		return runInheritVerdict(flags)
+	case intent.CommandPublishRelease:
+		return runPublishRelease(flags)
 	default:
 		return fmt.Errorf("%s: subcommand %q is in the closed command set but has no handler in run (cmd/release-intent/main.go). This is a programming error in %s, not a user input issue: add the handler", intent.ProgramName, command, intent.ProgramName)
 	}

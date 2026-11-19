@@ -533,6 +533,18 @@ const (
 	ErrBaseVerdictFailed    ErrorCode = "base-verdict-failed"
 	ErrBaseVerdictAmbiguous ErrorCode = "base-verdict-ambiguous"
 	ErrBaseVerdictProducer  ErrorCode = "base-verdict-producer"
+	// The publish codes refuse to create, publish or accept a GitHub
+	// Release that is not exactly the local build's assets.
+	ErrReleaseAssetsInvalid       ErrorCode = "release-assets-invalid"
+	ErrReleaseListTruncated       ErrorCode = "release-list-truncated"
+	ErrDraftExists                ErrorCode = "draft-exists"
+	ErrReleaseAmbiguous           ErrorCode = "release-ambiguous"
+	ErrTagMissing                 ErrorCode = "tag-missing"
+	ErrRehearsalRefused           ErrorCode = "rehearsal-refused"
+	ErrDraftIncomplete            ErrorCode = "draft-incomplete"
+	ErrPublishedReleaseIncomplete ErrorCode = "published-release-incomplete"
+	ErrPublishedReleaseDiffers    ErrorCode = "published-release-differs"
+	ErrReleaseNotImmutable        ErrorCode = "release-not-immutable"
 )
 
 // AllErrorCodes is the canonical closed set of typed error codes.
@@ -566,6 +578,16 @@ var AllErrorCodes = []ErrorCode{
 	ErrBaseVerdictFailed,
 	ErrBaseVerdictAmbiguous,
 	ErrBaseVerdictProducer,
+	ErrReleaseAssetsInvalid,
+	ErrReleaseListTruncated,
+	ErrDraftExists,
+	ErrReleaseAmbiguous,
+	ErrTagMissing,
+	ErrRehearsalRefused,
+	ErrDraftIncomplete,
+	ErrPublishedReleaseIncomplete,
+	ErrPublishedReleaseDiffers,
+	ErrReleaseNotImmutable,
 }
 
 func (c ErrorCode) String() string { return string(c) }
