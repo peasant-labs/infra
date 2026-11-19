@@ -5,6 +5,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"github.com/peasant-labs/infra/unstring/internal/testutil"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -159,7 +160,7 @@ func unstringBinary(t *testing.T) string {
 }
 
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := testutil.RunWithIsolatedGitConfig(m)
 	if binPath != "" {
 		os.RemoveAll(filepath.Dir(binPath))
 	}
@@ -287,7 +288,7 @@ func (r *e2eRepo) env() []string {
 
 func (r *e2eRepo) git(t *testing.T, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=unstring e2e", "-c", "user.email=e2e@example.test", "-c", "commit.gpgsign=false"}, args...)...)
+	cmd := exec.Command("git", append([]string{"-c", "user.name=unstring e2e", "-c", "user.email=e2e@example.test"}, args...)...)
 	cmd.Dir = r.dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

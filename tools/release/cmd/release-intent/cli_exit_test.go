@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/peasant-labs/infra/tools/release/internal/testutil"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -35,7 +36,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	testBinaryPath = bin
-	code := m.Run()
+	code := testutil.RunWithIsolatedGitConfig(m)
 	os.RemoveAll(dir)
 	os.Exit(code)
 }
