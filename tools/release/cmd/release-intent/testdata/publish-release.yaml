@@ -184,11 +184,11 @@ cases:
       tag: v0.59.0
       prerelease: "false"
       latest: "true"
-      server: {tags: [v0.59.0], faults: {upload_fail: annotation-push-request-0.11.0.schema.json, delete_fail: true}}
+      server: {tags: [v0.59.0], faults: {upload_fail: annotation-push-request-0.11.0.schema.json, delete_status: 403}}
     expected:
       exit: 1
       lines: [release_id=9001]
-      stderr: ["could not delete this run's draft id 9001", "gh api -X DELETE repos/peasant-labs/schema/releases/9001"]
+      stderr: ["could not delete this run's draft id 9001", "status 403", "gh api -X DELETE repos/peasant-labs/schema/releases/9001"]
       after: [{id: 9001, draft: true, assets: 2}]
     classification: must-fail
     sibling: final-publishes
@@ -371,3 +371,17 @@ permit_cases:
   - {name: refuse-upload-host-read, method: GET, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?per_page=100", created: [9001], call: ""}
   - {name: refuse-generate-notes, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/generate-notes", call: ""}
   - {name: refuse-extra-query, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&access_token=x", call: ""}
+
+# DeleteOwn's read-back (in process, counting sleeps). The schedule has 5
+# waits. GitHub answered 502 to the delete of the second real rehearsal's
+# 352-asset draft (id 450936274) and removed it anyway.
+delete_required_names:
+  - delete-no-content
+  - delete-502-removed
+  - delete-502-kept
+  - delete-403
+delete_cases:
+  - {name: delete-no-content, faults: {}, deleted: true, sleeps: 0}
+  - {name: delete-502-removed, faults: {delete_status: 502, delete_removes: true}, deleted: true, sleeps: 1}
+  - {name: delete-502-kept, faults: {delete_status: 502}, deleted: false, sleeps: 5}
+  - {name: delete-403, faults: {delete_status: 403}, deleted: false, sleeps: 0}

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 	"github.com/peasant-labs/infra/tools/release/internal/testcase"
@@ -55,7 +56,10 @@ type publishFaults struct {
 	Corrupt    string `yaml:"corrupt"`
 	Drop       string `yaml:"drop"`
 	Extra      string `yaml:"extra"`
-	DeleteFail bool   `yaml:"delete_fail"`
+	// DeleteStatus answers every delete with this status instead of 204;
+	// DeleteRemoves still removes the release first.
+	DeleteStatus  int  `yaml:"delete_status"`
+	DeleteRemoves bool `yaml:"delete_removes"`
 }
 
 type publishServer struct {
@@ -107,6 +111,14 @@ type permitCase struct {
 	Call    string  `yaml:"call"`
 }
 
+// deleteCase drives DeleteOwn in process with a counting sleep.
+type deleteCase struct {
+	Name    string        `yaml:"name"`
+	Faults  publishFaults `yaml:"faults"`
+	Deleted bool          `yaml:"deleted"`
+	Sleeps  int           `yaml:"sleeps"`
+}
+
 type publishFixture struct {
 	RequiredNames       []string           `yaml:"required_names"`
 	Assets              []publishAssetFile `yaml:"assets"`
@@ -114,6 +126,8 @@ type publishFixture struct {
 	Cases               []publishCase      `yaml:"cases"`
 	PermitRequiredNames []string           `yaml:"permit_required_names"`
 	PermitCases         []permitCase       `yaml:"permit_cases"`
+	DeleteRequiredNames []string           `yaml:"delete_required_names"`
+	DeleteCases         []deleteCase       `yaml:"delete_cases"`
 }
 
 func loadPublishFixture(t *testing.T) publishFixture {
@@ -148,6 +162,11 @@ func loadPublishFixture(t *testing.T) publishFixture {
 		permitSeen[c.Name] = struct{}{}
 	}
 	checkRequiredNames(t, f.PermitRequiredNames, permitSeen, "publish-release permit fixture")
+	deleteSeen := map[string]struct{}{}
+	for _, c := range f.DeleteCases {
+		deleteSeen[c.Name] = struct{}{}
+	}
+	checkRequiredNames(t, f.DeleteRequiredNames, deleteSeen, "publish-release delete fixture")
 	return f
 }
 
@@ -347,15 +366,18 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 		rel.Immutable = s.cfg.ImmutableOnPublish
 		s.writeJSON(w, http.StatusOK, rel)
 	case r.Method == http.MethodDelete:
-		if s.cfg.Faults.DeleteFail {
-			s.writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Server Error"})
-			return
-		}
-		for i, x := range s.releases {
-			if x.ID == id {
-				s.releases = append(s.releases[:i], s.releases[i+1:]...)
-				break
+		f := s.cfg.Faults
+		if f.DeleteStatus == 0 || f.DeleteRemoves {
+			for i, x := range s.releases {
+				if x.ID == id {
+					s.releases = append(s.releases[:i], s.releases[i+1:]...)
+					break
+				}
 			}
+		}
+		if f.DeleteStatus != 0 {
+			s.writeJSON(w, f.DeleteStatus, map[string]string{"message": http.StatusText(f.DeleteStatus)})
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -517,5 +539,37 @@ func TestPublishRelease_RefusesForeignAPI(t *testing.T) {
 	}
 	if _, err := newReleaseWriter("http://127.0.0.1:1234", fakeReleaseRepo, "v0.58.0", fakeReleaseToken, http.DefaultClient); err != nil {
 		t.Fatalf("newReleaseWriter refused a loopback test server: %v", err)
+	}
+}
+
+// TestPublishRelease_DeleteConfirm drives DeleteOwn in process: a delete
+// that answers with a server error is read back until the release is gone
+// or the schedule ends; a client error is final at once.
+func TestPublishRelease_DeleteConfirm(t *testing.T) {
+	f := loadPublishFixture(t)
+	for _, c := range f.DeleteCases {
+		t.Run(c.Name, func(t *testing.T) {
+			api := newFakeReleaseServer(t, publishServer{Faults: c.Faults}, nil)
+			w, err := newReleaseWriter(api.server.URL, fakeReleaseRepo, "v0.59.0", fakeReleaseToken, api.server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			sleeps := 0
+			w.sleep = func(time.Duration) { sleeps++ }
+			id, err := w.CreateDraft("notes", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = w.DeleteOwn(id)
+			if (err == nil) != c.Deleted {
+				t.Fatalf("DeleteOwn = %v, want deleted=%t", err, c.Deleted)
+			}
+			if sleeps != c.Sleeps {
+				t.Fatalf("slept %d times, want %d", sleeps, c.Sleeps)
+			}
+			if c.Deleted && w.created[id] {
+				t.Fatalf("a deleted release is still recorded as this run's")
+			}
+		})
 	}
 }

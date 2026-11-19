@@ -97,6 +97,8 @@ type releaseWriter struct {
 	token        string
 	client       *http.Client
 	created      map[int64]bool
+	// sleep waits between read-backs; tests replace it.
+	sleep func(time.Duration)
 }
 
 // newReleaseWriter accepts github.com's API, or a loopback test server that
@@ -125,7 +127,7 @@ func newReleaseWriter(apiBase, repo, tag, token string, client *http.Client) (*r
 	if uploads == "" {
 		return nil, usageErr("%s: $%s %q is not %s or a plain-http loopback test server; the command publishes only to github.com, whose uploads host it knows, and never sends the token in clear text elsewhere", intent.CommandPublishRelease, githubAPIEnv, apiBase, defaultGitHubAPI)
 	}
-	return &releaseWriter{api: base, uploads: uploads, repo: repo, tag: tag, token: token, client: client, created: map[int64]bool{}}, nil
+	return &releaseWriter{api: base, uploads: uploads, repo: repo, tag: tag, token: token, client: client, created: map[int64]bool{}, sleep: time.Sleep}, nil
 }
 
 // releaseTagPattern is a tag the command can name in a URL path unescaped.
@@ -467,11 +469,54 @@ func (w *releaseWriter) Publish(id int64, prerelease, latest bool) error {
 	return err
 }
 
-// DeleteOwn deletes a release this run created, by id.
+// deleteConfirmSchedule is how long DeleteOwn waits before each read-back
+// after a delete that answered with a server error or no answer. GitHub
+// answered 502 to the delete of a 352-asset draft that it then removed
+// (second real rehearsal, 2026-11-19), so such an answer is not a failure
+// until the release is still there after the last read.
+var deleteConfirmSchedule = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second}
+
+// DeleteOwn deletes a release this run created, by id. A server error or a
+// lost answer is followed by read-backs: the delete succeeded when the
+// release is gone.
 func (w *releaseWriter) DeleteOwn(id int64) error {
-	_, err := w.expect(http.StatusNoContent, http.MethodDelete, w.repoURL("/releases/"+strconv.FormatInt(id, 10)), nil)
-	if err == nil {
+	target := w.repoURL("/releases/" + strconv.FormatInt(id, 10))
+	call, resp, err := w.send(http.MethodDelete, target, nil, 0, "")
+	if err == nil && resp.status == http.StatusNoContent {
 		delete(w.created, id)
+		return nil
+	}
+	if err == nil {
+		err = w.statusError(call, http.MethodDelete, target, resp)
+		if resp.status < http.StatusInternalServerError {
+			return err
+		}
+	} else if _, refused := w.permit(http.MethodDelete, target); refused != nil {
+		return err
+	}
+	for _, d := range deleteConfirmSchedule {
+		w.sleep(d)
+		gone, readErr := w.releaseGone(id)
+		if readErr == nil && gone {
+			fmt.Fprintf(os.Stderr, "%s: the delete of release id %d answered with an error (%v), but the release is gone\n", intent.CommandPublishRelease, id, err)
+			delete(w.created, id)
+			return nil
+		}
 	}
 	return err
+}
+
+// releaseGone reads a release by id: 404 means it no longer exists.
+func (w *releaseWriter) releaseGone(id int64) (bool, error) {
+	target := w.repoURL("/releases/" + strconv.FormatInt(id, 10))
+	call, resp, err := w.send(http.MethodGet, target, nil, 0, "")
+	switch {
+	case err != nil:
+		return false, err
+	case resp.status == http.StatusNotFound:
+		return true, nil
+	case resp.status == http.StatusOK:
+		return false, nil
+	}
+	return false, w.statusError(call, http.MethodGet, target, resp)
 }
