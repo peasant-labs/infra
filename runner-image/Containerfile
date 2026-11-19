@@ -72,10 +72,19 @@ RUN curl -fsSL -o /tmp/docker.tgz \
 # GitHub CLI from the upstream release, not apt: the archive's gh lags far
 # behind, and workflows read `--json` fields it does not know (2.46 rejects
 # baseRefOid; isImmutable needs 2.76). GH_SHA256 is the linux_amd64 tarball's
-# line in the release's gh_<version>_checksums.txt. The field check lists every
-# `--json` field the org's workflows request, so a pin that drops one fails
-# the build instead of a job; `gh <cmd> --json` with no value prints the
-# supported fields offline. Add a field here when a workflow starts using it.
+# line in the release's gh_<version>_checksums.txt. linux_amd64 only, matching
+# the pool (x64 slots).
+#
+# The require_json lists cover every `--json` field requested by workflows in
+# each repository that runs on this pool: infra, schema, peasant, village,
+# fairtrade and redact. The `release view` and `release list` fields are the
+# release-publish reads in schema's and peasant's release.yml; keep them until
+# those workflows move to `release-intent publish-release`. A pin that drops a
+# field fails the build instead of a job; `gh <cmd> --json` with no value
+# prints the supported fields offline. To find new fields, run in each repo:
+#   grep -rhoE 'gh (pr|release) (view|list)[^|]*--json [A-Za-z,]+' .github/workflows
+# Add a field when a workflow starts reading it; remove one only when that
+# grep finds it in no repository's workflows.
 RUN set -eu; \
   curl -fsSL -o /tmp/gh.tgz \
     "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz"; \
@@ -88,8 +97,11 @@ RUN set -eu; \
     cmd="$1"; shift; \
     fields="$(gh $cmd --json 2>&1 || true)"; \
     for f in "$@"; do \
-      printf '%s\n' "$fields" | grep -qxE "[[:space:]]*$f" \
-        || { echo "gh ${GH_VERSION}: 'gh $cmd --json' lacks field $f" >&2; exit 1; }; \
+      printf '%s\n' "$fields" | grep -qxE "[[:space:]]*$f" || { \
+        echo "gh ${GH_VERSION}: 'gh $cmd --json' lacks field $f; gh printed:" >&2; \
+        printf '%s\n' "$fields" >&2; \
+        exit 1; \
+      }; \
     done; \
   }; \
   require_json 'pr view' number title author headRefName headRefOid baseRefOid autoMergeRequest; \
