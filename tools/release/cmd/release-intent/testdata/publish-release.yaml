@@ -7,6 +7,9 @@
 #     assets page, 100 entries, of the same release),
 #   /tmp/opencode/publish-release-github-releases.json (the first releases
 #     page: drafts listed beside published releases, newest first).
+# Like GitHub (seen on the first real rehearsal, 2026-11-19), the fake's
+# rel="next" link names the repository by id, /repositories/1273930850/...;
+# the writer builds page URLs itself and never follows it.
 # The asset names are three of v0.58.0's; their contents are short stand-ins.
 # The fake server gives the first release a run creates id 9001. A reject
 # row names the accept row it differs from by one fault.

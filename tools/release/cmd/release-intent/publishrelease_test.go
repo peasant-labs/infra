@@ -269,7 +269,10 @@ func (s *fakeReleaseServer) page(w http.ResponseWriter, r *http.Request, n int, 
 		hi = n
 	}
 	if hi < n {
-		w.Header().Set("Link", fmt.Sprintf(`<%s%s?per_page=%d&page=%d>; rel="next"`, s.server.URL, r.URL.Path, per, pg+1))
+		// GitHub names the repository by its numeric id in the next link
+		// (recorded on the first real rehearsal); the writer must not follow it.
+		rest := strings.TrimPrefix(r.URL.Path, "/repos/"+fakeReleaseRepo)
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repositories/1273930850%s?per_page=%d&page=%d>; rel="next"`, s.server.URL, rest, per, pg+1))
 	}
 	write(lo, hi)
 }

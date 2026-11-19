@@ -317,34 +317,38 @@ type apiAsset struct {
 	State  string `json:"state"`
 }
 
-// pages follows rel="next" from the first page, staying on the API host,
-// for at most githubMaxPages pages. truncated is true when a next page
-// remained at the cap.
-func (w *releaseWriter) pages(first string, each func([]byte) error) (bool, error) {
-	next := first
-	for page := 0; next != ""; page++ {
-		if page == githubMaxPages {
+// pages reads a listing page by page, building each page URL itself from
+// the listing path, so every request stays inside the allow-list. GitHub's
+// rel="next" link names the repository by its numeric id
+// (/repositories/<id>/...), so it is read only as "another page follows"
+// and never requested. At most githubMaxPages pages are read; truncated is
+// true when another page remained at the cap.
+func (w *releaseWriter) pages(listing string, perPage int, each func([]byte) error) (bool, error) {
+	for page := 1; ; page++ {
+		if page > githubMaxPages {
 			return true, nil
 		}
-		if !strings.HasPrefix(next, w.api+"/") {
-			return false, fmt.Errorf("GitHub API GET %s: the next page %q is not under %s; refusing to follow it", redactQuery(first), next, w.api)
+		target := listing + "?per_page=" + strconv.Itoa(perPage)
+		if page > 1 {
+			target += "&page=" + strconv.Itoa(page)
 		}
-		resp, err := w.expect(http.StatusOK, http.MethodGet, next, nil)
+		resp, err := w.expect(http.StatusOK, http.MethodGet, target, nil)
 		if err != nil {
 			return false, err
 		}
 		if err := each(resp.body); err != nil {
-			return false, fmt.Errorf("GitHub API GET %s: cannot decode page %d: %w", redactQuery(first), page+1, err)
+			return false, fmt.Errorf("GitHub API GET %s: cannot decode page %d: %w", listing, page, err)
 		}
-		next = nextLink(resp.link)
+		if nextLink(resp.link) == "" {
+			return false, nil
+		}
 	}
-	return false, nil
 }
 
 // ListReleases reads every release of the repository, drafts included.
 func (w *releaseWriter) ListReleases() ([]intent.ReleaseFact, bool, error) {
 	var out []intent.ReleaseFact
-	truncated, err := w.pages(w.repoURL("/releases?per_page="+strconv.Itoa(releaseListPageSize)), func(body []byte) error {
+	truncated, err := w.pages(w.repoURL("/releases"), releaseListPageSize, func(body []byte) error {
 		var page []apiRelease
 		if err := json.Unmarshal(body, &page); err != nil {
 			return err
@@ -361,7 +365,7 @@ func (w *releaseWriter) ListReleases() ([]intent.ReleaseFact, bool, error) {
 // run past the page cap is an error: no release carries that many assets.
 func (w *releaseWriter) ListAssets(id int64) ([]intent.ReleaseAssetFact, error) {
 	var out []intent.ReleaseAssetFact
-	truncated, err := w.pages(w.repoURL("/releases/"+strconv.FormatInt(id, 10)+"/assets?per_page="+strconv.Itoa(assetListPageSize)), func(body []byte) error {
+	truncated, err := w.pages(w.repoURL("/releases/"+strconv.FormatInt(id, 10)+"/assets"), assetListPageSize, func(body []byte) error {
 		var page []apiAsset
 		if err := json.Unmarshal(body, &page); err != nil {
 			return err
