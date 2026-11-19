@@ -178,7 +178,8 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   commit has no successful, marker-recorded merge-queue verdict is rejected,
   never sent back to the test suite. The release-only set is the changelog and
   version fields only; never widen it with `protected_paths` or
-  `freeze_outputs`. The rule is in the
+  `freeze_outputs`. The marker step names are a versioned set
+  (`intent.VerdictMarkersVersion`); change them only with a version bump. The rule is in the
   [README](tools/release/README.md#verdict-inheritance).
 - **Changelog body corrections go through a normal reviewed PR.** Prose,
   reference links, and the `[Unreleased]` block are editable; ordered release

@@ -17,6 +17,7 @@ required_names:
   - version-file-deleted
   - changelog-mode-changed
   - changelog-type-changed
+  - changelog-symlink-retargeted
   - version-only
   - identical-tree
   - config-edited
@@ -151,6 +152,15 @@ cases:
     classification: must-fail
     provenance: *rule
     mutation: {description: "Replace the changelog with a symlink."}
+  - name: changelog-symlink-retargeted
+    input:
+      config: *schema_config
+      changes: [{path: CHANGELOG.md, status: modified, not_regular_file: true}]
+    expected: {release_only: false, reason: not-a-regular-file, path: CHANGELOG.md}
+    sibling: changelog-only
+    classification: must-fail
+    provenance: *rule
+    mutation: {description: "The changelog is a symlink on both sides and its target changes."}
   - name: version-only
     input:
       config: *schema_config

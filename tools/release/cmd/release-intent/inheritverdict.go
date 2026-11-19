@@ -14,8 +14,13 @@ import (
 )
 
 // inheritPollInterval is how often a pending base verdict is read again
-// while --wait allows it.
-const inheritPollInterval = 30 * time.Second
+// while --wait allows it. inheritMaxWait caps --wait: a merge group's base is
+// at most the group ahead of it, whose run fits well inside it. Both are
+// documented in the README.
+const (
+	inheritPollInterval = 30 * time.Second
+	inheritMaxWait      = 30 * time.Minute
+)
 
 // fullSHA is a full 40-hex commit name: the API and the inherited_from output
 // need the exact commit, never a ref that can move.
@@ -45,8 +50,8 @@ func runInheritVerdict(flags flagValues) error {
 	wait := time.Duration(0)
 	if flags.Has(intent.FlagWait) {
 		d, err := time.ParseDuration(flags.Value(intent.FlagWait))
-		if err != nil || d < 0 {
-			return usageErr("%s %s: %q is not a non-negative duration such as 20m. %s", intent.CommandInheritVerdict, intent.FlagWait, flags.Value(intent.FlagWait), usageOf(intent.CommandInheritVerdict))
+		if err != nil || d < 0 || d > inheritMaxWait {
+			return usageErr("%s %s: %q is not a duration between 0s and %s, such as 20m. %s", intent.CommandInheritVerdict, intent.FlagWait, flags.Value(intent.FlagWait), inheritMaxWait, usageOf(intent.CommandInheritVerdict))
 		}
 		wait = d
 	}
@@ -96,6 +101,11 @@ func inheritVerdict(ctx context.Context, git inheritGit, reader inheritReader, b
 	changes := make([]intent.TreeChange, 0, len(entries))
 	for _, e := range entries {
 		change := intent.TreeChange{Path: e.Path, Status: e.Status, ModeChanged: e.OldMode != e.NewMode}
+		// A symlink's blob is its target path, so a retargeted changelog or
+		// version-file symlink is never release content.
+		if e.Status == intent.TreeChangeModified && (!isRegularMode(e.OldMode) || !isRegularMode(e.NewMode)) {
+			change.NotRegularFile = true
+		}
 		for _, vf := range cfg.VersionFiles {
 			if vf.Path == e.Path && e.Status == intent.TreeChangeModified {
 				change.OtherContentChanged = versionFileMoved(ctx, git, base, head, vf)

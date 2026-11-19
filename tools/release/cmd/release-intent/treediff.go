@@ -23,6 +23,17 @@ type TreeDiffer interface {
 	TreeChanges(ctx context.Context, base, head string) ([]rawTreeEntry, error)
 }
 
+// Regular file modes as git's raw diff prints them. Every other mode (a
+// symlink is 120000, a submodule 160000, an absent side 000000) is not a
+// regular file; an absent side is already an addition or deletion.
+const (
+	gitModeRegular    = "100644"
+	gitModeExecutable = "100755"
+)
+
+// isRegularMode reports whether a raw diff mode is a regular file.
+func isRegularMode(mode string) bool { return mode == gitModeRegular || mode == gitModeExecutable }
+
 // TreeChanges diffs base against head as trees, with modes, statuses and no
 // rename detection, so a rename is a deletion plus an addition.
 func (g *execGit) TreeChanges(ctx context.Context, base, head string) ([]rawTreeEntry, error) {

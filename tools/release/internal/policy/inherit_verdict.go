@@ -82,7 +82,13 @@ func fullSuiteName(doc *yaml.Node, jobID string) (string, error) {
 }
 
 // checkInheritVerdict (inherited-verdicts-are-recorded) holds an opted-in
-// workflow to the shape the tool reads back from a base commit's run.
+// workflow to what the tool reads back from a base commit's run, and no
+// more: the full-suite job exists and the aggregator needs it, the
+// aggregator ends with the versioned marker step set and cannot fail softly,
+// and the step that runs inherit-verdict can neither be skipped by its own if
+// nor fail softly. The
+// full-suite job's check name and the token scopes are checked where they are
+// used, at run time, where a fault fails closed.
 func (c *queueChecker) checkInheritVerdict() {
 	rule := c.policy.Queue.InheritVerdict
 	if rule == nil {
@@ -101,99 +107,71 @@ func (c *queueChecker) checkInheritVerdict() {
 		return
 	}
 	emit := func(job, what string) { c.emit(QueueRuleInheritVerdict, req.Workflow, job, what) }
-	if _, err := fullSuiteName(doc, rule.FullSuiteJob); err != nil {
-		emit(rule.FullSuiteJob, err.Error()+" during merge-queue policy validation")
-	}
 	needs, _ := needsList(gate)
-	if !slices.Contains(needs, rule.FullSuiteJob) {
+	if jobNode(doc, rule.FullSuiteJob) == nil {
+		emit(rule.FullSuiteJob, "jobs."+rule.FullSuiteJob+", the inherit_verdict full_suite_job, is missing during merge-queue policy validation. Name the job that runs the full suite")
+	} else if !slices.Contains(needs, rule.FullSuiteJob) {
 		emit(req.Job, "the aggregator does not need the full-suite job "+strconv.Quote(rule.FullSuiteJob)+" during merge-queue policy validation. A recorded full verdict must rest on the full suite the aggregator gates; add it to needs")
+	}
+	if got, want := finalStepNames(gate, len(intent.VerdictMarkerStepNames())), intent.VerdictMarkerStepNames(); !slices.Equal(got, want) {
+		emit(req.Job, fmt.Sprintf("the aggregator's last steps are %q, not the verdict marker steps (set version %d) during merge-queue policy validation. End the job with %s, so a later run can read which source this run's verdict came from", got, intent.VerdictMarkersVersion, markerList()))
+	}
+	if mappingValue(gate, "continue-on-error") != nil {
+		emit(req.Job, "the aggregator carries continue-on-error during merge-queue policy validation. A failed aggregator would then report success, and a later run would inherit it with no way to tell; remove the key")
 	}
 	callers := 0
 	for _, name := range needs {
-		job := jobNode(doc, name)
-		if !invokesInheritVerdict(job) {
-			continue
-		}
-		callers++
-		for _, scope := range []string{"checks", "actions"} {
-			if permissionOf(doc, job, scope) != "read" {
-				emit(name, "job "+strconv.Quote(name)+" runs "+intent.ProgramName+" "+intent.CommandInheritVerdict.String()+" without permissions "+scope+": read during merge-queue policy validation. The base verdict is read from the check runs and workflow runs; grant "+scope+": read on the job")
+		for _, step := range stepsOf(jobNode(doc, name)) {
+			if !stepInvokesInheritVerdict(step) {
+				continue
+			}
+			callers++
+			if mappingValue(step, "if") != nil {
+				emit(name, "the step that runs "+intent.ProgramName+" "+intent.CommandInheritVerdict.String()+" in job "+strconv.Quote(name)+" has a step-level if during merge-queue policy validation. A skipped step would leave inherit unset for a release candidate; run it unconditionally and let its script decide")
+			}
+			if mappingValue(step, "continue-on-error") != nil {
+				emit(name, "the step that runs "+intent.ProgramName+" "+intent.CommandInheritVerdict.String()+" in job "+strconv.Quote(name)+" carries continue-on-error during merge-queue policy validation. A failed proof must fail its job; remove the key")
 			}
 		}
 	}
 	if callers == 0 {
 		emit(req.Job, "no job the aggregator needs runs "+intent.ProgramName+" "+intent.CommandInheritVerdict.String()+" during merge-queue policy validation. Run it in a job the aggregator needs so an inherited verdict is proven in the same run")
 	}
-	steps := stepsOf(gate)
-	markers := intent.AllRecordedVerdictSources
-	if len(steps) < len(markers) {
-		emit(req.Job, "the aggregator has fewer steps than the "+strconv.Itoa(len(markers))+" verdict marker steps during merge-queue policy validation. End it with "+markerList())
-		return
+}
+
+// finalStepNames returns the names of the job's last n steps; an unnamed
+// step reads as "".
+func finalStepNames(job *yaml.Node, n int) []string {
+	steps := stepsOf(job)
+	if len(steps) > n {
+		steps = steps[len(steps)-n:]
 	}
-	tail := steps[len(steps)-len(markers):]
-	for i, source := range markers {
-		step := tail[i]
-		name := mappingValue(step, "name")
-		if name == nil || name.Value != source.MarkerStepName() {
-			emit(req.Job, "the aggregator's last steps are not the verdict marker steps in order during merge-queue policy validation. End the job with "+markerList()+", each with a literal name, so a later run can read which source this run's verdict came from")
-			return
+	names := make([]string, 0, len(steps))
+	for _, step := range steps {
+		name := ""
+		if v := mappingValue(step, "name"); v != nil {
+			name = v.Value
 		}
-		if mappingValue(step, "if") == nil {
-			emit(req.Job, "marker step "+strconv.Quote(source.MarkerStepName())+" has no if during merge-queue policy validation. Exactly one marker step runs per run; condition each on the source it records")
-		}
-		if mappingValue(step, "continue-on-error") != nil {
-			emit(req.Job, "marker step "+strconv.Quote(source.MarkerStepName())+" carries continue-on-error during merge-queue policy validation. A marker step that may fail and still pass would record a source the run did not prove; remove the key")
-		}
+		names = append(names, name)
 	}
-	for _, step := range steps[:len(steps)-len(markers)] {
-		if name := mappingValue(step, "name"); name != nil && strings.HasPrefix(name.Value, intent.VerdictMarkerPrefix) {
-			emit(req.Job, "step "+strconv.Quote(name.Value)+" uses the marker prefix outside the final marker steps during merge-queue policy validation. Rename it; only the marker steps may name a verdict source")
-		}
-	}
-	if mappingValue(gate, "continue-on-error") != nil {
-		emit(req.Job, "the aggregator carries continue-on-error during merge-queue policy validation. Its conclusion is the verdict a later run inherits; remove the key")
-	}
+	return names
 }
 
 func markerList() string {
-	names := make([]string, 0, len(intent.AllRecordedVerdictSources))
-	for _, source := range intent.AllRecordedVerdictSources {
-		names = append(names, strconv.Quote(source.MarkerStepName()))
+	names := intent.VerdictMarkerStepNames()
+	for i := range names {
+		names[i] = strconv.Quote(names[i])
 	}
 	return strings.Join(names, ", ")
 }
 
-// invokesInheritVerdict reports whether a step of the job calls the tool's
+// stepInvokesInheritVerdict reports whether the step calls the tool's
 // inherit-verdict command.
-func invokesInheritVerdict(job *yaml.Node) bool {
-	for _, step := range stepsOf(job) {
-		for _, call := range toolCalls(stepRunText(step)) {
-			if len(call) > 1 && call[1].bare == intent.CommandInheritVerdict.String() {
-				return true
-			}
+func stepInvokesInheritVerdict(step *yaml.Node) bool {
+	for _, call := range toolCalls(stepRunText(step)) {
+		if len(call) > 1 && call[1].bare == intent.CommandInheritVerdict.String() {
+			return true
 		}
 	}
 	return false
-}
-
-// permissionOf returns the job's effective access for one token scope: the
-// job's permissions when it declares them, otherwise the workflow's.
-func permissionOf(doc, job *yaml.Node, scope string) string {
-	perms := mappingValue(job, "permissions")
-	if perms == nil {
-		perms = mappingValue(doc, "permissions")
-	}
-	if perms == nil {
-		return ""
-	}
-	if perms.Kind == yaml.ScalarNode {
-		if perms.Value == "read-all" {
-			return "read"
-		}
-		return ""
-	}
-	if v := mappingValue(perms, scope); v != nil {
-		return strings.TrimSpace(v.Value)
-	}
-	return ""
 }

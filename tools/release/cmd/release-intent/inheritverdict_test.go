@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"net/http"
@@ -21,10 +22,11 @@ import (
 var inheritVerdictFixtureYAML []byte
 
 type inheritResponse struct {
-	Status  int    `yaml:"status"`
-	Body    string `yaml:"body"`
-	Next    string `yaml:"next"`
-	NextURL string `yaml:"next_url"`
+	Status   int    `yaml:"status"`
+	Body     string `yaml:"body"`
+	Next     string `yaml:"next"`
+	NextURL  string `yaml:"next_url"`
+	Oversize bool   `yaml:"oversize"`
 }
 
 type inheritRoute struct {
@@ -45,9 +47,11 @@ type inheritEdit struct {
 type inheritCase struct {
 	Name  string `yaml:"name"`
 	Input struct {
+		BaseEdits            []inheritEdit `yaml:"base_edits"`
 		Edits                []inheritEdit `yaml:"edits"`
 		Routes               string        `yaml:"routes"`
 		PolicyWithoutInherit bool          `yaml:"policy_without_inherit"`
+		APIURL               string        `yaml:"api_url"`
 	} `yaml:"input"`
 	Expected struct {
 		Exit   int      `yaml:"exit"`
@@ -69,6 +73,16 @@ type inheritFixture struct {
 	Workflow             string                    `yaml:"workflow"`
 	Routes               map[string][]inheritRoute `yaml:"routes"`
 	Cases                []inheritCase             `yaml:"cases"`
+	WaitCases            []inheritWaitCase         `yaml:"wait_cases"`
+}
+
+// inheritWaitCase drives the wait loop with a fake clock.
+type inheritWaitCase struct {
+	Name   string           `yaml:"name"`
+	Routes string           `yaml:"routes"`
+	Wait   string           `yaml:"wait"`
+	Sleeps int              `yaml:"sleeps"`
+	Error  intent.ErrorCode `yaml:"error"`
 }
 
 func loadInheritFixture(t *testing.T) inheritFixture {
@@ -101,6 +115,14 @@ func loadInheritFixture(t *testing.T) inheritFixture {
 		}
 	}
 	checkRequiredNames(t, f.RequiredNames, seen, "inherit-verdict fixture")
+	if len(f.WaitCases) == 0 {
+		t.Fatal("inherit-verdict fixture: wait_cases is empty")
+	}
+	for _, w := range f.WaitCases {
+		if _, ok := f.Routes[w.Routes]; !ok {
+			t.Fatalf("inherit-verdict fixture: wait case %q names unknown route set %q", w.Name, w.Routes)
+		}
+	}
 	return f
 }
 
@@ -149,6 +171,10 @@ func (g *fakeGitHub) serve(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Link", "<"+g.fill(resp.NextURL)+`>; rel="next"`)
 	}
 	w.WriteHeader(resp.Status)
+	if resp.Oversize {
+		_, _ = w.Write(bytes.Repeat([]byte(" "), githubMaxResponse+1))
+		return
+	}
 	_, _ = w.Write([]byte(g.fill(resp.Body)))
 }
 
@@ -164,8 +190,16 @@ func buildInheritRepo(t *testing.T, f inheritFixture, c inheritCase) (*testRepo,
 	}
 	r.WriteFile(policy.DefaultPath, pol)
 	r.WriteFile(f.WorkflowPath, f.Workflow)
+	applyInheritEdits(t, r, c.Name, c.Input.BaseEdits)
 	base := r.CommitRaw("chore: base")
-	for _, e := range c.Input.Edits {
+	applyInheritEdits(t, r, c.Name, c.Input.Edits)
+	head := r.CommitRaw("chore: head")
+	return r, base, head
+}
+
+func applyInheritEdits(t *testing.T, r *testRepo, name string, edits []inheritEdit) {
+	t.Helper()
+	for _, e := range edits {
 		switch e.Op {
 		case "version":
 			r.SetVersionField(0, intent.SemVer(e.Value))
@@ -183,12 +217,18 @@ func buildInheritRepo(t *testing.T, f inheritFixture, c inheritCase) (*testRepo,
 			if err := os.Chmod(filepath.Join(r.Dir(), e.Path), 0o755); err != nil {
 				t.Fatalf("chmod %s: %v", e.Path, err)
 			}
+		case "symlink":
+			link := filepath.Join(r.Dir(), e.Path)
+			if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+				t.Fatalf("remove %s: %v", e.Path, err)
+			}
+			if err := os.Symlink(e.To, link); err != nil {
+				t.Fatalf("symlink %s -> %s: %v", e.Path, e.To, err)
+			}
 		default:
-			t.Fatalf("case %q: unknown edit op %q", c.Name, e.Op)
+			t.Fatalf("case %q: unknown edit op %q", name, e.Op)
 		}
 	}
-	head := r.CommitRaw("chore: head")
-	return r, base, head
 }
 
 // TestInheritVerdict_Process runs the built binary: flag parsing, the git
@@ -200,13 +240,17 @@ func TestInheritVerdict_Process(t *testing.T) {
 		t.Run(c.Name, func(t *testing.T) {
 			r, base, head := buildInheritRepo(t, f, c)
 			api := newFakeGitHub(t, f.Routes[c.Input.Routes], base)
+			apiURL := api.server.URL
+			if c.Input.APIURL != "" {
+				apiURL = c.Input.APIURL
+			}
 			outFile := filepath.Join(t.TempDir(), "github-output")
 			if err := os.WriteFile(outFile, nil, 0o644); err != nil {
 				t.Fatal(err)
 			}
 			res := runBinary(t, r.Dir(), []string{intent.CommandInheritVerdict.String(),
 				intent.FlagBase.String(), base, intent.FlagHead.String(), head, intent.FlagRepo.String(), f.Repo},
-				"", []string{githubAPIEnv + "=" + api.server.URL, "GH_TOKEN=test-token", githubOutputEnv + "=" + outFile})
+				"", []string{githubAPIEnv + "=" + apiURL, "GH_TOKEN=test-token", githubOutputEnv + "=" + outFile})
 			if int(res.Exit) != c.Expected.Exit {
 				t.Fatalf("exit = %d, want %d\nstdout: %s\nstderr: %s", res.Exit, c.Expected.Exit, res.Stdout, res.Stderr)
 			}
@@ -234,45 +278,47 @@ func TestInheritVerdict_Process(t *testing.T) {
 	}
 }
 
-// TestInheritVerdict_WaitsForPendingBase drives the wait loop in process
-// with a fake clock: the first read finds the base's queue run in progress,
-// the loop sleeps one interval, and the second read inherits. With no wait
-// the same pending read fails closed.
-func TestInheritVerdict_WaitsForPendingBase(t *testing.T) {
+// TestInheritVerdict_WaitLoop drives the wait loop in process with a fake
+// clock over the fixture's wait cases: a pending base that finishes after one
+// interval, the same base with no wait, a base that stays pending until the
+// deadline, and a wait no longer than one interval.
+func TestInheritVerdict_WaitLoop(t *testing.T) {
 	f := loadInheritFixture(t)
 	release := f.Cases[0]
 	if release.Name != "release-pr-inherits" {
 		t.Fatalf("the first case must be the release accept row, got %q", release.Name)
 	}
-	for _, tc := range []struct {
-		wait      time.Duration
-		wantErr   intent.ErrorCode
-		wantSleep int
-	}{{wait: 20 * time.Minute, wantSleep: 1}, {wait: 0, wantErr: intent.ErrBaseVerdictPending}} {
-		r, base, head := buildInheritRepo(t, f, release)
-		api := newFakeGitHub(t, f.Routes["verdict-pending-then-full"], base)
-		reader, err := newGitHubReader(api.server.URL, f.Repo, "test-token", api.server.Client())
-		if err != nil {
-			t.Fatal(err)
-		}
-		now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
-		sleeps := 0
-		clock := inheritClock{now: func() time.Time { return now }, sleep: func(d time.Duration) { sleeps++; now = now.Add(d) }}
-		t.Setenv(githubOutputEnv, "")
-		err = inheritVerdict(context.Background(), r.Runner().(*execGit), reader, base, head, tc.wait, clock)
-		if sleeps != tc.wantSleep {
-			t.Fatalf("wait %s: slept %d times, want %d", tc.wait, sleeps, tc.wantSleep)
-		}
-		if tc.wantErr == "" {
+	for _, w := range f.WaitCases {
+		t.Run(w.Name, func(t *testing.T) {
+			wait, err := time.ParseDuration(w.Wait)
 			if err != nil {
-				t.Fatalf("wait %s: %v", tc.wait, err)
+				t.Fatalf("wait %q: %v", w.Wait, err)
 			}
-			continue
-		}
-		rej, ok := asReject(err)
-		if !ok || rej.Err.Code != tc.wantErr {
-			t.Fatalf("wait %s: err = %v, want rejection %s", tc.wait, err, tc.wantErr)
-		}
+			r, base, head := buildInheritRepo(t, f, release)
+			api := newFakeGitHub(t, f.Routes[w.Routes], base)
+			reader, err := newGitHubReader(api.server.URL, f.Repo, "test-token", api.server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+			sleeps := 0
+			clock := inheritClock{now: func() time.Time { return now }, sleep: func(d time.Duration) { sleeps++; now = now.Add(d) }}
+			t.Setenv(githubOutputEnv, "")
+			err = inheritVerdict(context.Background(), r.Runner().(*execGit), reader, base, head, wait, clock)
+			if sleeps != w.Sleeps {
+				t.Fatalf("slept %d times, want %d", sleeps, w.Sleeps)
+			}
+			if w.Error == "" {
+				if err != nil {
+					t.Fatalf("inheritVerdict: %v", err)
+				}
+				return
+			}
+			rej, ok := asReject(err)
+			if !ok || rej.Err.Code != w.Error {
+				t.Fatalf("err = %v, want rejection %s", err, w.Error)
+			}
+		})
 	}
 }
 

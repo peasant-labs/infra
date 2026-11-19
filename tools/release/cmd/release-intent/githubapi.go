@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -26,6 +27,8 @@ const (
 	githubMaxPages     = 50
 	githubAcceptHeader = "application/vnd.github+json"
 	githubAPIVersion   = "2022-11-28"
+	// githubMaxResponse caps one response body; a larger one is an error.
+	githubMaxResponse = 32 << 20
 )
 
 // githubTokenEnvs are read in order; the first set one authenticates.
@@ -50,8 +53,8 @@ func newGitHubReader(apiBase, repo, token string, client *http.Client) (*githubR
 		return nil, usageErr("%s %s: %q is not an OWNER/NAME repository. Pass %s \"$GITHUB_REPOSITORY\"", intent.CommandInheritVerdict, intent.FlagRepo, repo, intent.FlagRepo)
 	}
 	parsed, err := url.Parse(apiBase)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return nil, usageErr("%s: $%s %q is not an absolute URL. Unset it to use %s", intent.CommandInheritVerdict, githubAPIEnv, apiBase, defaultGitHubAPI)
+	if err != nil || parsed.Host == "" || !(parsed.Scheme == "https" || (parsed.Scheme == "http" && isLoopback(parsed.Hostname()))) {
+		return nil, usageErr("%s: $%s %q is not an https URL (plain http is allowed only for a loopback test server); the token must not travel in clear text. Unset it to use %s", intent.CommandInheritVerdict, githubAPIEnv, apiBase, defaultGitHubAPI)
 	}
 	return &githubReader{
 		base: strings.TrimSuffix(apiBase, "/"), repo: repo, token: token, client: client,
@@ -226,14 +229,27 @@ func (g *githubReader) get(target string) ([]byte, []string, error) {
 		return nil, nil, fmt.Errorf("GitHub API GET %s: %w. Check the network and $%s", req.URL.Path, err, githubAPIEnv)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, githubMaxResponse+1))
 	if err != nil {
 		return nil, nil, fmt.Errorf("GitHub API GET %s: cannot read the response: %w", req.URL.Path, err)
+	}
+	if len(body) > githubMaxResponse {
+		return nil, nil, fmt.Errorf("GitHub API GET %s: the response exceeds the %d MiB cap; refusing to read a truncated answer. A response that large is not a check-run or job page; check $%s", req.URL.Path, githubMaxResponse>>20, githubAPIEnv)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, nil, fmt.Errorf("GitHub API GET %s: %s. The job needs a token (GH_TOKEN) with checks: read and actions: read on %s", req.URL.Path, resp.Status, g.repo)
 	}
 	return body, resp.Header.Values("Link"), nil
+}
+
+// isLoopback reports whether a host is the local machine, where a test
+// server may listen on plain http.
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // nextLink returns the rel="next" URL of a Link header, or "".

@@ -3,8 +3,12 @@
 # workflow, applies its head edits as one commit, and runs the built binary
 # against a local GitHub API that serves the named route set. {{base}} in a
 # path or body is the base commit. A route's responses are served in order and
-# the last one repeats; next names the following page for the Link header, and
-# next_url names an absolute one. An unrouted request is a 404.
+# the last one repeats; next names the following page for the Link header (the
+# live API answers with a /repositories/<id>/... URL there, not the /repos/
+# path it was asked), and next_url names an absolute one. oversize serves a
+# body one byte over the reader's cap. An unrouted request is a 404.
+# base_edits change the base commit before it is recorded; api_url replaces
+# the local server's URL.
 #
 # expected.lines are the step-output lines, in order; stderr fragments must
 # appear in the diagnostic. Every reject names its accept sibling.
@@ -21,6 +25,10 @@ required_names:
   - api-error-fails
   - foreign-next-page-refused
   - policy-without-inherit-fails
+  - pending-base-without-wait-fails-closed
+  - symlink-changelog-runs-suite
+  - plain-http-api-refused
+  - oversize-response-fails
 repo: OWNER/REPO
 policy: &policy |
   queue:
@@ -60,8 +68,8 @@ routes:
       responses: [{status: 200, body: '{"total_count":2,"jobs":[{"id":12,"run_id":21,"run_attempt":1,"name":"make check","status":"completed","conclusion":"success"},{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"completed","conclusion":"success"}]}'}]
   verdict-paginated:
     - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
-      responses: [{status: 200, next: '/repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100&page=2', body: '{"total_count":2,"check_runs":[{"id":13,"name":"title-guard","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'}]
-    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100&page=2
+      responses: [{status: 200, next: '/repositories/123/commits/{{base}}/check-runs?filter=all&per_page=100&page=2', body: '{"total_count":2,"check_runs":[{"id":13,"name":"title-guard","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'}]
+    - path: /repositories/123/commits/{{base}}/check-runs?filter=all&per_page=100&page=2
       responses: [{status: 200, body: '{"total_count":2,"check_runs":[{"id":11,"name":"merge-gate","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'}]
     - *job11
     - *run21
@@ -70,7 +78,7 @@ routes:
     - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
       responses: [{status: 200, body: '{"total_count":1,"check_runs":[{"id":11,"name":"merge-gate","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}]}'}]
     - path: /repos/OWNER/REPO/actions/jobs/11
-      responses: [{status: 200, body: '{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"completed","conclusion":"failure","steps":[]}'}]
+      responses: [{status: 200, body: '{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"completed","conclusion":"failure","steps":[{"name":"Set up job","status":"completed","conclusion":"success"},{"name":"Require successful or intentionally skipped jobs","status":"completed","conclusion":"failure"},{"name":"verdict-source: full","status":"completed","conclusion":"skipped"},{"name":"verdict-source: inherited","status":"completed","conclusion":"skipped"},{"name":"verdict-source: unaffected","status":"completed","conclusion":"skipped"},{"name":"Complete job","status":"completed","conclusion":"success"}]}'}]
     - path: /repos/OWNER/REPO/actions/runs/21
       responses: [{status: 200, body: '{"id":21,"event":"merge_group","path":".github/workflows/tests.yml","head_sha":"{{base}}","run_attempt":1,"status":"completed","conclusion":"failure"}'}]
   api-error:
@@ -80,6 +88,16 @@ routes:
     - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
       responses: [{status: 200, next_url: 'https://elsewhere.invalid/repos/OWNER/REPO/commits/{{base}}/check-runs?page=2', body: '{"total_count":2,"check_runs":[]}'}]
   none: []
+  oversize:
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
+      responses: [{status: 200, oversize: true}]
+  verdict-pending:
+    - path: /repos/OWNER/REPO/commits/{{base}}/check-runs?filter=all&per_page=100
+      responses: [{status: 200, body: '{"total_count":1,"check_runs":[{"id":11,"name":"merge-gate","status":"in_progress","conclusion":null,"app":{"slug":"github-actions"}}]}'}]
+    - path: /repos/OWNER/REPO/actions/jobs/11
+      responses: [{status: 200, body: '{"id":11,"run_id":21,"run_attempt":1,"name":"merge-gate","status":"in_progress","conclusion":null,"steps":[{"name":"Set up job","status":"completed","conclusion":"success"},{"name":"Require successful or intentionally skipped jobs","status":"in_progress","conclusion":null}]}'}]
+    - path: /repos/OWNER/REPO/actions/runs/21
+      responses: [{status: 200, body: '{"id":21,"event":"merge_group","path":".github/workflows/tests.yml","head_sha":"{{base}}","run_attempt":1,"status":"in_progress","conclusion":null}'}]
   # The wait row is driven in process with a fake clock: the base's queue run
   # is in progress on the first read and finished on the second.
   verdict-pending-then-full:
@@ -198,3 +216,49 @@ cases:
     classification: must-fail
     provenance: {source: requirement, ref: "inheritance is opt-in through the queue policy at the base"}
     mutation: {description: "The base's queue policy does not opt in."}
+  - name: pending-base-without-wait-fails-closed
+    input:
+      edits: *release_edits
+      routes: verdict-pending
+    expected: {exit: 2, lines: [release_only=true, reason=release-only, inherit=false, error=base-verdict-pending], stderr: ["has not finished"]}
+    sibling: release-pr-inherits
+    classification: must-fail
+    provenance: {source: requirement, ref: "a pending base verdict fails closed; without --wait nothing is re-read"}
+    mutation: {description: "The base's queue run is still running and no wait is allowed."}
+  - name: symlink-changelog-runs-suite
+    input:
+      base_edits: [{op: write, path: docs/a.md, content: "# a\n"}, {op: write, path: docs/b.md, content: "# b\n"}, {op: symlink, path: CHANGELOG.md, to: docs/a.md}]
+      edits: [{op: symlink, path: CHANGELOG.md, to: docs/b.md}]
+      routes: none
+    expected: {exit: 0, lines: [release_only=false, reason=not-a-regular-file, inherit=false]}
+    classification: must-pass
+    provenance: {source: requirement, ref: "a symlink (mode 120000) changelog or version file is never release content"}
+    mutation: {description: "Retarget a changelog that is a symlink on both sides."}
+  - name: plain-http-api-refused
+    input:
+      edits: *release_edits
+      routes: verdict-full
+      api_url: http://api.github.invalid
+    expected: {exit: 1, lines: [], stderr: ["is not an https URL"]}
+    sibling: release-pr-inherits
+    classification: must-fail
+    provenance: {source: requirement, ref: "the token never travels over plain http except to a loopback test server"}
+    mutation: {description: "Point GITHUB_API_URL at a non-loopback http URL."}
+  - name: oversize-response-fails
+    input:
+      edits: *release_edits
+      routes: oversize
+    expected: {exit: 1, lines: [release_only=true, reason=release-only], stderr: ["exceeds the 32 MiB cap"]}
+    sibling: release-pr-inherits
+    classification: must-fail
+    provenance: {source: requirement, ref: "a capped read is an error, never a truncated answer"}
+    mutation: {description: "The check-runs answer is one byte over the cap."}
+# The wait loop, driven in process with a fake clock. sleeps is how many
+# poll intervals the loop sleeps; error is the rejection it ends with, or
+# empty for an inherited verdict. The deadline is exclusive: a read is
+# repeated only when one more interval still ends before it.
+wait_cases:
+  - {name: pending-then-full-waits-once, routes: verdict-pending-then-full, wait: 20m, sleeps: 1}
+  - {name: pending-without-wait-fails, routes: verdict-pending-then-full, wait: 0s, sleeps: 0, error: base-verdict-pending}
+  - {name: pending-until-the-deadline, routes: verdict-pending, wait: 2m, sleeps: 3, error: base-verdict-pending}
+  - {name: wait-of-one-interval-reads-once, routes: verdict-pending, wait: 30s, sleeps: 0, error: base-verdict-pending}

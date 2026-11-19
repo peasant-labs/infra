@@ -10,7 +10,8 @@ import (
 // decoder and the gate over the decoded entries.
 //
 // The decoder reads the queue file the workflow wrote and nothing else, so
-// the tool keeps no network access. It fails closed: an unreadable answer,
+// queue-gate itself reads no network (the workflow fetches the queue). It
+// fails closed: an unreadable answer,
 // a service-side error, a null queue, or a count the nodes do not match is
 // an error with no gate line, never an empty queue.
 

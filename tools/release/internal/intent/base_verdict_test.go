@@ -1,40 +1,44 @@
 package intent_test
 
-// Verdict-inheritance suite: drives intent.ClassifyReleaseOnly over the
-// release-only corpus and intent.JudgeBaseVerdict over recorded GitHub facts.
+// Base-verdict suite: drives intent.JudgeBaseVerdict over recorded GitHub
+// facts and pins the versioned marker step set.
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
+	"slices"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 	"github.com/peasant-labs/infra/tools/release/internal/testcase"
 )
 
-//go:embed testdata/release_only_corpus.yaml
-var releaseOnlyCorpusYAML []byte
-
 //go:embed testdata/base_verdict_corpus.yaml
 var baseVerdictCorpusYAML []byte
 
-type releaseOnlyInput struct {
-	Config  intent.Config       `yaml:"config"`
-	Changes []intent.TreeChange `yaml:"changes"`
-}
+//go:embed testdata/verdict_markers.yaml
+var verdictMarkersYAML []byte
 
-func TestClassifyReleaseOnly(t *testing.T) {
-	corpus := loadNamedCorpus[releaseOnlyInput, intent.ReleaseOnlyResult](t, releaseOnlyCorpusYAML)
-	for _, c := range corpus.Cases {
-		t.Run(c.Name, func(t *testing.T) {
-			got := intent.ClassifyReleaseOnly(c.Input.Config, c.Input.Changes)
-			if got != c.Expected {
-				t.Fatalf("ClassifyReleaseOnly = %+v, want %+v", got, c.Expected)
-			}
-			if got.ReleaseOnly != (c.Classification == testcase.MustPass) {
-				t.Fatalf("release_only = %t contradicts classification %s", got.ReleaseOnly, c.Classification)
-			}
-		})
+// TestVerdictMarkerStepNames pins the exported marker set and its version:
+// a change to either must change the fixture consumers mirror.
+func TestVerdictMarkerStepNames(t *testing.T) {
+	var pinned struct {
+		Version int      `yaml:"version"`
+		Names   []string `yaml:"names"`
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(verdictMarkersYAML))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&pinned); err != nil {
+		t.Fatalf("decode testdata/verdict_markers.yaml: %v", err)
+	}
+	if pinned.Version != intent.VerdictMarkersVersion {
+		t.Fatalf("VerdictMarkersVersion = %d, fixture pins %d", intent.VerdictMarkersVersion, pinned.Version)
+	}
+	if got := intent.VerdictMarkerStepNames(); !slices.Equal(got, pinned.Names) {
+		t.Fatalf("VerdictMarkerStepNames() = %q, fixture pins %q: bump VerdictMarkersVersion and the fixture together", got, pinned.Names)
 	}
 }
 

@@ -25,6 +25,9 @@ required_names:
   - wrong-producer
   - two-markers
   - two-merge-group-runs
+  - attempt-mismatch
+  - aggregator-skipped
+  - run-skipped
 cases:
   - name: bootstrap-legacy-full
     input:
@@ -85,7 +88,7 @@ cases:
         - {id: 135183976066, name: merge-gate, status: completed, conclusion: failure, app: github-actions}
         - {id: 135190000001, name: merge-gate, status: completed, conclusion: success, app: github-actions}
       jobs:
-        - {id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: failure}
+        - {id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: failure, steps: &failed_steps [{name: Set up job, status: completed, conclusion: success}, {name: Require successful or intentionally skipped jobs, status: completed, conclusion: failure}, {name: "verdict-source: full", status: completed, conclusion: skipped}, {name: "verdict-source: inherited", status: completed, conclusion: skipped}, {name: "verdict-source: unaffected", status: completed, conclusion: skipped}, {name: Complete job, status: completed, conclusion: success}]}
         - {id: 135190000001, run_id: 44408833151, run_attempt: 2, name: merge-gate, status: completed, conclusion: success, steps: *steps_full}
       runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 2, status: completed, conclusion: success}]
       run_jobs:
@@ -164,7 +167,7 @@ cases:
   - name: failed-base
     input:
       check_runs: [{id: 135183976066, name: merge-gate, status: completed, conclusion: failure, app: github-actions}]
-      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: failure, steps: [{name: "verdict-source: full", status: completed, conclusion: skipped}]}]
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: failure, steps: *failed_steps}]
       runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: failure}]
       run_jobs: []
     expected: {code: base-verdict-failed}
@@ -175,7 +178,7 @@ cases:
   - name: cancelled-base
     input:
       check_runs: [{id: 135183976066, name: merge-gate, status: completed, conclusion: cancelled, app: github-actions}]
-      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: cancelled}]
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: cancelled, steps: [{name: Set up job, status: completed, conclusion: success}, {name: Require successful or intentionally skipped jobs, status: completed, conclusion: cancelled}]}]
       runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: cancelled}]
       run_jobs: []
     expected: {code: base-verdict-failed}
@@ -187,7 +190,7 @@ cases:
     input:
       check_runs: *two_attempts
       jobs:
-        - {id: 135183976066, run_id: 44408833151, run_attempt: 2, name: merge-gate, status: completed, conclusion: failure}
+        - {id: 135183976066, run_id: 44408833151, run_attempt: 2, name: merge-gate, status: completed, conclusion: failure, steps: *failed_steps}
         - {id: 135190000001, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: *steps_full}
       runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 2, status: completed, conclusion: failure}]
       run_jobs: *suite_passed
@@ -237,3 +240,36 @@ cases:
     classification: must-fail
     provenance: *ambiguous
     mutation: {description: "Two separate merge_group runs report on the same base."}
+  - name: attempt-mismatch
+    input:
+      check_runs: *queue_gate_only
+      jobs: [*gate_full]
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 2, status: completed, conclusion: success}]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-ambiguous}
+    sibling: marker-full
+    classification: must-fail
+    provenance: *attempt
+    mutation: {description: "The run finished a second attempt, but the only aggregator check is from attempt 1."}
+  - name: aggregator-skipped
+    input:
+      check_runs: [{id: 135183976066, name: merge-gate, status: completed, conclusion: skipped, app: github-actions}]
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: skipped, steps: []}]
+      runs: [*queue_run]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-failed}
+    sibling: marker-full
+    classification: must-fail
+    provenance: &skipped {source: requirement, ref: "a skipped verdict is not a success; only success is inherited"}
+    mutation: {description: "The aggregator's latest attempt was skipped."}
+  - name: run-skipped
+    input:
+      check_runs: *queue_gate_only
+      jobs: [*gate_full]
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: skipped}]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-failed}
+    sibling: marker-full
+    classification: must-fail
+    provenance: *skipped
+    mutation: {description: "The run concluded skipped while its aggregator reports success."}
