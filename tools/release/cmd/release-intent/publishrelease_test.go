@@ -63,6 +63,13 @@ type publishFaults struct {
 	// DeleteTimesOutWithAssets answers 502 to the delete of a release that
 	// still has assets, as GitHub did for a 352-asset draft.
 	DeleteTimesOutWithAssets bool `yaml:"delete_times_out_with_assets"`
+	// PublishOnUpload publishes the release, as another actor would, once
+	// this asset's upload lands.
+	PublishOnUpload string `yaml:"publish_on_upload"`
+	// PatchLandsOnRead answers the publish request 502 without applying it,
+	// then applies it just before the Nth later read of that release, as a
+	// publish that timed out but landed late.
+	PatchLandsOnRead int `yaml:"patch_lands_on_read"`
 }
 
 type publishServer struct {
@@ -107,12 +114,14 @@ type publishCase struct {
 }
 
 type permitCase struct {
-	Name      string  `yaml:"name"`
-	Method    string  `yaml:"method"`
-	URL       string  `yaml:"url"`
-	Created   []int64 `yaml:"created"`
-	OwnAssets []int64 `yaml:"own_assets"`
-	Call      string  `yaml:"call"`
+	Name          string  `yaml:"name"`
+	Method        string  `yaml:"method"`
+	URL           string  `yaml:"url"`
+	Created       []int64 `yaml:"created"`
+	Confirmed     []int64 `yaml:"confirmed"`
+	OwnAssets     []int64 `yaml:"own_assets"`
+	Call          string  `yaml:"call"`
+	ErrorContains string  `yaml:"error_contains"`
 }
 
 // deleteCase drives DeleteOwn in process with a counting sleep.
@@ -205,8 +214,10 @@ type fakeReleaseServer struct {
 	releases []*fakeRelease
 	nextID   int64
 	assetID  int64
-	requests []string
-	server   *httptest.Server
+	// pendingPatch counts reads of a release until a late publish lands.
+	pendingPatch map[int64]int
+	requests     []string
+	server       *httptest.Server
 }
 
 func digestOf(content []byte) string {
@@ -373,6 +384,14 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 	case m[2] != "" && r.Method == http.MethodGet:
 		s.page(w, r, len(rel.Assets), func(lo, hi int) { s.writeJSON(w, http.StatusOK, rel.Assets[lo:hi]) })
 	case r.Method == http.MethodGet:
+		if n, ok := s.pendingPatch[id]; ok {
+			if n <= 1 {
+				delete(s.pendingPatch, id)
+				rel.Draft, rel.Immutable = false, s.cfg.ImmutableOnPublish
+			} else {
+				s.pendingPatch[id] = n - 1
+			}
+		}
 		s.writeJSON(w, http.StatusOK, rel)
 	case r.Method == http.MethodPatch:
 		var body struct {
@@ -382,6 +401,15 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Draft == nil || *body.Draft {
 			s.writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "bad update"})
+			return
+		}
+		if s.cfg.Faults.PatchLandsOnRead > 0 {
+			if s.pendingPatch == nil {
+				s.pendingPatch = map[int64]int{}
+			}
+			s.pendingPatch[id] = s.cfg.Faults.PatchLandsOnRead
+			rel.Prerelease, rel.MakeLatest = body.Prerelease, body.MakeLatest
+			s.writeJSON(w, http.StatusBadGateway, map[string]string{"message": "Server Error"})
 			return
 		}
 		rel.Draft, rel.Prerelease, rel.MakeLatest = false, body.Prerelease, body.MakeLatest
@@ -419,6 +447,10 @@ func (s *fakeReleaseServer) upload(w http.ResponseWriter, r *http.Request, rel *
 		return
 	}
 	f := s.cfg.Faults
+	if !rel.Draft {
+		s.writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "Cannot upload assets to an immutable release."})
+		return
+	}
 	if name == f.UploadFail {
 		s.assetID++
 		rel.Assets = append(rel.Assets, fakeAsset{ID: s.assetID, Name: name, Size: 0, State: "starter"})
@@ -432,6 +464,9 @@ func (s *fakeReleaseServer) upload(w http.ResponseWriter, r *http.Request, rel *
 	}
 	if name != f.Drop {
 		rel.Assets = append(rel.Assets, asset)
+	}
+	if name == f.PublishOnUpload {
+		rel.Draft, rel.Immutable = false, true
 	}
 	if f.Extra != "" && len(rel.Assets) == 1 {
 		s.assetID++
@@ -531,8 +566,11 @@ func TestPublishRelease_Permit(t *testing.T) {
 			for _, id := range c.Created {
 				w.created[id] = true
 			}
+			for _, id := range c.Confirmed {
+				w.confirmedDraft[id] = true
+			}
 			for _, id := range c.OwnAssets {
-				w.ownAssets[id] = true
+				w.ownAssets[id] = 9001
 			}
 			call, err := w.permit(c.Method, c.URL)
 			if c.Call == "" {
@@ -541,6 +579,9 @@ func TestPublishRelease_Permit(t *testing.T) {
 				}
 				if strings.Contains(err.Error(), fakeReleaseToken) {
 					t.Fatalf("the refusal carries the token")
+				}
+				if c.ErrorContains == "" || !strings.Contains(err.Error(), c.ErrorContains) {
+					t.Fatalf("permit(%s %s) refused with %q, want it to name %q", c.Method, c.URL, err, c.ErrorContains)
 				}
 				return
 			}

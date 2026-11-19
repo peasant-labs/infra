@@ -336,19 +336,22 @@ func JudgeDraft(repo string, rel ReleaseFact, local []LocalAsset, remote []Relea
 	if rel.Draft && d.Empty() {
 		return nil
 	}
-	what := "draft id " + strconv.FormatInt(rel.ID, 10) + " for " + rel.Tag + " does not carry exactly the local assets: " + d.String()
-	if !rel.Draft {
-		what = "release id " + strconv.FormatInt(rel.ID, 10) + " for " + rel.Tag + " is no longer a draft before this run published it"
-	}
-	return &Error{
+	e := &Error{
 		Code:  ErrDraftIncomplete,
-		What:  what,
+		What:  "draft id " + strconv.FormatInt(rel.ID, 10) + " for " + rel.Tag + " does not carry exactly the local assets: " + d.String(),
 		Why:   "a release is published only when GitHub reports every local file, by name, size and sha256 digest, and nothing else",
 		Where: "the draft's assets in " + repo + ", compared by " + ProgramName + " " + CommandPublishRelease.String(),
 		When:  "verifying the draft before publishing it",
 		Means: "the draft is not published; the command deletes its own draft",
 		Fix:   "rerun the publish job; if the compare fails again, check what the build staged and whether the upload was interrupted",
 	}
+	if !rel.Draft {
+		e.What = "release id " + strconv.FormatInt(rel.ID, 10) + " for " + rel.Tag + " is no longer a draft before this run published it"
+		e.Why = "this run publishes only a draft it verified; a release published before that check was published by someone else, or by an earlier publish request of this run that landed late"
+		e.Means = "the release was published (by this run late, or by someone else); it is immutable; the command does not delete it"
+		e.Fix = "rerun the publish job: a rerun checks the published release exactly without changing it; if it is not this build's release, fix forward with a new tag"
+	}
+	return e
 }
 
 // JudgePublished accepts a published release only when it carries exactly

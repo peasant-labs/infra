@@ -268,7 +268,7 @@ cases:
       release: {id: 450679062, tag: v0.58.0, draft: false}
       local: *local_real
       remote: *remote_real
-    expected: {code: draft-incomplete, contains: ["no longer a draft"]}
+    expected: {code: draft-incomplete, contains: ["no longer a draft", "it is immutable; the command does not delete it"]}
     classification: must-fail
     sibling: draft-exact
     provenance: {source: boundary, ref: "the draft changed state under the run"}

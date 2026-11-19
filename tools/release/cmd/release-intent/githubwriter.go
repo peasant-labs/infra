@@ -102,8 +102,14 @@ type releaseWriter struct {
 	token        string
 	client       *http.Client
 	created      map[int64]bool
-	// ownAssets are the asset ids listed on a release this run created.
-	ownAssets map[int64]bool
+	// ownAssets maps an asset id listed on a release this run created to
+	// that release.
+	ownAssets map[int64]int64
+	// confirmedDraft holds the releases this run created that its last read
+	// by id found still a draft. Deleting a release or its assets needs it:
+	// a release published since (by this run's late publish or by someone
+	// else) is immutable and is never deleted.
+	confirmedDraft map[int64]bool
 	// sleep waits between read-backs; tests replace it.
 	sleep func(time.Duration)
 }
@@ -134,7 +140,7 @@ func newReleaseWriter(apiBase, repo, tag, token string, client *http.Client) (*r
 	if uploads == "" {
 		return nil, usageErr("%s: $%s %q is not %s or a plain-http loopback test server; the command publishes only to github.com, whose uploads host it knows, and never sends the token in clear text elsewhere", intent.CommandPublishRelease, githubAPIEnv, apiBase, defaultGitHubAPI)
 	}
-	return &releaseWriter{api: base, uploads: uploads, repo: repo, tag: tag, token: token, client: client, created: map[int64]bool{}, ownAssets: map[int64]bool{}, sleep: time.Sleep}, nil
+	return &releaseWriter{api: base, uploads: uploads, repo: repo, tag: tag, token: token, client: client, created: map[int64]bool{}, ownAssets: map[int64]int64{}, confirmedDraft: map[int64]bool{}, sleep: time.Sleep}, nil
 }
 
 // releaseTagPattern is a tag the command can name in a URL path unescaped.
@@ -200,11 +206,18 @@ func (w *releaseWriter) permit(method, target string) (releaseCall, error) {
 	if call != callListReleases && call != callListAssets && call != callUploadAsset && u.RawQuery != "" {
 		return refuse("the call carries no query")
 	}
-	if call == callDeleteAsset && !w.ownAssets[id] {
-		return refuse("asset id " + strconv.FormatInt(id, 10) + " is not on a release this run created")
+	if call == callDeleteAsset {
+		release, ok := w.ownAssets[id]
+		if !ok {
+			return refuse("asset id " + strconv.FormatInt(id, 10) + " is not on a release this run created")
+		}
+		id = release
 	}
-	if call.ownReleaseOnly() && call != callDeleteAsset && !w.created[id] {
-		return refuse("release id " + strconv.FormatInt(id, 10) + " was not created by this run")
+	if call.ownReleaseOnly() && !w.created[id] {
+		return refuse("release id " + strconv.FormatInt(id, 10) + " was not created by this run, or is no longer its draft")
+	}
+	if (call == callDeleteRelease || call == callDeleteAsset) && !w.confirmedDraft[id] {
+		return refuse("release id " + strconv.FormatInt(id, 10) + " was not read back as a draft before the delete")
 	}
 	return call, nil
 }
@@ -392,7 +405,7 @@ func (w *releaseWriter) ListAssets(id int64) ([]intent.ReleaseAssetFact, error) 
 		for _, a := range page {
 			out = append(out, intent.ReleaseAssetFact{Name: a.Name, Size: a.Size, Digest: a.Digest, State: a.State})
 			if w.created[id] {
-				w.ownAssets[a.ID] = true
+				w.ownAssets[a.ID] = id
 			}
 		}
 		return nil
@@ -481,12 +494,61 @@ func (w *releaseWriter) ReadRelease(id int64) (intent.ReleaseFact, error) {
 	return r.fact(), nil
 }
 
-// Publish turns this run's draft into the published release.
+// Publish turns this run's draft into the published release. A published
+// release is no longer this run's draft: nothing may upload to, update or
+// delete it afterwards.
 func (w *releaseWriter) Publish(id int64, prerelease, latest bool) error {
 	_, err := w.expect(http.StatusOK, http.MethodPatch, w.repoURL("/releases/"+strconv.FormatInt(id, 10)), map[string]any{
 		"draft": false, "prerelease": prerelease, "make_latest": strconv.FormatBool(latest),
 	})
+	if err == nil {
+		w.forget(id)
+	}
 	return err
+}
+
+// forget drops a release from this run's own drafts.
+func (w *releaseWriter) forget(id int64) {
+	delete(w.created, id)
+	delete(w.confirmedDraft, id)
+}
+
+// publishedError refuses to delete a release that is no longer a draft.
+type publishedError struct {
+	repo string
+	id   int64
+}
+
+func (e *publishedError) Error() string {
+	return fmt.Sprintf("release id %d is no longer a draft: it was published (by this run's publish landing late, or by someone else); it is immutable; do not delete it. Rerun the job: a rerun checks a published release exactly without changing it; if it is not this build's release, fix forward with a new tag", e.id)
+}
+
+// confirmDraft reads this run's release by id right before a delete: gone
+// is true for a 404. A release that is no longer a draft is dropped from
+// this run's drafts and refused with publishedError.
+func (w *releaseWriter) confirmDraft(id int64) (bool, error) {
+	delete(w.confirmedDraft, id)
+	target := w.repoURL("/releases/" + strconv.FormatInt(id, 10))
+	call, resp, err := w.send(http.MethodGet, target, nil, 0, "")
+	switch {
+	case err != nil:
+		return false, err
+	case resp.status == http.StatusNotFound:
+		w.forget(id)
+		return true, nil
+	case resp.status != http.StatusOK:
+		return false, w.statusError(call, http.MethodGet, target, resp)
+	}
+	var r apiRelease
+	if err := json.Unmarshal(resp.body, &r); err != nil || r.ID != id {
+		return false, fmt.Errorf("GitHub API GET releases/%d: cannot read the release back before deleting it", id)
+	}
+	if !r.Draft {
+		w.forget(id)
+		return false, &publishedError{repo: w.repo, id: id}
+	}
+	w.confirmedDraft[id] = true
+	return false, nil
 }
 
 // deleteConfirmSchedule is how long DeleteOwn waits before each read-back
@@ -499,18 +561,33 @@ var deleteConfirmSchedule = []time.Duration{2 * time.Second, 5 * time.Second, 10
 // once removed in the background and once not), so a delete answered with
 // a server error or no answer first deletes the release's assets one by
 // one, then the empty release, and then reads it back until it is gone.
+//
+// Every delete is preceded by a read by id (confirmDraft): only a release
+// still a draft is deleted, a 404 is already gone, and a release published
+// since is refused. GitHub has no conditional delete, so a publish landing
+// between that read and the delete is not excluded; the window is one
+// request long.
 func (w *releaseWriter) DeleteOwn(id int64) error {
+	if gone, err := w.confirmDraft(id); err != nil || gone {
+		return err
+	}
 	err := w.deleteRelease(id)
 	if err == nil || !retryable(err) {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "%s: the delete of release id %d failed (%v); deleting its assets first\n", intent.CommandPublishRelease, id, err)
+	if gone, confirmErr := w.confirmDraft(id); confirmErr != nil || gone {
+		return confirmErr
+	}
 	if assetErr := w.deleteOwnAssets(id); assetErr != nil {
 		if gone, readErr := w.releaseGone(id); readErr == nil && gone {
-			delete(w.created, id)
+			w.forget(id)
 			return nil
 		}
 		return fmt.Errorf("%w; deleting its assets one by one also failed: %v", err, assetErr)
+	}
+	if gone, confirmErr := w.confirmDraft(id); confirmErr != nil || gone {
+		return confirmErr
 	}
 	err = w.deleteRelease(id)
 	if err == nil || !retryable(err) {
@@ -520,7 +597,7 @@ func (w *releaseWriter) DeleteOwn(id int64) error {
 		w.sleep(d)
 		if gone, readErr := w.releaseGone(id); readErr == nil && gone {
 			fmt.Fprintf(os.Stderr, "%s: the delete of release id %d answered with an error (%v), but the release is gone\n", intent.CommandPublishRelease, id, err)
-			delete(w.created, id)
+			w.forget(id)
 			return nil
 		}
 	}
@@ -553,7 +630,7 @@ func (w *releaseWriter) deleteRelease(id int64) error {
 	case err != nil:
 		return &deleteError{err: err}
 	case resp.status == http.StatusNoContent:
-		delete(w.created, id)
+		w.forget(id)
 		return nil
 	}
 	return &deleteError{status: resp.status, err: w.statusError(call, http.MethodDelete, target, resp)}
@@ -565,8 +642,10 @@ func (w *releaseWriter) deleteOwnAssets(id int64) error {
 		return err
 	}
 	ids := make([]int64, 0, len(w.ownAssets))
-	for a := range w.ownAssets {
-		ids = append(ids, a)
+	for a, release := range w.ownAssets {
+		if release == id {
+			ids = append(ids, a)
+		}
 	}
 	slices.Sort(ids)
 	for _, a := range ids {

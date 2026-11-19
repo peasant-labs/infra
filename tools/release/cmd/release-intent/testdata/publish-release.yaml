@@ -39,6 +39,8 @@ required_names:
   - rehearse-release-tag-refused
   - rehearse-pushed-tag-refused
   - rehearse-digest-mismatch
+  - draft-published-by-another-actor
+  - publish-lands-late-not-deleted
 cases:
   - name: final-publishes
     input:
@@ -322,9 +324,42 @@ cases:
     sibling: rehearse-creates-verifies-deletes
     provenance: {source: requirement, ref: "the strict-failure rehearsal: verification fails and the draft is deleted"}
     mutation: {description: "GitHub stores other bytes for one asset during a rehearsal."}
+  - name: draft-published-by-another-actor
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {publish_on_upload: annotation-push-request-0.12.0.schema.json}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["is no longer a draft before this run published it", "not deleting release id 9001", "it is immutable; do not delete it"]
+      after: [{id: 9001, draft: false, assets: 3}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "never delete a non-draft: another actor publishes this run's draft mid-run"}
+    mutation: {description: "Someone publishes the draft as the last upload lands; the run refuses to delete it."}
+  - name: publish-lands-late-not-deleted
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {patch_lands_on_read: 2}}
+    expected:
+      exit: 1
+      lines: [release_id=9001]
+      stderr: ["status 502", "not deleting release id 9001", "it is immutable; do not delete it"]
+      after: [{id: 9001, draft: false, make_latest: "true", assets: 3}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "never delete a non-draft: a publish request that timed out lands after the read-back"}
+    mutation: {description: "The publish answers 502 and the read-back still sees a draft, but the publish lands before the cleanup's read; the cleanup refuses."}
 
 # The writer's allow-list (permit), for repo peasant-labs/schema and tag
-# v0.58.0 against github.com. call is the allowed call, or "" for a refusal.
+# v0.58.0 against github.com. call is the allowed call, or "" for a refusal,
+# whose message must contain error_contains (the clause that fired). created
+# are this run's releases, confirmed those read back as drafts, own_assets
+# asset ids listed on this run's release 9001.
 permit_required_names:
   - list-releases
   - list-releases-page-two
@@ -335,6 +370,9 @@ permit_required_names:
   - list-assets
   - update-own
   - delete-own
+  - delete-own-asset
+  - refuse-delete-own-unconfirmed
+  - refuse-delete-own-asset-unconfirmed
   - refuse-delete-not-own
   - refuse-update-not-own
   - refuse-upload-not-own
@@ -343,38 +381,39 @@ permit_required_names:
   - refuse-other-tag-ref
   - refuse-delete-tag-ref
   - refuse-delete-asset
+  - refuse-delete-foreign-asset
   - refuse-http-scheme
   - refuse-foreign-host
   - refuse-upload-host-read
   - refuse-generate-notes
   - refuse-extra-query
-  - delete-own-asset
-  - refuse-delete-foreign-asset
 permit_cases:
-  - {name: list-releases, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30", call: list-releases}
-  - {name: list-releases-page-two, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&page=2", call: list-releases}
-  - {name: read-tag-ref, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/git/ref/tags/v0.58.0", call: read-tag-ref}
-  - {name: create-release, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases", call: create-release}
-  - {name: upload-own, method: POST, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?name=a.json", created: [9001], call: upload-asset}
-  - {name: read-release, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062", call: read-release}
-  - {name: list-assets, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062/assets?per_page=100", call: list-assets}
-  - {name: update-own, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], call: update-release}
-  - {name: delete-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], call: delete-release}
-  - {name: refuse-delete-not-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/449898580", created: [9001], call: ""}
-  - {name: refuse-update-not-own, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062", call: ""}
-  - {name: refuse-upload-not-own, method: POST, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/450679062/assets?name=a.json", call: ""}
-  - {name: refuse-upload-on-api-host, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001/assets?name=a.json", created: [9001], call: ""}
-  - {name: refuse-other-repo, method: GET, url: "https://api.github.com/repos/peasant-labs/peasant/releases?per_page=30", call: ""}
-  - {name: refuse-other-tag-ref, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/git/ref/tags/v0.57.1", call: ""}
-  - {name: refuse-delete-tag-ref, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/git/refs/tags/v0.58.0", call: ""}
-  - {name: refuse-delete-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [450679062], call: ""}
-  - {name: refuse-http-scheme, method: GET, url: "http://api.github.com/repos/peasant-labs/schema/releases?per_page=30", call: ""}
-  - {name: refuse-foreign-host, method: GET, url: "https://evil.example/repos/peasant-labs/schema/releases?per_page=30", call: ""}
-  - {name: refuse-upload-host-read, method: GET, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?per_page=100", created: [9001], call: ""}
-  - {name: refuse-generate-notes, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/generate-notes", call: ""}
-  - {name: delete-own-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", own_assets: [765391957], call: delete-asset}
-  - {name: refuse-delete-foreign-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", own_assets: [765391957], call: ""}
-  - {name: refuse-extra-query, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&access_token=x", call: ""}
+  - {name: list-releases, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30", call: "list-releases"}
+  - {name: list-releases-page-two, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&page=2", call: "list-releases"}
+  - {name: read-tag-ref, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/git/ref/tags/v0.58.0", call: "read-tag-ref"}
+  - {name: create-release, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases", call: "create-release"}
+  - {name: upload-own, method: POST, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?name=a.json", created: [9001], call: "upload-asset"}
+  - {name: read-release, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062", call: "read-release"}
+  - {name: list-assets, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062/assets?per_page=100", call: "list-assets"}
+  - {name: update-own, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], call: "update-release"}
+  - {name: delete-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], confirmed: [9001], call: "delete-release"}
+  - {name: delete-own-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], confirmed: [9001], own_assets: [765391957], call: "delete-asset"}
+  - {name: refuse-delete-own-unconfirmed, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], error_contains: "was not read back as a draft before the delete", call: ""}
+  - {name: refuse-delete-own-asset-unconfirmed, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], own_assets: [765391957], error_contains: "was not read back as a draft before the delete", call: ""}
+  - {name: refuse-delete-not-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/449898580", created: [9001], confirmed: [9001], error_contains: "was not created by this run", call: ""}
+  - {name: refuse-update-not-own, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062", error_contains: "was not created by this run", call: ""}
+  - {name: refuse-upload-not-own, method: POST, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/450679062/assets?name=a.json", error_contains: "was not created by this run", call: ""}
+  - {name: refuse-upload-on-api-host, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001/assets?name=a.json", created: [9001], error_contains: "the method does not belong to the endpoint", call: ""}
+  - {name: refuse-other-repo, method: GET, url: "https://api.github.com/repos/peasant-labs/peasant/releases?per_page=30", error_contains: "the path is not under /repos/peasant-labs/schema", call: ""}
+  - {name: refuse-other-tag-ref, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/git/ref/tags/v0.57.1", error_contains: "the path is not a release endpoint", call: ""}
+  - {name: refuse-delete-tag-ref, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/git/refs/tags/v0.58.0", error_contains: "the path is not a release endpoint", call: ""}
+  - {name: refuse-delete-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [450679062], confirmed: [450679062], error_contains: "is not on a release this run created", call: ""}
+  - {name: refuse-delete-foreign-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [9001], confirmed: [9001], own_assets: [765391957], error_contains: "is not on a release this run created", call: ""}
+  - {name: refuse-http-scheme, method: GET, url: "http://api.github.com/repos/peasant-labs/schema/releases?per_page=30", error_contains: "the host is not https://api.github.com", call: ""}
+  - {name: refuse-foreign-host, method: GET, url: "https://evil.example/repos/peasant-labs/schema/releases?per_page=30", error_contains: "the host is not https://api.github.com", call: ""}
+  - {name: refuse-upload-host-read, method: GET, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?per_page=100", created: [9001], error_contains: "takes only POST /releases/<id>/assets", call: ""}
+  - {name: refuse-generate-notes, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/generate-notes", error_contains: "the path is not a release endpoint", call: ""}
+  - {name: refuse-extra-query, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&access_token=x", error_contains: "a listing carries only per_page and page", call: ""}
 
 # DeleteOwn (in process, counting sleeps; the schedule has 5 waits).
 # GitHub answered 502 to the delete of the second and third real

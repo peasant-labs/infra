@@ -132,6 +132,10 @@ func publishRelease(w *releaseWriter, opts publishOptions) error {
 	}
 	if opts.rehearse {
 		if err := w.DeleteOwn(id); err != nil {
+			var published *publishedError
+			if errors.As(err, &published) {
+				return err
+			}
 			return deleteFailed(opts, id, err, err)
 		}
 		fmt.Fprintf(os.Stderr, "%s: rehearsal draft id %d verified with %d assets and deleted\n", intent.CommandPublishRelease, id, len(manifest))
@@ -146,6 +150,7 @@ func publishRelease(w *releaseWriter, opts publishOptions) error {
 		if rel.Draft {
 			return cleanupOwnDraft(w, opts, id, err)
 		}
+		w.forget(id)
 		fmt.Fprintf(os.Stderr, "%s: the publish request failed (%v), but release id %d is published; verifying it\n", intent.CommandPublishRelease, err, id)
 	}
 	if err := verifyPublished(w, opts, id, manifest, false); err != nil {
@@ -205,6 +210,11 @@ func cleanupOwnDraft(w *releaseWriter, opts publishOptions, id int64, cause erro
 		return cause
 	}
 	if err := w.DeleteOwn(id); err != nil {
+		var published *publishedError
+		if errors.As(err, &published) {
+			fmt.Fprintf(os.Stderr, "%s: not deleting release id %d after the failure below: %v\n", intent.CommandPublishRelease, id, err)
+			return cause
+		}
 		return deleteFailed(opts, id, cause, err)
 	}
 	fmt.Fprintf(os.Stderr, "%s: deleted this run's draft id %d after the failure below; rerun once it is fixed\n", intent.CommandPublishRelease, id)
