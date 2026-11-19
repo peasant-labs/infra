@@ -12,6 +12,10 @@ Tests that intentionally exercise hostile config may override the baseline with
 `t.Setenv`. Children that construct their own environment must preserve the
 isolation or establish an equivalent one themselves.
 
+`tools/release/internal/testutil` runs `TestGitIsolationCopiesMatch` to check
+the helper, guard, behavioural tests and scanner fixtures are byte-identical
+across the three modules. Run it from a complete repository checkout.
+
 Each module scans its test sources for `os/exec` imports and checks for a
 `TestMain` call to the helper. Its fixture corpus tests the scanner. This is a
 conservative source guard, not a proof of process isolation: it cannot see

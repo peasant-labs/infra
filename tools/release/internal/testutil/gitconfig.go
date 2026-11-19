@@ -7,7 +7,8 @@ import (
 
 // Keep this helper and its variable list in sync with the copies in
 // unstring/internal/testutil, tools/release/internal/testutil, and
-// runner-dispatcher/internal/testutil.
+// runner-dispatcher/internal/testutil. TestGitIsolationCopiesMatch in
+// tools/release/internal/testutil checks these copies and their tests.
 //
 // RunWithIsolatedGitConfig makes every git process the calling test binary
 // starts read no configuration and no repository location from the developer's
