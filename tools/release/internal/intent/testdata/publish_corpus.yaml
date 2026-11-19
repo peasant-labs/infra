@@ -257,10 +257,10 @@ cases:
         - {name: annotation-push-request-0.10.0.schema.json, size: 13455, state: uploaded}
         - {name: annotation-push-request-0.11.0.schema.json, size: 13455, digest: "sha256:b76ea6406421cafe077773b6e2211c9c8482c4c651d4739136aaca2c73c36890", state: uploaded}
         - {name: annotation-push-request-0.12.0.schema.json, size: 13455, digest: "sha256:eee1be1e2da230a900e7626f700c77036dbbe2e970c6c760bd41017c1df2a7a2", state: uploaded}
-    expected: {code: draft-incomplete, contains: ["changed"]}
+    expected: {code: draft-incomplete, contains: ["1 with the digest not reported (annotation-push-request-0.10.0.schema.json)"]}
     classification: must-fail
     sibling: draft-exact
-    provenance: {source: boundary, ref: "a missing digest proves nothing"}
+    provenance: {source: boundary, ref: "a missing digest proves nothing, and is reported apart from a mismatch"}
     mutation: {description: "GitHub reports no digest for one asset."}
   - name: draft-already-published
     input:

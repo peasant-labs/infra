@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
@@ -172,12 +173,31 @@ func verifyExisting(w *releaseWriter, opts publishOptions, rel intent.ReleaseFac
 	return emit(out(intent.OutputState, intent.PublishStateAlreadyPublished.String()))
 }
 
+// digestRetrySchedule is how long the command waits before reading an
+// asset list again while an uploaded asset has no digest yet.
+var digestRetrySchedule = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
+
+// settledAssets lists a release's assets, reading again while an uploaded
+// asset has no digest, so a digest GitHub reports late is not judged as
+// missing. After the schedule the last list is judged as it is.
+func settledAssets(w *releaseWriter, id int64) ([]intent.ReleaseAssetFact, error) {
+	for _, d := range digestRetrySchedule {
+		assets, err := w.ListAssets(id)
+		if err != nil || !intent.AwaitingDigest(assets) {
+			return assets, err
+		}
+		fmt.Fprintf(os.Stderr, "%s: GitHub has not reported a digest for every asset of release id %d yet; reading again in %s\n", intent.CommandPublishRelease, id, d)
+		w.sleep(d)
+	}
+	return w.ListAssets(id)
+}
+
 func verifyDraft(w *releaseWriter, opts publishOptions, id int64, manifest []intent.LocalAsset) error {
 	rel, err := w.ReadRelease(id)
 	if err != nil {
 		return err
 	}
-	assets, err := w.ListAssets(id)
+	assets, err := settledAssets(w, id)
 	if err != nil {
 		return err
 	}
@@ -192,7 +212,7 @@ func verifyPublished(w *releaseWriter, opts publishOptions, id int64, manifest [
 	if err != nil {
 		return err
 	}
-	assets, err := w.ListAssets(id)
+	assets, err := settledAssets(w, id)
 	if err != nil {
 		return err
 	}

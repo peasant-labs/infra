@@ -260,16 +260,18 @@ type AssetDiff struct {
 	// Extra are release assets with no local file, or a second asset of one
 	// name.
 	Extra []string
-	// Changed are assets whose size or digest is not the local file's, or
-	// whose digest GitHub did not report.
+	// Changed are assets whose size or digest is not the local file's.
 	Changed []string
+	// NoDigest are uploaded assets for which GitHub reported no digest, so
+	// their bytes cannot be compared: not a mismatch, but not a proof.
+	NoDigest []string
 	// NotUploaded are assets whose upload did not complete.
 	NotUploaded []string
 }
 
 // Empty reports whether the release carries exactly the manifest.
 func (d AssetDiff) Empty() bool {
-	return len(d.Missing)+len(d.Extra)+len(d.Changed)+len(d.NotUploaded) == 0
+	return len(d.Missing)+len(d.Extra)+len(d.Changed)+len(d.NotUploaded)+len(d.NoDigest) == 0
 }
 
 func (d AssetDiff) String() string {
@@ -277,7 +279,7 @@ func (d AssetDiff) String() string {
 	for _, p := range []struct {
 		label string
 		names []string
-	}{{"missing", d.Missing}, {"extra", d.Extra}, {"changed", d.Changed}, {"not uploaded", d.NotUploaded}} {
+	}{{"missing", d.Missing}, {"extra", d.Extra}, {"changed", d.Changed}, {"not uploaded", d.NotUploaded}, {"with the digest not reported", d.NoDigest}} {
 		if len(p.names) > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s (%s)", len(p.names), p.label, abbreviate(p.names)))
 		}
@@ -313,6 +315,8 @@ func DiffAssets(local []LocalAsset, remote []ReleaseAssetFact) AssetDiff {
 			continue
 		case r.State != AssetStateUploaded:
 			d.NotUploaded = append(d.NotUploaded, r.Name)
+		case r.Digest == "":
+			d.NoDigest = append(d.NoDigest, r.Name)
 		case r.Size != l.Size || r.Digest != AssetDigestPrefix+l.SHA256:
 			d.Changed = append(d.Changed, r.Name)
 		}
@@ -323,10 +327,22 @@ func DiffAssets(local []LocalAsset, remote []ReleaseAssetFact) AssetDiff {
 			d.Missing = append(d.Missing, l.Name)
 		}
 	}
-	for _, list := range [][]string{d.Missing, d.Extra, d.Changed, d.NotUploaded} {
+	for _, list := range [][]string{d.Missing, d.Extra, d.Changed, d.NotUploaded, d.NoDigest} {
 		slices.Sort(list)
 	}
 	return d
+}
+
+// AwaitingDigest reports whether an uploaded asset has no digest yet:
+// GitHub may report the digest a moment after the upload completes, so the
+// command reads the list again before judging it.
+func AwaitingDigest(remote []ReleaseAssetFact) bool {
+	for _, r := range remote {
+		if r.State == AssetStateUploaded && r.Digest == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // JudgeDraft accepts this run's draft only when it is still a draft and
@@ -378,9 +394,9 @@ func JudgePublished(repo string, rel ReleaseFact, local []LocalAsset, remote []R
 	switch {
 	case rel.Draft:
 		return fail(ErrPublishedReleaseIncomplete, "is still a draft", "a published release is what the tag's users download")
-	case len(d.Missing)+len(d.Extra)+len(d.NotUploaded) > 0:
+	case len(d.Missing)+len(d.Extra)+len(d.NotUploaded)+len(d.NoDigest) > 0:
 		return fail(ErrPublishedReleaseIncomplete, "does not carry exactly the local assets: "+d.String(),
-			"a release is complete only when it carries every local file and nothing else")
+			"a release is complete only when it carries every local file and nothing else, each with a digest GitHub reports")
 	case len(d.Changed) > 0:
 		return fail(ErrPublishedReleaseDiffers, "carries assets whose bytes differ from the local files: "+d.String(),
 			"the same name with another size or sha256 digest is another build's file")

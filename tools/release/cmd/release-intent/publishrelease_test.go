@@ -72,6 +72,9 @@ type publishFaults struct {
 	PatchLandsOnRead int `yaml:"patch_lands_on_read"`
 	// RedirectList answers the release listing with a 302 to another path.
 	RedirectList bool `yaml:"redirect_list"`
+	// DigestNullReads reports every asset's digest as null on the first N
+	// asset listings of a release this run created.
+	DigestNullReads int `yaml:"digest_null_reads"`
 }
 
 type publishServer struct {
@@ -220,8 +223,10 @@ type fakeReleaseServer struct {
 	assetID  int64
 	// pendingPatch counts reads of a release until a late publish lands.
 	pendingPatch map[int64]int
-	requests     []string
-	server       *httptest.Server
+	// assetReads counts asset listings per release.
+	assetReads map[int64]int
+	requests   []string
+	server     *httptest.Server
 }
 
 func digestOf(content []byte) string {
@@ -389,6 +394,29 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 	case m[2] != "" && r.Method == http.MethodPost:
 		s.upload(w, r, rel)
 	case m[2] != "" && r.Method == http.MethodGet:
+		if s.assetReads == nil {
+			s.assetReads = map[int64]int{}
+		}
+		if r.URL.Query().Get("page") == "" {
+			s.assetReads[id]++
+		}
+		if id >= fakeFirstID && s.assetReads[id] <= s.cfg.Faults.DigestNullReads {
+			type nullDigest struct {
+				ID     int64   `json:"id"`
+				Name   string  `json:"name"`
+				Size   int64   `json:"size"`
+				Digest *string `json:"digest"`
+				State  string  `json:"state"`
+			}
+			s.page(w, r, len(rel.Assets), func(lo, hi int) {
+				var out []nullDigest
+				for _, a := range rel.Assets[lo:hi] {
+					out = append(out, nullDigest{ID: a.ID, Name: a.Name, Size: a.Size, State: a.State})
+				}
+				s.writeJSON(w, http.StatusOK, out)
+			})
+			return
+		}
 		s.page(w, r, len(rel.Assets), func(lo, hi int) { s.writeJSON(w, http.StatusOK, rel.Assets[lo:hi]) })
 	case r.Method == http.MethodGet:
 		if n, ok := s.pendingPatch[id]; ok {
