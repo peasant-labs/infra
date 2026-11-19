@@ -439,12 +439,18 @@ func (w *releaseWriter) CreateDraft(notes string, prerelease bool) (int64, error
 	resp, err := w.expect(http.StatusCreated, http.MethodPost, w.repoURL("/releases"), map[string]any{
 		"tag_name": w.tag, "name": w.tag, "body": notes, "draft": true, "prerelease": prerelease,
 	})
+	// A client error means GitHub refused the create. Any other failure (no
+	// answer, a server error, an answer naming no id) may follow a create
+	// that happened, and the run cannot know the draft's id.
+	if err != nil && (resp.status == 0 || resp.status >= http.StatusInternalServerError) {
+		return 0, w.lostCreate(err)
+	}
 	if err != nil {
 		return 0, err
 	}
 	var r apiRelease
 	if err := json.Unmarshal(resp.body, &r); err != nil || r.ID <= 0 {
-		return 0, fmt.Errorf("GitHub API POST releases: the response names no release id; a draft for %s may exist: list the releases and delete it by id", w.tag)
+		return 0, w.lostCreate(fmt.Errorf("GitHub API POST releases: the response names no release id"))
 	}
 	if r.TagName != w.tag || !r.Draft {
 		w.created[r.ID] = true
@@ -452,6 +458,12 @@ func (w *releaseWriter) CreateDraft(notes string, prerelease bool) (int64, error
 	}
 	w.created[r.ID] = true
 	return r.ID, nil
+}
+
+// lostCreate names a create whose answer was lost: a draft may exist that
+// this run cannot identify, so it neither deletes nor reuses it.
+func (w *releaseWriter) lostCreate(cause error) error {
+	return fmt.Errorf("%w. A draft for %s may exist; list releases and delete it by id before rerunning: %s, then %s", cause, w.tag, intent.ListDraftsCommand(w.repo, w.tag), "gh api -X DELETE repos/"+w.repo+"/releases/<id>")
 }
 
 // Upload sends one file to this run's draft. The bytes are read from the

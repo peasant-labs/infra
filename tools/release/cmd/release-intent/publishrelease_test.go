@@ -75,6 +75,8 @@ type publishFaults struct {
 	// DigestNullReads reports every asset's digest as null on the first N
 	// asset listings of a release this run created.
 	DigestNullReads int `yaml:"digest_null_reads"`
+	// CreateLost creates the draft, then answers the create with 502.
+	CreateLost bool `yaml:"create_lost"`
 }
 
 type publishServer struct {
@@ -354,6 +356,10 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 		rel := &fakeRelease{ID: s.nextID, Tag: body.Tag, Draft: true, Prerelease: body.Prerelease, Body: body.Body}
 		s.nextID++
 		s.releases = append([]*fakeRelease{rel}, s.releases...)
+		if s.cfg.Faults.CreateLost {
+			s.writeJSON(w, http.StatusBadGateway, map[string]string{"message": "Server Error"})
+			return
+		}
 		s.writeJSON(w, http.StatusCreated, rel)
 		return
 	}

@@ -203,6 +203,12 @@ func DeleteCommand(repo string, id int64) string {
 	return "gh api -X DELETE repos/" + repo + "/releases/" + strconv.FormatInt(id, 10)
 }
 
+// ListDraftsCommand is the read a person runs to find every draft for a tag
+// by id, for a draft whose creation answer was lost.
+func ListDraftsCommand(repo, tag string) string {
+	return "gh api --paginate 'repos/" + repo + "/releases?per_page=30' --jq '.[] | select(.draft and .tag_name == \"" + tag + "\") | .id'"
+}
+
 func deleteCommands(repo string, rs []ReleaseFact) string {
 	cmds := make([]string, 0, len(rs))
 	for _, r := range rs {
