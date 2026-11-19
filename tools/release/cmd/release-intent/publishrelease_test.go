@@ -70,6 +70,8 @@ type publishFaults struct {
 	// then applies it just before the Nth later read of that release, as a
 	// publish that timed out but landed late.
 	PatchLandsOnRead int `yaml:"patch_lands_on_read"`
+	// RedirectList answers the release listing with a 302 to another path.
+	RedirectList bool `yaml:"redirect_list"`
 }
 
 type publishServer struct {
@@ -106,6 +108,8 @@ type publishCase struct {
 		After []publishAfter `yaml:"after"`
 		// NoRequests asserts the run refused before any request.
 		NoRequests bool `yaml:"no_requests"`
+		// Requests, when set, is the exact request log.
+		Requests []string `yaml:"requests"`
 	} `yaml:"expected"`
 	Sibling        string                  `yaml:"sibling"`
 	Classification testcase.Classification `yaml:"classification"`
@@ -325,6 +329,9 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	path := r.URL.Path
 	switch {
+	case path == "/repos/"+fakeReleaseRepo+"/releases" && r.Method == http.MethodGet && s.cfg.Faults.RedirectList:
+		http.Redirect(w, r, s.server.URL+"/redirected/releases", http.StatusFound)
+		return
 	case path == "/repos/"+fakeReleaseRepo+"/releases" && r.Method == http.MethodGet:
 		s.page(w, r, len(s.releases), func(lo, hi int) { s.writeJSON(w, http.StatusOK, s.releases[lo:hi]) })
 		return
@@ -536,6 +543,9 @@ func TestPublishRelease_Process(t *testing.T) {
 			}
 			api.mu.Lock()
 			defer api.mu.Unlock()
+			if c.Expected.Requests != nil && strings.Join(api.requests, "\n") != strings.Join(c.Expected.Requests, "\n") {
+				t.Fatalf("requests = %q, want exactly %q", api.requests, c.Expected.Requests)
+			}
 			if c.Expected.NoRequests && len(api.requests) != 0 {
 				t.Fatalf("the run sent %d requests before refusing: %v", len(api.requests), api.requests)
 			}
@@ -656,5 +666,26 @@ func TestPublishRelease_DeleteConfirm(t *testing.T) {
 				t.Fatalf("the fake still holds release %d: %t, want deleted=%t", id, api.find(id) != nil, c.Deleted)
 			}
 		})
+	}
+}
+
+// TestGitHubReader_RefusesRedirect proves inherit-verdict's reader returns a
+// redirect as a status error and never follows it.
+func TestGitHubReader_RefusesRedirect(t *testing.T) {
+	var followed bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/redirected") {
+			followed = true
+		}
+		http.Redirect(w, r, "/redirected"+r.URL.Path, http.StatusMovedPermanently)
+	}))
+	t.Cleanup(srv.Close)
+	reader, err := newGitHubReader(srv.URL, fakeReleaseRepo, fakeReleaseToken, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = reader.CheckRuns("adf33e168bd7f57f5a3d0ef9786366c554ec1662")
+	if err == nil || !strings.Contains(err.Error(), "301") || followed {
+		t.Fatalf("CheckRuns = %v, followed = %t; want a 301 status error and no request to the target", err, followed)
 	}
 }

@@ -140,7 +140,7 @@ func newReleaseWriter(apiBase, repo, tag, token string, client *http.Client) (*r
 	if uploads == "" {
 		return nil, usageErr("%s: $%s %q is not %s or a plain-http loopback test server; the command publishes only to github.com, whose uploads host it knows, and never sends the token in clear text elsewhere", intent.CommandPublishRelease, githubAPIEnv, apiBase, defaultGitHubAPI)
 	}
-	return &releaseWriter{api: base, uploads: uploads, repo: repo, tag: tag, token: token, client: client, created: map[int64]bool{}, ownAssets: map[int64]int64{}, confirmedDraft: map[int64]bool{}, sleep: time.Sleep}, nil
+	return &releaseWriter{api: base, uploads: uploads, repo: repo, tag: tag, token: token, client: noRedirects(client), created: map[int64]bool{}, ownAssets: map[int64]int64{}, confirmedDraft: map[int64]bool{}, sleep: time.Sleep}, nil
 }
 
 // releaseTagPattern is a tag the command can name in a URL path unescaped.
