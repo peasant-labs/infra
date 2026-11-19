@@ -12,9 +12,10 @@
 # digest and the snapshot together; the versions the snapshot resolves are
 # listed beside the package set for review.
 #
-# The runner and docker CLI tarballs are verified against the SHA-256 digests
-# below before they are used. Renovate (renovate.json5) tracks the base digest
-# and the two *_VERSION args; bump the matching *_SHA256 in the same change.
+# The runner, docker CLI and gh tarballs are verified against the SHA-256
+# digests below before they are used. Renovate (renovate.json5) tracks the base
+# digest and the three *_VERSION args; bump the matching *_SHA256 in the same
+# change.
 FROM quay.io/peasant-labs/ubuntu:26.04@sha256:ac877d2d205a92e3483908326e088d324bdc9d4a249bbc3f261a86b0c0926ce4
 
 ENV DEBIAN_FRONTEND=noninteractive DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
@@ -22,6 +23,8 @@ ARG RUNNER_VERSION=2.337.0
 ARG RUNNER_SHA256=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
 ARG DOCKER_VERSION=29.8.1
 ARG DOCKER_SHA256=d8db66739d2e28d4933786d73e918d9be643a67fbd835db1bf740d650a259e70
+ARG GH_VERSION=2.105.0
+ARG GH_SHA256=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f
 ARG UBUNTU_SNAPSHOT=20260917T000000Z
 
 # The base image ships no CA store, so the first update bootstraps
@@ -43,7 +46,6 @@ RUN apt-get update \
        curl=8.18.0-1ubuntu2.5 \
        file=1:5.46-5build2 \
        git=1:2.53.0-1ubuntu1 \
-       gh=2.46.0-4 \
        jq=1.8.1-4ubuntu2 \
        build-essential=12.12ubuntu2.26.04.2 \
        libicu78=78.2-2ubuntu1 \
@@ -66,6 +68,34 @@ RUN curl -fsSL -o /tmp/docker.tgz \
   && install -m 0755 /tmp/docker/docker /usr/local/bin/docker \
   && rm -rf /tmp/docker.tgz /tmp/docker \
   && docker --version
+
+# GitHub CLI from the upstream release, not apt: the archive's gh lags far
+# behind, and workflows read `--json` fields it does not know (2.46 rejects
+# baseRefOid; isImmutable needs 2.76). GH_SHA256 is the linux_amd64 tarball's
+# line in the release's gh_<version>_checksums.txt. The field check lists every
+# `--json` field the org's workflows request, so a pin that drops one fails
+# the build instead of a job; `gh <cmd> --json` with no value prints the
+# supported fields offline. Add a field here when a workflow starts using it.
+RUN set -eu; \
+  curl -fsSL -o /tmp/gh.tgz \
+    "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz"; \
+  echo "${GH_SHA256}  /tmp/gh.tgz" | sha256sum -c -; \
+  tar -xzf /tmp/gh.tgz -C /tmp "gh_${GH_VERSION}_linux_amd64/bin/gh"; \
+  install -m 0755 "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh; \
+  rm -rf /tmp/gh.tgz "/tmp/gh_${GH_VERSION}_linux_amd64"; \
+  gh --version; \
+  require_json() { \
+    cmd="$1"; shift; \
+    fields="$(gh $cmd --json 2>&1 || true)"; \
+    for f in "$@"; do \
+      printf '%s\n' "$fields" | grep -qxE "[[:space:]]*$f" \
+        || { echo "gh ${GH_VERSION}: 'gh $cmd --json' lacks field $f" >&2; exit 1; }; \
+    done; \
+  }; \
+  require_json 'pr view' number title author headRefName headRefOid baseRefOid autoMergeRequest; \
+  require_json 'pr list' number title autoMergeRequest; \
+  require_json 'release view' isDraft isImmutable assets; \
+  require_json 'release list' tagName isDraft
 
 WORKDIR /home/runner
 
