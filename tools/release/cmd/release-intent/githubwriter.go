@@ -298,7 +298,11 @@ func (w *releaseWriter) statusError(call releaseCall, method, target string, res
 	if msg.Message != "" {
 		detail = " (" + strconv.Quote(truncateText(msg.Message, 200)) + ")"
 	}
-	return fmt.Errorf("GitHub API %s %s (%s): status %d%s. The publish job needs GH_TOKEN: ${{ github.token }} with contents: write on %s", method, redactQuery(target), call, resp.status, detail, w.repo)
+	hint := "GitHub failed or timed out; rerun the job"
+	if resp.status < http.StatusInternalServerError {
+		hint = "the publish job needs GH_TOKEN: ${{ github.token }} with contents: write on " + w.repo
+	}
+	return fmt.Errorf("GitHub API %s %s (%s): status %d%s; %s", method, redactQuery(target), call, resp.status, detail, hint)
 }
 
 func truncateText(s string, n int) string {
