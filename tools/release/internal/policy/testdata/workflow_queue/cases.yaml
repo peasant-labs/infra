@@ -45,6 +45,8 @@ required_names:
   - reject-publisher-concurrency-not-keyed
   - reject-publisher-concurrency-keyed-on-sha
   - reject-publisher-concurrency-scalar
+  - reject-publisher-rehearse-equals-true
+  - reject-publisher-job-level-token
   - reject-retired-gh-assets-publisher
   - reject-retired-schema-gh-publisher
   - reject-publisher-build-after-download
@@ -546,6 +548,32 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "one publish run per tag" }
     mutation: { description: "The scalar form cannot write cancel-in-progress out." }
+
+  - name: reject-publisher-rehearse-equals-true
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--latest \"$LATEST\"'"
+          new: "--latest \"$LATEST\" --rehearse=true'"
+    expected: { rule: credential-steps-run-one-template, also: [tool-calls-match-the-cli], want_contains: ["--rehearse=true"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "--rehearse is refused in a workflow in every spelling" }
+    mutation: { description: "Rehearse inside the workflow with --rehearse=true." }
+
+  - name: reject-publisher-job-level-token
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "    env:\n      TAG: ${{ github.ref_name }}\n    steps:\n      - name: Check out the release tool"
+          new: "    env:\n      TAG: ${{ github.ref_name }}\n      GH_TOKEN: ${{ github.token }}\n    steps:\n      - name: Check out the release tool"
+    expected: { rule: credentials-stay-in-listed-jobs, also: [credential-steps-run-one-template], want_contains: ["jobs.publish.env reads github.token"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "the token reaches only the publish step's own env, never setup-go or the build" }
+    mutation: { description: "Put GH_TOKEN in the publish job's env, where every step, setup-go and the build included, would see it." }
 
   - name: reject-retired-gh-assets-publisher
     input:

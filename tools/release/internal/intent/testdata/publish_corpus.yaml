@@ -8,6 +8,10 @@
 #     (GET repos/peasant-labs/schema/releases, first page: 75 releases,
 #     including the real leftover draft id 449898580 for v0.57.1 beside the
 #     published v0.57.1)
+# Invariant: DiffAssets is the one compare, used at every check (the draft,
+# the published release, a rerun): name, size, upload state and GitHub's
+# sha256 digest against the manifest, with a missing digest reported apart
+# from a mismatch.
 # Each reject row changes one fact of its accept sibling.
 required_names:
   - local-flat-files
