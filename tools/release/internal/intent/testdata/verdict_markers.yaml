@@ -1,0 +1,8 @@
+# The versioned verdict marker step set. Consumers whose aggregator records
+# verdict sources mirror this file (version and names) in their own fixture.
+# Changing a name, a member or the order bumps version.
+version: 1
+names:
+  - "verdict-source: full"
+  - "verdict-source: inherited"
+  - "verdict-source: unaffected"

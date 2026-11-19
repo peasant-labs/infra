@@ -19,6 +19,7 @@ required_names:
   - accept-release-pr
   - accept-queue-gate
   - accept-verify-tag
+  - accept-inherit-verdict
   - accept-expression-value
   - accept-separated-invocations
   - accept-attached-separator
@@ -35,6 +36,7 @@ required_names:
   - reject-release-pr-missing-branch
   - reject-queue-gate-missing-release-pr
   - reject-verify-tag-missing-branch
+  - reject-inherit-verdict-missing-repo
   - reject-equals-form
   - reject-substitution-missing-rev
   - reject-command-typo
@@ -75,6 +77,9 @@ cases:
     problems: []
   - name: accept-verify-tag
     run: release-intent verify-tag --tag "${GITHUB_REF_NAME}" --branch origin/main
+    problems: []
+  - name: accept-inherit-verdict
+    run: release-intent inherit-verdict --base "$BASE" --head "$HEAD" --repo "$GITHUB_REPOSITORY" --wait 20m
     problems: []
   - name: accept-expression-value
     run: release-intent plan --branch main --mode "${{ vars.RELEASE_BATCH_MODE }}" --verdict ${{ steps.verify.outcome == 'success' && 'taggable' || 'rejected' }}
@@ -135,6 +140,10 @@ cases:
     run: release-intent verify-tag --tag "${GITHUB_REF_NAME}"
     problems: ['missing required flag "--branch"']
     sibling: accept-verify-tag
+  - name: reject-inherit-verdict-missing-repo
+    run: release-intent inherit-verdict --base "$BASE" --head "$HEAD"
+    problems: ['missing required flag "--repo"']
+    sibling: accept-inherit-verdict
   - name: reject-equals-form
     run: release-intent group-pr --ref=ref
     problems: ['unknown flag "--ref=ref"', 'missing required flag "--ref"']

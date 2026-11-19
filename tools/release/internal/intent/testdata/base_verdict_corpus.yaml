@@ -1,0 +1,275 @@
+# Base-verdict corpus: rows of intent.JudgeBaseVerdict over recorded GitHub
+# facts. The ids, names and paths are schema's real ones for base adf33e1
+# (merge_group run 44408833151 and push run 44412566570); each row changes
+# one fact. A must-pass row names the verdict source; a must-fail row names
+# the typed code, and its accept sibling differs only in that fact.
+#
+# Facts: check_runs lists the base commit's check runs; jobs are the Actions
+# jobs behind them by id; runs are their workflow runs; run_jobs are every
+# attempt's jobs of a run, read for the full-suite job.
+required_names:
+  - bootstrap-legacy-full
+  - marker-full
+  - marker-inherited
+  - marker-unaffected
+  - retried-to-success
+  - legacy-without-full-suite
+  - full-marker-suite-failed
+  - no-check-run
+  - only-push-run
+  - pending-job
+  - rerun-in-progress
+  - failed-base
+  - cancelled-base
+  - latest-attempt-failed
+  - wrong-producer
+  - two-markers
+  - two-merge-group-runs
+  - attempt-mismatch
+  - aggregator-skipped
+  - run-skipped
+cases:
+  - name: bootstrap-legacy-full
+    input:
+      check_runs: &runs_real
+        - {id: 135195179405, name: merge-gate, status: completed, conclusion: success, app: github-actions}
+        - {id: 135184419436, name: make check, status: completed, conclusion: success, app: github-actions}
+        - {id: 135183976066, name: merge-gate, status: completed, conclusion: success, app: github-actions}
+        - {id: 135171581052, name: make check, status: completed, conclusion: success, app: github-actions}
+        - {id: 135171210879, name: title-guard, status: completed, conclusion: success, app: github-actions}
+      jobs:
+        - &push_gate {id: 135195179405, run_id: 44412566570, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: [{name: Set up job, status: completed, conclusion: success}, {name: Require successful or intentionally skipped jobs, status: completed, conclusion: success}]}
+        - {id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: [{name: Set up job, status: completed, conclusion: success}, {name: Require successful or intentionally skipped jobs, status: completed, conclusion: success}, {name: Complete job, status: completed, conclusion: success}]}
+      runs: &runs_both
+        - &queue_run {id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: success}
+        - &push_run {id: 44412566570, event: push, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: success}
+      run_jobs: &suite_passed
+        - {id: 135171212340, run_id: 44408833151, run_attempt: 1, name: changes, status: completed, conclusion: success}
+        - {id: 135171581052, run_id: 44408833151, run_attempt: 1, name: make check, status: completed, conclusion: success}
+        - {id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success}
+    expected: {source: legacy-full}
+    classification: must-pass
+    provenance: &real {source: bug, ref: "schema base adf33e1: merge_group run 44408833151 passed make check before markers existed"}
+    mutation: {description: "The recorded run, with the push run's own merge-gate beside it; the bootstrap rule reads the passing full suite."}
+  - name: marker-full
+    input:
+      check_runs: &queue_gate_only [{id: 135183976066, name: merge-gate, status: completed, conclusion: success, app: github-actions}]
+      jobs: [&gate_full {id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: &steps_full [{name: Require successful or intentionally skipped jobs, status: completed, conclusion: success}, {name: "verdict-source: full", status: completed, conclusion: success}, {name: "verdict-source: inherited", status: completed, conclusion: skipped}, {name: "verdict-source: unaffected", status: completed, conclusion: skipped}]}]
+      runs: [*queue_run]
+      run_jobs: *suite_passed
+    expected: {source: full}
+    classification: must-pass
+    provenance: &marker {source: requirement, ref: "an inherited verdict is distinguishable from a full one and a chain bottoms out at a full suite"}
+    mutation: {description: "The aggregator recorded the full marker and the full suite passed."}
+  - name: marker-inherited
+    input:
+      check_runs: *queue_gate_only
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: [{name: "verdict-source: full", status: completed, conclusion: skipped}, {name: "verdict-source: inherited", status: completed, conclusion: success}, {name: "verdict-source: unaffected", status: completed, conclusion: skipped}]}]
+      runs: [*queue_run]
+      run_jobs: &suite_skipped
+        - {id: 135171581052, run_id: 44408833151, run_attempt: 1, name: make check, status: completed, conclusion: skipped}
+    expected: {source: inherited}
+    classification: must-pass
+    provenance: *marker
+    mutation: {description: "The base was itself a release-only group that inherited its verdict."}
+  - name: marker-unaffected
+    input:
+      check_runs: *queue_gate_only
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: [{name: "verdict-source: full", status: completed, conclusion: skipped}, {name: "verdict-source: inherited", status: completed, conclusion: skipped}, {name: "verdict-source: unaffected", status: completed, conclusion: success}]}]
+      runs: [*queue_run]
+      run_jobs: *suite_skipped
+    expected: {source: unaffected}
+    classification: must-pass
+    provenance: *marker
+    mutation: {description: "The base's path filter found no code change."}
+  - name: retried-to-success
+    input:
+      check_runs: &two_attempts
+        - {id: 135183976066, name: merge-gate, status: completed, conclusion: failure, app: github-actions}
+        - {id: 135190000001, name: merge-gate, status: completed, conclusion: success, app: github-actions}
+      jobs:
+        - {id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: failure, steps: &failed_steps [{name: Set up job, status: completed, conclusion: success}, {name: Require successful or intentionally skipped jobs, status: completed, conclusion: failure}, {name: "verdict-source: full", status: completed, conclusion: skipped}, {name: "verdict-source: inherited", status: completed, conclusion: skipped}, {name: "verdict-source: unaffected", status: completed, conclusion: skipped}, {name: Complete job, status: completed, conclusion: success}]}
+        - {id: 135190000001, run_id: 44408833151, run_attempt: 2, name: merge-gate, status: completed, conclusion: success, steps: *steps_full}
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 2, status: completed, conclusion: success}]
+      run_jobs:
+        - {id: 135171581052, run_id: 44408833151, run_attempt: 1, name: make check, status: completed, conclusion: failure}
+        - {id: 135190000002, run_id: 44408833151, run_attempt: 2, name: make check, status: completed, conclusion: success}
+    expected: {source: full}
+    classification: must-pass
+    provenance: &attempt {source: requirement, ref: "only the latest attempt of the base's queue run counts"}
+    mutation: {description: "The first attempt failed and the rerun passed."}
+  - name: legacy-without-full-suite
+    input:
+      check_runs: *queue_gate_only
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: [{name: Require successful or intentionally skipped jobs, status: completed, conclusion: success}]}]
+      runs: [*queue_run]
+      run_jobs: *suite_skipped
+    expected: {code: base-verdict-failed}
+    sibling: bootstrap-legacy-full
+    classification: must-fail
+    provenance: {source: requirement, ref: "a run without markers is accepted only when its own full suite passed"}
+    mutation: {description: "A pre-marker run whose make check was skipped by the path filter."}
+  - name: full-marker-suite-failed
+    input:
+      check_runs: *queue_gate_only
+      jobs: [*gate_full]
+      runs: [*queue_run]
+      run_jobs: [{id: 135171581052, run_id: 44408833151, run_attempt: 1, name: make check, status: completed, conclusion: failure}]
+    expected: {code: base-verdict-failed}
+    sibling: marker-full
+    classification: must-fail
+    provenance: *marker
+    mutation: {description: "The full marker claims a suite that did not pass."}
+  - name: no-check-run
+    input:
+      check_runs: [{id: 135171210879, name: title-guard, status: completed, conclusion: success, app: github-actions}]
+      jobs: []
+      runs: []
+      run_jobs: []
+    expected: {code: base-verdict-missing}
+    sibling: marker-full
+    classification: must-fail
+    provenance: &missing {source: requirement, ref: "a missing base verdict fails closed"}
+    mutation: {description: "The base has no merge-gate check run at all."}
+  - name: only-push-run
+    input:
+      check_runs: [{id: 135195179405, name: merge-gate, status: completed, conclusion: success, app: github-actions}]
+      jobs: [*push_gate]
+      runs: [*push_run]
+      run_jobs: []
+    expected: {code: base-verdict-missing}
+    sibling: bootstrap-legacy-full
+    classification: must-fail
+    provenance: {source: requirement, ref: "the push run is not an input to inheritance; only the merge_group run is authoritative"}
+    mutation: {description: "Drop the queue run, leaving only the push run's green merge-gate."}
+  - name: pending-job
+    input:
+      check_runs: [{id: 135183976066, name: merge-gate, status: in_progress, app: github-actions}]
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: in_progress}]
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: in_progress}]
+      run_jobs: []
+    expected: {code: base-verdict-pending}
+    sibling: marker-full
+    classification: must-fail
+    provenance: &pending {source: requirement, ref: "a pending base verdict fails closed once any wait ends"}
+    mutation: {description: "The base's queue run is still running its aggregator."}
+  - name: rerun-in-progress
+    input:
+      check_runs: *queue_gate_only
+      jobs: [*gate_full]
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 2, status: in_progress}]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-pending}
+    sibling: marker-full
+    classification: must-fail
+    provenance: *pending
+    mutation: {description: "A rerun of the base's queue run started after the first attempt passed."}
+  - name: failed-base
+    input:
+      check_runs: [{id: 135183976066, name: merge-gate, status: completed, conclusion: failure, app: github-actions}]
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: failure, steps: *failed_steps}]
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: failure}]
+      run_jobs: []
+    expected: {code: base-verdict-failed}
+    sibling: marker-full
+    classification: must-fail
+    provenance: &failed {source: requirement, ref: "a failed or cancelled base verdict fails closed"}
+    mutation: {description: "The base's queue run failed."}
+  - name: cancelled-base
+    input:
+      check_runs: [{id: 135183976066, name: merge-gate, status: completed, conclusion: cancelled, app: github-actions}]
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: cancelled, steps: [{name: Set up job, status: completed, conclusion: success}, {name: Require successful or intentionally skipped jobs, status: completed, conclusion: cancelled}]}]
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: cancelled}]
+      run_jobs: []
+    expected: {code: base-verdict-failed}
+    sibling: marker-full
+    classification: must-fail
+    provenance: *failed
+    mutation: {description: "The base's queue run was cancelled."}
+  - name: latest-attempt-failed
+    input:
+      check_runs: *two_attempts
+      jobs:
+        - {id: 135183976066, run_id: 44408833151, run_attempt: 2, name: merge-gate, status: completed, conclusion: failure, steps: *failed_steps}
+        - {id: 135190000001, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: *steps_full}
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 2, status: completed, conclusion: failure}]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-failed}
+    sibling: retried-to-success
+    classification: must-fail
+    provenance: *attempt
+    mutation: {description: "The older attempt passed and the latest attempt failed."}
+  - name: wrong-producer
+    input:
+      check_runs:
+        - {id: 135183976066, name: merge-gate, status: completed, conclusion: success, app: github-actions}
+        - {id: 99, name: merge-gate, status: completed, conclusion: success, app: some-other-app}
+      jobs: [*gate_full]
+      runs: [*queue_run]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-producer}
+    sibling: marker-full
+    classification: must-fail
+    provenance: {source: requirement, ref: "a verdict from an unexpected producer fails closed"}
+    mutation: {description: "Another app reports a merge-gate check on the base."}
+  - name: two-markers
+    input:
+      check_runs: *queue_gate_only
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: [{name: "verdict-source: full", status: completed, conclusion: success}, {name: "verdict-source: inherited", status: completed, conclusion: success}, {name: "verdict-source: unaffected", status: completed, conclusion: skipped}]}]
+      runs: [*queue_run]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-ambiguous}
+    sibling: marker-full
+    classification: must-fail
+    provenance: &ambiguous {source: requirement, ref: "an ambiguous base verdict fails closed"}
+    mutation: {description: "Two marker steps succeeded in one run."}
+  - name: two-merge-group-runs
+    input:
+      check_runs:
+        - {id: 135183976066, name: merge-gate, status: completed, conclusion: success, app: github-actions}
+        - {id: 135190000009, name: merge-gate, status: completed, conclusion: success, app: github-actions}
+      jobs:
+        - *gate_full
+        - {id: 135190000009, run_id: 44408833999, run_attempt: 1, name: merge-gate, status: completed, conclusion: success, steps: *steps_full}
+      runs:
+        - *queue_run
+        - {id: 44408833999, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: success}
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-ambiguous}
+    sibling: marker-full
+    classification: must-fail
+    provenance: *ambiguous
+    mutation: {description: "Two separate merge_group runs report on the same base."}
+  - name: attempt-mismatch
+    input:
+      check_runs: *queue_gate_only
+      jobs: [*gate_full]
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 2, status: completed, conclusion: success}]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-ambiguous}
+    sibling: marker-full
+    classification: must-fail
+    provenance: *attempt
+    mutation: {description: "The run finished a second attempt, but the only aggregator check is from attempt 1."}
+  - name: aggregator-skipped
+    input:
+      check_runs: [{id: 135183976066, name: merge-gate, status: completed, conclusion: skipped, app: github-actions}]
+      jobs: [{id: 135183976066, run_id: 44408833151, run_attempt: 1, name: merge-gate, status: completed, conclusion: skipped, steps: []}]
+      runs: [*queue_run]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-failed}
+    sibling: marker-full
+    classification: must-fail
+    provenance: &skipped {source: requirement, ref: "a skipped verdict is not a success; only success is inherited"}
+    mutation: {description: "The aggregator's latest attempt was skipped."}
+  - name: run-skipped
+    input:
+      check_runs: *queue_gate_only
+      jobs: [*gate_full]
+      runs: [{id: 44408833151, event: merge_group, path: .github/workflows/tests.yml, head_sha: adf33e168bd7f57f5a3d0ef9786366c554ec1662, run_attempt: 1, status: completed, conclusion: skipped}]
+      run_jobs: *suite_passed
+    expected: {code: base-verdict-failed}
+    sibling: marker-full
+    classification: must-fail
+    provenance: *skipped
+    mutation: {description: "The run concluded skipped while its aggregator reports success."}

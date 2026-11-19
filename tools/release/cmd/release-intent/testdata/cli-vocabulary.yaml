@@ -74,6 +74,13 @@ commands:
     flags:
       - {flag: --tag, required: true}
       - {flag: --branch, required: true}
+  - name: inherit-verdict
+    usage: "usage: release-intent inherit-verdict --base REV --head REV --repo OWNER/NAME [--wait DURATION]"
+    flags:
+      - {flag: --base, required: true}
+      - {flag: --head, required: true}
+      - {flag: --repo, required: true}
+      - {flag: --wait, required: false}
 flags:
   - {flag: --config, takes_value: true}
   - {flag: --policy, takes_value: true}
@@ -103,6 +110,8 @@ flags:
   - {flag: --out, takes_value: true}
   - {flag: --freeze-plan, takes_value: true}
   - {flag: --print-range-base}
+  - {flag: --repo, takes_value: true}
+  - {flag: --wait, takes_value: true}
 git_subcommands: [merge-base, log, diff, show, ls-tree, for-each-ref, merge-tree]
 exit_statuses: [0, 1, 2]
 reported_verdicts: [taggable, rejected]

@@ -261,3 +261,115 @@ declared check must run the matching single command; `contract` needs
 `schema-gen freeze --check`. An optional `nix develop -c` wrapper (or one
 literal flake reference before `-c`) is the only accepted wrapper. Empty
 `pre_tag_steps: []` is valid; bare string entries are not.
+
+## Verdict inheritance
+
+A release-only candidate inherits its exact base commit's merge-queue verdict
+instead of running the full suite again:
+
+```sh
+release-intent inherit-verdict --base "$BASE_SHA" --head "$HEAD_SHA" --repo "$GITHUB_REPOSITORY" [--wait 20m]
+```
+
+`--base` and `--head` are full commit SHAs. The release config, the queue
+policy and the aggregator's workflow are read at the base, so a candidate
+cannot widen what counts as release content.
+
+This is the tool's only command that reads the network: read-only GitHub
+REST GETs over the standard library, never a client library. Every other
+command reads git and files only; `queue-gate` reads the queue answer a
+workflow step fetched.
+
+**Release-only.** The whole `base..head` tree diff (not a merge-base range)
+must modify in place the changelog and, optionally, version files whose only
+difference is the configured version field. An addition, deletion, rename,
+type or mode change, an unreadable version file, any other path, a diff that
+does not touch the changelog, and an empty diff all mean "not release-only".
+A changelog or version file that is a symlink (mode 120000) or a submodule on
+either side is `not-a-regular-file`.
+`protected_paths` and `freeze_outputs` never qualify: they authorize what the
+release bot writes, and spec-freeze outputs must run the full suite. The
+command prints `release_only=` and `reason=`; a change that is not
+release-only prints `inherit=false` and exits 0.
+
+**The base verdict.** The queue policy opts in:
+
+```yaml
+queue:
+  required:
+    - {context: merge-gate, workflow: tests.yml, job: merge-gate, aggregator: true}
+  inherit_verdict: {context: merge-gate, full_suite_job: check}
+```
+
+Inheritance reads exactly one aggregator context per repository, the one
+`inherit_verdict.context` names; it must be a required entry marked
+`aggregator: true`. Peasant and schema each have a single `merge-gate`
+aggregator and fit. Fairtrade's queue requires `lib` beside its `gates`
+aggregator, so it needs `gates` to cover `lib` (a single aggregator) or a
+later list form of `inherit_verdict` before it can opt in.
+
+The command lists the base commit's check runs (`filter=all`, paginated) and
+accepts only the aggregator context from the `github-actions` app, on the one
+`merge_group` run of the aggregator's workflow whose head is the base. That
+run and the aggregator's latest attempt must both be completed with
+`success`; an older successful attempt does not count. A push or
+pull_request run on the same commit is not an input. Anything else exits 2
+with `inherit=false` and one of `base-verdict-missing`,
+`base-verdict-pending`, `base-verdict-failed`, `base-verdict-ambiguous` or
+`base-verdict-producer`: the gate fails closed and never falls back to
+running tests. A completed run whose latest attempt has no aggregator result
+of its own is `base-verdict-ambiguous`. API and read failures exit 1.
+
+`--wait` is for a merge group built on a group still ahead of it in the
+queue. It re-reads a missing or pending verdict while one more poll still
+ends before the deadline:
+
+| constant | value |
+|---|---|
+| poll interval (`inheritPollInterval`) | 30 seconds |
+| largest `--wait` (`inheritMaxWait`) | 30 minutes |
+| default `--wait` | none (0s): a pending verdict fails at once |
+
+Schema's merge-group runs pass `--wait 20m` inside a 30-minute job.
+
+The token (`GH_TOKEN` or `GITHUB_TOKEN`) needs `checks: read` and
+`actions: read`. `GITHUB_API_URL` must be https (plain http only for a
+loopback test server), a next page off that URL is never followed, and a
+response over 32 MiB is an error rather than a truncated read.
+
+**Transitivity.** The aggregator ends with the marker step set, version 1
+(`intent.VerdictMarkerStepNames`, `intent.VerdictMarkersVersion`, pinned in
+`internal/intent/testdata/verdict_markers.yaml`): steps named literally
+`verdict-source: full`, `verdict-source: inherited` and
+`verdict-source: unaffected`, in that order, exactly one of which runs per
+run. A consumer that asserts its markers mirrors the names and the version;
+any change to the set bumps the version. The command
+reads the marker from the jobs API and prints it as `verdict_source=`, with
+`inherited_from=<base>`. Any source is accepted, but `full` also requires the
+full-suite job's latest attempt in that run to have passed. An inherited
+verdict was itself granted only over a proven base, so every chain ends at a
+run where the full suite ran (or where the path filter found no code change
+over such a run).
+
+**Bootstrap.** A base whose aggregator has no marker steps was built before
+this rule. It is accepted as `legacy-full` only when the same run's
+full-suite job passed on its latest attempt; a pre-marker run that skipped
+the full suite is `base-verdict-failed`.
+
+`check-workflows` enforces only what the tool reads back
+(`inherited-verdicts-are-recorded`): the full-suite job exists and the
+aggregator needs it, the aggregator's last steps are the marker set and the
+job has no `continue-on-error`, and a
+job the aggregator needs runs `inherit-verdict` in a step with no step-level
+`if` and no `continue-on-error`. The full-suite job's literal name and the
+token scopes are checked when the command runs, where a fault fails closed.
+The aggregator job may not carry `continue-on-error` either: a failed
+aggregator would report success, and nothing at run time can tell. A wrong
+`full_suite_job` (or a renamed full-suite job) passes policy validation as
+long as the job exists; it is caught at run time, as `base-verdict-failed`
+on the first release candidate whose base recorded a `full` (or pre-marker)
+verdict, because no job of that name passed in the base run.
+
+Markers are kept, rather than inheriting only from bases whose full suite
+ran, because a docs-only or release base is common: without a recorded
+source, every release built on one would lose inheritance.

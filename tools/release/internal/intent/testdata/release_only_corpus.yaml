@@ -1,0 +1,192 @@
+# Release-only corpus: rows of intent.ClassifyReleaseOnly. A must-pass row is
+# a tree change that is release content only, so the candidate may inherit
+# its base's verdict; a must-fail row is one that must run the full suite,
+# with the reason it prints. Every must-fail row names its accept sibling.
+# The configs mirror schema's: one changelog, one version file, and the
+# spec-freeze protected paths and outputs, which must never qualify.
+required_names:
+  - release-pr-changelog-and-version
+  - changelog-only
+  - stream-release-content
+  - source-file-beside-release
+  - version-file-other-field
+  - group-with-another-pr
+  - freeze-output-added
+  - freeze-output-modified
+  - protected-path-modified
+  - version-file-deleted
+  - changelog-mode-changed
+  - changelog-type-changed
+  - changelog-symlink-retargeted
+  - version-only
+  - identical-tree
+  - config-edited
+cases:
+  - name: release-pr-changelog-and-version
+    input:
+      config: &schema_config
+        changelog: CHANGELOG.md
+        version_files: [{path: typescript/package.json, field: version}]
+        protected_paths: ['generated/*-[0-9]*', versions.go]
+        freeze_outputs: ['generated/*.json', registry.yaml]
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: typescript/package.json, status: modified}
+    expected: {release_only: true, reason: release-only}
+    classification: must-pass
+    provenance: &pr268 {source: bug, ref: "schema release PR 268 (adf33e1..f82716a) changed only CHANGELOG.md and the package.json version"}
+    mutation: {description: "The bot release PR's exact change."}
+  - name: changelog-only
+    input:
+      config: *schema_config
+      changes: [{path: CHANGELOG.md, status: modified}]
+    expected: {release_only: true, reason: release-only}
+    classification: must-pass
+    provenance: &rule {source: requirement, ref: "release-only means the changelog plus version fields, nothing else"}
+    mutation: {description: "A changelog correction touches no code."}
+  - name: stream-release-content
+    input:
+      config:
+        changelog: tools/release/CHANGELOG.md
+        version_files: [{path: tools/release/package.json, field: version}]
+      changes:
+        - {path: tools/release/CHANGELOG.md, status: modified}
+        - {path: tools/release/package.json, status: modified}
+    expected: {release_only: true, reason: release-only}
+    classification: must-pass
+    provenance: *rule
+    mutation: {description: "A stream's changelog and version file, as the config normalizes them."}
+  - name: source-file-beside-release
+    input:
+      config: *schema_config
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: session.go, status: modified}
+    expected: {release_only: false, reason: path-outside-release-content, path: session.go}
+    sibling: release-pr-changelog-and-version
+    classification: must-fail
+    provenance: *rule
+    mutation: {description: "Add one source file to the release change."}
+  - name: version-file-other-field
+    input:
+      config: *schema_config
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: typescript/package.json, status: modified, other_content_changed: true}
+    expected: {release_only: false, reason: version-file-other-content, path: typescript/package.json}
+    sibling: release-pr-changelog-and-version
+    classification: must-fail
+    provenance: *rule
+    mutation: {description: "Change a package.json field other than version, such as a dependency."}
+  - name: group-with-another-pr
+    input:
+      config: *schema_config
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: README.md, status: modified}
+        - {path: typescript/package.json, status: modified}
+    expected: {release_only: false, reason: path-outside-release-content, path: README.md}
+    sibling: release-pr-changelog-and-version
+    classification: must-fail
+    provenance: {source: requirement, ref: "a merge group is release-only only when its entire base..head diff is"}
+    mutation: {description: "Batch a documentation PR with the release PR in one group."}
+  - name: freeze-output-added
+    input:
+      config: *schema_config
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: generated/types-0.2.0.json, status: added}
+    expected: {release_only: false, reason: path-not-modified-in-place, path: generated/types-0.2.0.json}
+    sibling: release-pr-changelog-and-version
+    classification: must-fail
+    provenance: &freeze {source: requirement, ref: "spec-freeze outputs run the full suite; protected_paths and freeze_outputs never widen the fast path"}
+    mutation: {description: "A freeze writes a new numbered spec document."}
+  - name: freeze-output-modified
+    input:
+      config: *schema_config
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: generated/types.json, status: modified}
+    expected: {release_only: false, reason: path-outside-release-content, path: generated/types.json}
+    sibling: release-pr-changelog-and-version
+    classification: must-fail
+    provenance: *freeze
+    mutation: {description: "A freeze rewrites a configured freeze output in place."}
+  - name: protected-path-modified
+    input:
+      config: *schema_config
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: versions.go, status: modified}
+    expected: {release_only: false, reason: path-outside-release-content, path: versions.go}
+    sibling: release-pr-changelog-and-version
+    classification: must-fail
+    provenance: *freeze
+    mutation: {description: "A freeze bumps a version stamp listed in protected_paths."}
+  - name: version-file-deleted
+    input:
+      config: *schema_config
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: typescript/package.json, status: deleted}
+    expected: {release_only: false, reason: path-not-modified-in-place, path: typescript/package.json}
+    sibling: release-pr-changelog-and-version
+    classification: must-fail
+    provenance: *rule
+    mutation: {description: "Delete the version file."}
+  - name: changelog-mode-changed
+    input:
+      config: *schema_config
+      changes: [{path: CHANGELOG.md, status: modified, mode_changed: true}]
+    expected: {release_only: false, reason: mode-changed, path: CHANGELOG.md}
+    sibling: changelog-only
+    classification: must-fail
+    provenance: *rule
+    mutation: {description: "Make the changelog executable."}
+  - name: changelog-type-changed
+    input:
+      config: *schema_config
+      changes: [{path: CHANGELOG.md, status: type-changed}]
+    expected: {release_only: false, reason: path-not-modified-in-place, path: CHANGELOG.md}
+    sibling: changelog-only
+    classification: must-fail
+    provenance: *rule
+    mutation: {description: "Replace the changelog with a symlink."}
+  - name: changelog-symlink-retargeted
+    input:
+      config: *schema_config
+      changes: [{path: CHANGELOG.md, status: modified, not_regular_file: true}]
+    expected: {release_only: false, reason: not-a-regular-file, path: CHANGELOG.md}
+    sibling: changelog-only
+    classification: must-fail
+    provenance: *rule
+    mutation: {description: "The changelog is a symlink on both sides and its target changes."}
+  - name: version-only
+    input:
+      config: *schema_config
+      changes: [{path: typescript/package.json, status: modified}]
+    expected: {release_only: false, reason: changelog-unchanged, path: CHANGELOG.md}
+    sibling: release-pr-changelog-and-version
+    classification: must-fail
+    provenance: {source: requirement, ref: "every release writes the changelog"}
+    mutation: {description: "Move the version field alone."}
+  - name: identical-tree
+    input:
+      config: *schema_config
+      changes: []
+    expected: {release_only: false, reason: no-change}
+    sibling: changelog-only
+    classification: must-fail
+    provenance: {source: boundary, ref: "an empty change has nothing to inherit for and runs the suite like any change"}
+    mutation: {description: "No path differs."}
+  - name: config-edited
+    input:
+      config: *schema_config
+      changes:
+        - {path: CHANGELOG.md, status: modified}
+        - {path: .github/release-intent.yaml, status: modified}
+    expected: {release_only: false, reason: path-outside-release-content, path: .github/release-intent.yaml}
+    sibling: changelog-only
+    classification: must-fail
+    provenance: {source: requirement, ref: "the release config is read at the base, so editing it is never release content"}
+    mutation: {description: "Edit the release config next to the changelog."}

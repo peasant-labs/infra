@@ -15,3 +15,6 @@ terraform.tfvars
 terraform.tfvars.json
 .env
 .direnv/
+
+# Built release-intent binaries; build to $TMPDIR instead.
+/tools/release/cmd/release-intent/release-intent

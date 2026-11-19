@@ -41,6 +41,9 @@ const (
 	// CommandVerifyTag checks that a release tag is the prefix plus a version
 	// and that its commit is on a branch, before anything publishes it.
 	CommandVerifyTag Command = "verify-tag"
+	// CommandInheritVerdict decides whether a release-only candidate inherits
+	// its base commit's merge-queue verdict instead of running the full suite.
+	CommandInheritVerdict Command = "inherit-verdict"
 )
 
 // AllCommands is the canonical closed set of subcommands the tool
@@ -58,6 +61,7 @@ var AllCommands = []Command{
 	CommandReleasePR,
 	CommandQueueGate,
 	CommandVerifyTag,
+	CommandInheritVerdict,
 }
 
 func (c Command) String() string { return string(c) }
@@ -125,6 +129,10 @@ const (
 	FlagOut            Flag = "--out"
 	FlagFreezePlan     Flag = "--freeze-plan"
 	FlagPrintRangeBase Flag = "--print-range-base"
+	// FlagRepo names the OWNER/NAME repository whose checks are read.
+	FlagRepo Flag = "--repo"
+	// FlagWait bounds how long a pending base verdict is waited for.
+	FlagWait Flag = "--wait"
 )
 
 // AllFlags is the canonical closed set of flags across every subcommand.
@@ -136,6 +144,7 @@ var AllFlags = []Flag{
 	FlagWrite, FlagCommit, FlagCheck, FlagCurrent,
 	FlagQueue, FlagReleasePR,
 	FlagTag, FlagReport, FlagUntil, FlagState, FlagOut, FlagFreezePlan, FlagPrintRangeBase,
+	FlagRepo, FlagWait,
 }
 
 func (f Flag) String() string { return string(f) }
@@ -184,6 +193,8 @@ func (c Command) Flags() []FlagUse {
 		return []FlagUse{{FlagQueue, true}, {FlagReleasePR, true}}
 	case CommandVerifyTag:
 		return []FlagUse{{FlagTag, true}, {FlagBranch, true}}
+	case CommandInheritVerdict:
+		return []FlagUse{{FlagBase, true}, {FlagHead, true}, {FlagRepo, true}, {FlagWait, false}}
 	default:
 		return nil
 	}

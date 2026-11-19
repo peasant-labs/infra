@@ -3,9 +3,10 @@
 // version arithmetic, release config loading, Plan, Generate, QueueGate and
 // the git fact collection behind them.
 //
-// The tool has no network access and never imports the GitHub client. The one
-// impure seam is the git runner, which reads commits, tags and files from git
-// through a hardened structured argv.
+// The tool never imports a GitHub client library. Its impure seams are the
+// git runner, which reads commits, tags and files from git through a
+// hardened structured argv, and, for inherit-verdict alone, a read-only
+// GitHub REST reader over the standard library (githubapi.go).
 package main
 
 import (
@@ -59,6 +60,8 @@ func run(command intent.Command, args []string) error {
 		return runQueueGate(flags)
 	case intent.CommandVerifyTag:
 		return runVerifyTag(flags)
+	case intent.CommandInheritVerdict:
+		return runInheritVerdict(flags)
 	default:
 		return fmt.Errorf("%s: subcommand %q is in the closed command set but has no handler in run (cmd/release-intent/main.go). This is a programming error in %s, not a user input issue: add the handler", intent.ProgramName, command, intent.ProgramName)
 	}
