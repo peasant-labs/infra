@@ -605,7 +605,7 @@ cases:
     expected: { rule: credential-steps-run-one-template, want_contains: ["a rehearsal runs only from a maintainer's machine"] }
     sibling: accept-atomic-release-assets
     classification: must-fail
-    provenance: { source: requirement, ref: "D1: --rehearse is refused inside workflows" }
+    provenance: { source: requirement, ref: "--rehearse is refused inside workflows" }
     mutation: { description: "Rehearse inside the workflow." }
 
   - name: reject-publisher-plus-upload-action

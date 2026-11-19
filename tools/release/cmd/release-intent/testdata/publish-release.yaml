@@ -177,7 +177,7 @@ cases:
       stderr: ["status 502", "deleted this run's draft id 9001"]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "D2: on failure before publish, delete the run's own draft by id"}
+    provenance: {source: requirement, ref: "on failure before publish, delete the run's own draft by id"}
     mutation: {description: "The second upload fails with 502."}
   - name: upload-failure-delete-fails
     input:
@@ -192,7 +192,7 @@ cases:
       after: [{id: 9001, draft: true, assets: 2}]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "D2: a draft that cannot be deleted is named with its delete command"}
+    provenance: {source: requirement, ref: "a draft that cannot be deleted is named with its delete command"}
     mutation: {description: "The upload fails and the cleanup delete fails too."}
   - name: digest-mismatch-deletes-own-draft
     input:
@@ -206,7 +206,7 @@ cases:
       stderr: ["1 changed (annotation-push-request-0.12.0.schema.json)", "deleted this run's draft id 9001"]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "D3: GitHub's digest must equal the local SHA-256"}
+    provenance: {source: requirement, ref: "GitHub's digest must equal the local SHA-256"}
     mutation: {description: "GitHub stores other bytes for one asset."}
   - name: extra-asset-deletes-own-draft
     input:
@@ -220,7 +220,7 @@ cases:
       stderr: ["1 extra (stray.json)"]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "D3: nothing extra"}
+    provenance: {source: requirement, ref: "nothing extra"}
     mutation: {description: "An asset no local file names appears on the draft."}
   - name: missing-asset-deletes-own-draft
     input:
@@ -234,7 +234,7 @@ cases:
       stderr: ["1 missing (annotation-push-request-0.10.0.schema.json)"]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "D3: nothing missing"}
+    provenance: {source: requirement, ref: "nothing missing"}
     mutation: {description: "An upload is acknowledged but never lands on the draft."}
   - name: not-immutable-after-publish
     input:
@@ -276,7 +276,7 @@ cases:
       lines: [release_id=9001, state=rehearsed]
       stderr: ["rehearsal draft id 9001 verified with 3 assets and deleted"]
     classification: must-pass
-    provenance: {source: requirement, ref: "D1: rehearsal creates, uploads, verifies, deletes by id, never publishes"}
+    provenance: {source: requirement, ref: "rehearsal creates, uploads, verifies, deletes by id, never publishes"}
     mutation: {description: "A never-pushed rehearsal tag."}
   - name: rehearse-release-tag-refused
     input:
@@ -291,7 +291,7 @@ cases:
       no_requests: true
     classification: must-fail
     sibling: rehearse-creates-verifies-deletes
-    provenance: {source: requirement, ref: "D1: --rehearse only accepts rehearsal-* tags"}
+    provenance: {source: requirement, ref: "--rehearse only accepts rehearsal-* tags"}
     mutation: {description: "A release tag under --rehearse."}
   - name: rehearse-pushed-tag-refused
     input:
@@ -305,7 +305,7 @@ cases:
       lines: [error=rehearsal-refused]
     classification: must-fail
     sibling: rehearse-creates-verifies-deletes
-    provenance: {source: requirement, ref: "D1: the rehearsal tag must not exist on the remote"}
+    provenance: {source: requirement, ref: "the rehearsal tag must not exist on the remote"}
     mutation: {description: "The rehearsal tag was pushed."}
   - name: rehearse-digest-mismatch
     input:
