@@ -22,23 +22,27 @@ import (
 var testBinaryPath string
 
 func TestMain(m *testing.M) {
+	os.Exit(testutil.RunWithIsolatedGitConfig(&binaryRunner{m: m}))
+}
+
+type binaryRunner struct{ m *testing.M }
+
+func (r *binaryRunner) Run() int {
 	dir, err := os.MkdirTemp("", intent.ProgramName+"-bin")
 	if err != nil {
 		os.Stderr.WriteString("TestMain: cannot create temp dir for the test binary: " + err.Error() + "\n")
-		os.Exit(1)
+		return 1
 	}
+	defer os.RemoveAll(dir)
 	bin := filepath.Join(dir, intent.ProgramName)
 	cmd := exec.Command("go", "build", "-o", bin, ".")
 	cmd.Dir = "."
 	if out, err := cmd.CombinedOutput(); err != nil {
 		os.Stderr.WriteString("TestMain: cannot build the " + intent.ProgramName + " binary once for process tests: " + err.Error() + "\n" + string(out))
-		os.RemoveAll(dir)
-		os.Exit(1)
+		return 1
 	}
 	testBinaryPath = bin
-	code := testutil.RunWithIsolatedGitConfig(m)
-	os.RemoveAll(dir)
-	os.Exit(code)
+	return r.m.Run()
 }
 
 // processResult is what one run of the built binary produced.
