@@ -409,10 +409,12 @@ policy therefore requires the workflow or the publish job to set
    `gh api -X DELETE repos/<repo>/releases/<id>`; the command never deletes a
    release it did not create. Two published releases are `release-ambiguous`.
    One published release is the rerun path: it is compared, never changed.
-   Exactly the manifest (and immutable under `--require-immutable`) prints
+   Exactly the manifest, with the run's prerelease flag (and immutable under
+   `--require-immutable`), prints
    `state=already-published` and exits 0; otherwise
-   `published-release-incomplete` (missing, extra, not uploaded, still a
-   draft), `published-release-differs` (same name, other size or digest) or
+   `published-release-incomplete` (missing, extra, not uploaded, digest not
+   reported), `published-release-differs` (same name, other size or digest;
+   or another prerelease flag) or
    `release-not-immutable`, each fixed forward with a new tag.
 4. **Tag.** With no release, `refs/tags/<tag>` must exist (`tag-missing`):
    publishing a draft for a missing tag would create it at the default branch.
@@ -420,11 +422,20 @@ policy therefore requires the workflow or the publish job to set
    (`release_id=` is printed at once), one upload per file to
    `uploads.github.com`, then the draft's assets compared with the manifest
    (`draft-incomplete`), the publish (`draft: false`, `prerelease`,
-   `make_latest`), and the published release compared again. A publish request
-   that fails is read back by id: still a draft is cleaned up, published is
-   verified.
+   `make_latest`), and the published release compared again. Before each
+   compare, the asset list is read again (after 1, 2, 4 and 8 s) while an
+   uploaded asset has no digest yet; a digest still missing is reported as
+   "digest not reported", not as a mismatch. A create whose answer is lost (no
+   answer, a server error, no id) may have made a draft: the error says so and
+   gives the read that lists the tag's drafts by id and the by-id delete. A
+   publish request that fails is read back by id: still a draft is cleaned up,
+   published is verified.
 6. **Cleanup.** Any failure before the publish deletes this run's own draft by
-   id. GitHub answers a delete of a release with hundreds of assets with 502
+   id. Every delete first reads the release back by id: a 404 is already gone,
+   and a release that is no longer a draft (published by someone else, or by
+   this run's publish landing late) is immutable and is never deleted; the
+   command says so and leaves it. GitHub has no conditional delete, so a
+   publish landing between that read and the delete is not excluded. GitHub answers a delete of a release with hundreds of assets with 502
    after about ten seconds and may keep it, so a server error or a lost answer
    makes the command delete that draft's assets one by one, then the empty
    draft, and read it back until it is gone. If that fails it prints the id
@@ -443,8 +454,10 @@ release, delete a release, and delete an asset, all on `--repo` and its
 asset delete only an asset listed on such a release. Anything else is refused
 as a programming error. The API base is `https://api.github.com` (uploads to
 `https://uploads.github.com`) or, for tests, a plain-http loopback server; a
-response over 32 MiB is an error; the token travels only in the
-`Authorization` header and is never printed.
+response over 32 MiB is an error; a redirect is never followed (it is a
+status error), so no request bypasses the allow-list; the token travels only
+in the `Authorization` header and is never printed. A release or asset delete
+is permitted only after the read-back found the release still a draft.
 
 **Rehearsal.** `--rehearse` runs steps 1-2, refuses unless the tag starts with
 `rehearsal-` and neither a release nor a ref exists for it
