@@ -2,35 +2,89 @@ package testutil
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
-// TestGitIsolationCopiesMatch keeps the three independent modules' isolation
-// implementation, scanner and behavioural proofs in lockstep.
+// TestGitIsolationCopiesMatch keeps the independent modules' test support in lockstep.
 func TestGitIsolationCopiesMatch(t *testing.T) {
-	files := []string{
-		"gitconfig.go",
-		"gitconfig_guard_test.go",
-		"gitconfig_isolation_test.go",
-		"gitconfig_test.go",
-		"testdata/git_isolation_scanner.yaml",
-		"testdata/git_isolation_scanner_manifest.yaml",
-	}
 	root := filepath.Join("..", "..", "..", "..")
-	for _, file := range files {
-		want, err := os.ReadFile(file)
+	var copies []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("read tools/release/internal/testutil/%s: %v", file, err)
+			return err
 		}
-		for _, module := range []string{"runner-dispatcher", "unstring"} {
-			path := filepath.Join(root, module, "internal", "testutil", file)
-			got, err := os.ReadFile(path)
+		if entry.IsDir() {
+			if path != root && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "testdata" || entry.Name() == "node_modules" || entry.Name() == "vendor") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() != "go.mod" {
+			return nil
+		}
+		copyDir := filepath.Join(filepath.Dir(path), "internal", "testutil")
+		if _, err := os.Stat(filepath.Join(copyDir, "gitconfig.go")); err == nil {
+			copies = append(copies, copyDir)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(copies) < 2 {
+		t.Fatalf("found %d git isolation copies; run from a complete repository checkout", len(copies))
+	}
+	files := func(dir string) []string {
+		t.Helper()
+		var paths []string
+		err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
-				t.Errorf("read %s/internal/testutil/%s: %v", module, file, err)
-			} else if !bytes.Equal(got, want) {
-				t.Errorf("%s/internal/testutil/%s differs from tools/release/internal/testutil/%s; synchronize the copies", module, file, file)
+				return err
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			// This comparison test exists in only one module.
+			if rel != "gitconfig_copies_test.go" {
+				paths = append(paths, rel)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(paths)
+		return paths
+	}
+	wantFiles := files(".")
+	for _, copyDir := range copies {
+		gotFiles := files(copyDir)
+		if !slices.Equal(gotFiles, wantFiles) {
+			t.Errorf("%s files = %v, want %v", copyDir, gotFiles, wantFiles)
+			continue
+		}
+		for _, file := range wantFiles {
+			want, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(filepath.Join(copyDir, file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Errorf("%s differs from tools/release/internal/testutil/%s", filepath.Join(copyDir, file), file)
 			}
 		}
 	}
