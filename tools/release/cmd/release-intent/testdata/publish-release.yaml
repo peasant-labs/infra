@@ -348,6 +348,8 @@ permit_required_names:
   - refuse-upload-host-read
   - refuse-generate-notes
   - refuse-extra-query
+  - delete-own-asset
+  - refuse-delete-foreign-asset
 permit_cases:
   - {name: list-releases, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30", call: list-releases}
   - {name: list-releases-page-two, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&page=2", call: list-releases}
@@ -365,23 +367,30 @@ permit_cases:
   - {name: refuse-other-repo, method: GET, url: "https://api.github.com/repos/peasant-labs/peasant/releases?per_page=30", call: ""}
   - {name: refuse-other-tag-ref, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/git/ref/tags/v0.57.1", call: ""}
   - {name: refuse-delete-tag-ref, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/git/refs/tags/v0.58.0", call: ""}
-  - {name: refuse-delete-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", call: ""}
+  - {name: refuse-delete-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [450679062], call: ""}
   - {name: refuse-http-scheme, method: GET, url: "http://api.github.com/repos/peasant-labs/schema/releases?per_page=30", call: ""}
   - {name: refuse-foreign-host, method: GET, url: "https://evil.example/repos/peasant-labs/schema/releases?per_page=30", call: ""}
   - {name: refuse-upload-host-read, method: GET, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?per_page=100", created: [9001], call: ""}
   - {name: refuse-generate-notes, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/generate-notes", call: ""}
+  - {name: delete-own-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", own_assets: [765391957], call: delete-asset}
+  - {name: refuse-delete-foreign-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", own_assets: [765391957], call: ""}
   - {name: refuse-extra-query, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&access_token=x", call: ""}
 
-# DeleteOwn's read-back (in process, counting sleeps). The schedule has 5
-# waits. GitHub answered 502 to the delete of the second real rehearsal's
-# 352-asset draft (id 450936274) and removed it anyway.
+# DeleteOwn (in process, counting sleeps; the schedule has 5 waits).
+# GitHub answered 502 to the delete of the second and third real
+# rehearsals' 352-asset drafts (ids 450936274 and 450940320): the first was
+# removed in the background, the second was not. A server error makes the
+# writer delete the release's assets one by one, then the empty release,
+# then read it back.
 delete_required_names:
   - delete-no-content
+  - delete-times-out-with-assets
   - delete-502-removed
   - delete-502-kept
   - delete-403
 delete_cases:
   - {name: delete-no-content, faults: {}, deleted: true, sleeps: 0}
-  - {name: delete-502-removed, faults: {delete_status: 502, delete_removes: true}, deleted: true, sleeps: 1}
+  - {name: delete-times-out-with-assets, faults: {delete_times_out_with_assets: true}, deleted: true, sleeps: 0}
+  - {name: delete-502-removed, faults: {delete_status: 502, delete_removes: true}, deleted: true, sleeps: 0}
   - {name: delete-502-kept, faults: {delete_status: 502}, deleted: false, sleeps: 5}
   - {name: delete-403, faults: {delete_status: 403}, deleted: false, sleeps: 0}

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,8 +25,9 @@ import (
 // it to one member of a closed allow-list of release calls on the --repo
 // repository and the --tag tag, and refuses anything else before it is
 // sent. Updating, uploading to and deleting a release are allowed only for a
-// release this writer created in this run, so the command can never change a
-// release it did not make. The transport rules are the reader's: https only
+// release this writer created in this run, and deleting an asset only for an
+// asset listed on such a release, so the command can never change a release
+// it did not make. The transport rules are the reader's: https only
 // (plain http only for a loopback test server), no client library, a
 // response size cap, and the token only in the Authorization header.
 
@@ -40,13 +43,14 @@ const (
 	callListAssets    releaseCall = "list-assets"
 	callUpdateRelease releaseCall = "update-release"
 	callDeleteRelease releaseCall = "delete-release"
+	callDeleteAsset   releaseCall = "delete-asset"
 )
 
 // allReleaseCalls is the closed allow-list, in the order a publish makes
 // them.
 var allReleaseCalls = []releaseCall{
 	callListReleases, callReadTagRef, callCreateRelease, callUploadAsset,
-	callReadRelease, callListAssets, callUpdateRelease, callDeleteRelease,
+	callReadRelease, callListAssets, callUpdateRelease, callDeleteRelease, callDeleteAsset,
 }
 
 func (c releaseCall) String() string { return string(c) }
@@ -58,16 +62,16 @@ func (c releaseCall) method() string {
 		return http.MethodPost
 	case callUpdateRelease:
 		return http.MethodPatch
-	case callDeleteRelease:
+	case callDeleteRelease, callDeleteAsset:
 		return http.MethodDelete
 	}
 	return http.MethodGet
 }
 
 // ownReleaseOnly reports whether the call may only name a release this run
-// created.
+// created, or an asset of one.
 func (c releaseCall) ownReleaseOnly() bool {
-	return c == callUploadAsset || c == callUpdateRelease || c == callDeleteRelease
+	return c == callUploadAsset || c == callUpdateRelease || c == callDeleteRelease || c == callDeleteAsset
 }
 
 const (
@@ -85,6 +89,7 @@ const (
 
 var (
 	releaseIDPath = regexp.MustCompile(`^/releases/([1-9][0-9]{0,18})(/assets)?$`)
+	assetIDPath   = regexp.MustCompile(`^/releases/assets/([1-9][0-9]{0,18})$`)
 	// pageQuery is the only query a listing may carry.
 	pageQuery = regexp.MustCompile(`^per_page=[0-9]{1,3}(&page=[1-9][0-9]{0,4})?$`)
 )
@@ -97,6 +102,8 @@ type releaseWriter struct {
 	token        string
 	client       *http.Client
 	created      map[int64]bool
+	// ownAssets are the asset ids listed on a release this run created.
+	ownAssets map[int64]bool
 	// sleep waits between read-backs; tests replace it.
 	sleep func(time.Duration)
 }
@@ -127,7 +134,7 @@ func newReleaseWriter(apiBase, repo, tag, token string, client *http.Client) (*r
 	if uploads == "" {
 		return nil, usageErr("%s: $%s %q is not %s or a plain-http loopback test server; the command publishes only to github.com, whose uploads host it knows, and never sends the token in clear text elsewhere", intent.CommandPublishRelease, githubAPIEnv, apiBase, defaultGitHubAPI)
 	}
-	return &releaseWriter{api: base, uploads: uploads, repo: repo, tag: tag, token: token, client: client, created: map[int64]bool{}, sleep: time.Sleep}, nil
+	return &releaseWriter{api: base, uploads: uploads, repo: repo, tag: tag, token: token, client: client, created: map[int64]bool{}, ownAssets: map[int64]bool{}, sleep: time.Sleep}, nil
 }
 
 // releaseTagPattern is a tag the command can name in a URL path unescaped.
@@ -167,6 +174,8 @@ func (w *releaseWriter) permit(method, target string) (releaseCall, error) {
 		call = callCreateRelease
 	case rest == "/git/ref/tags/"+w.tag:
 		call = callReadTagRef
+	case assetIDPath.MatchString(rest) && method == http.MethodDelete:
+		call, id = callDeleteAsset, mustID(assetIDPath.FindStringSubmatch(rest)[1])
 	case m == nil:
 		return refuse("the path is not a release endpoint")
 	default:
@@ -191,7 +200,10 @@ func (w *releaseWriter) permit(method, target string) (releaseCall, error) {
 	if call != callListReleases && call != callListAssets && call != callUploadAsset && u.RawQuery != "" {
 		return refuse("the call carries no query")
 	}
-	if call.ownReleaseOnly() && !w.created[id] {
+	if call == callDeleteAsset && !w.ownAssets[id] {
+		return refuse("asset id " + strconv.FormatInt(id, 10) + " is not on a release this run created")
+	}
+	if call.ownReleaseOnly() && call != callDeleteAsset && !w.created[id] {
 		return refuse("release id " + strconv.FormatInt(id, 10) + " was not created by this run")
 	}
 	return call, nil
@@ -313,6 +325,7 @@ func (r apiRelease) fact() intent.ReleaseFact {
 
 // apiAsset is the part of a release asset the command reads.
 type apiAsset struct {
+	ID     int64  `json:"id"`
 	Name   string `json:"name"`
 	Size   int64  `json:"size"`
 	Digest string `json:"digest"`
@@ -373,7 +386,10 @@ func (w *releaseWriter) ListAssets(id int64) ([]intent.ReleaseAssetFact, error) 
 			return err
 		}
 		for _, a := range page {
-			out = append(out, intent.ReleaseAssetFact(a))
+			out = append(out, intent.ReleaseAssetFact{Name: a.Name, Size: a.Size, Digest: a.Digest, State: a.State})
+			if w.created[id] {
+				w.ownAssets[a.ID] = true
+			}
 		}
 		return nil
 	})
@@ -470,40 +486,97 @@ func (w *releaseWriter) Publish(id int64, prerelease, latest bool) error {
 }
 
 // deleteConfirmSchedule is how long DeleteOwn waits before each read-back
-// after a delete that answered with a server error or no answer. GitHub
-// answered 502 to the delete of a 352-asset draft that it then removed
-// (second real rehearsal, 2026-11-19), so such an answer is not a failure
-// until the release is still there after the last read.
+// after a delete that answered with a server error or no answer.
 var deleteConfirmSchedule = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second}
 
-// DeleteOwn deletes a release this run created, by id. A server error or a
-// lost answer is followed by read-backs: the delete succeeded when the
-// release is gone.
+// DeleteOwn deletes a release this run created, by id. GitHub's delete of a
+// release with hundreds of assets times out at its gateway (502 after about
+// ten seconds; seen on the second and third real rehearsals, 2026-11-19,
+// once removed in the background and once not), so a delete answered with
+// a server error or no answer first deletes the release's assets one by
+// one, then the empty release, and then reads it back until it is gone.
 func (w *releaseWriter) DeleteOwn(id int64) error {
-	target := w.repoURL("/releases/" + strconv.FormatInt(id, 10))
-	call, resp, err := w.send(http.MethodDelete, target, nil, 0, "")
-	if err == nil && resp.status == http.StatusNoContent {
-		delete(w.created, id)
-		return nil
+	err := w.deleteRelease(id)
+	if err == nil || !retryable(err) {
+		return err
 	}
-	if err == nil {
-		err = w.statusError(call, http.MethodDelete, target, resp)
-		if resp.status < http.StatusInternalServerError {
-			return err
+	fmt.Fprintf(os.Stderr, "%s: the delete of release id %d failed (%v); deleting its assets first\n", intent.CommandPublishRelease, id, err)
+	if assetErr := w.deleteOwnAssets(id); assetErr != nil {
+		if gone, readErr := w.releaseGone(id); readErr == nil && gone {
+			delete(w.created, id)
+			return nil
 		}
-	} else if _, refused := w.permit(http.MethodDelete, target); refused != nil {
+		return fmt.Errorf("%w; deleting its assets one by one also failed: %v", err, assetErr)
+	}
+	err = w.deleteRelease(id)
+	if err == nil || !retryable(err) {
 		return err
 	}
 	for _, d := range deleteConfirmSchedule {
 		w.sleep(d)
-		gone, readErr := w.releaseGone(id)
-		if readErr == nil && gone {
+		if gone, readErr := w.releaseGone(id); readErr == nil && gone {
 			fmt.Fprintf(os.Stderr, "%s: the delete of release id %d answered with an error (%v), but the release is gone\n", intent.CommandPublishRelease, id, err)
 			delete(w.created, id)
 			return nil
 		}
 	}
 	return err
+}
+
+// deleteError is a delete answered with a status or not answered at all.
+type deleteError struct {
+	status int
+	err    error
+}
+
+func (e *deleteError) Error() string { return e.err.Error() }
+func (e *deleteError) Unwrap() error { return e.err }
+
+// retryable reports whether a failed delete may have left the release
+// removable: a server error or no answer, never a refusal or a client error.
+func retryable(err error) bool {
+	var d *deleteError
+	return errors.As(err, &d) && (d.status == 0 || d.status >= http.StatusInternalServerError)
+}
+
+func (w *releaseWriter) deleteRelease(id int64) error {
+	target := w.repoURL("/releases/" + strconv.FormatInt(id, 10))
+	if _, err := w.permit(http.MethodDelete, target); err != nil {
+		return err
+	}
+	call, resp, err := w.send(http.MethodDelete, target, nil, 0, "")
+	switch {
+	case err != nil:
+		return &deleteError{err: err}
+	case resp.status == http.StatusNoContent:
+		delete(w.created, id)
+		return nil
+	}
+	return &deleteError{status: resp.status, err: w.statusError(call, http.MethodDelete, target, resp)}
+}
+
+// deleteOwnAssets lists this run's release's assets and deletes each by id.
+func (w *releaseWriter) deleteOwnAssets(id int64) error {
+	if _, err := w.ListAssets(id); err != nil {
+		return err
+	}
+	ids := make([]int64, 0, len(w.ownAssets))
+	for a := range w.ownAssets {
+		ids = append(ids, a)
+	}
+	slices.Sort(ids)
+	for _, a := range ids {
+		target := w.repoURL("/releases/assets/" + strconv.FormatInt(a, 10))
+		call, resp, err := w.send(http.MethodDelete, target, nil, 0, "")
+		if err != nil {
+			return err
+		}
+		if resp.status != http.StatusNoContent && resp.status != http.StatusNotFound {
+			return w.statusError(call, http.MethodDelete, target, resp)
+		}
+		delete(w.ownAssets, a)
+	}
+	return nil
 }
 
 // releaseGone reads a release by id: 404 means it no longer exists.

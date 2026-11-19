@@ -60,6 +60,9 @@ type publishFaults struct {
 	// DeleteRemoves still removes the release first.
 	DeleteStatus  int  `yaml:"delete_status"`
 	DeleteRemoves bool `yaml:"delete_removes"`
+	// DeleteTimesOutWithAssets answers 502 to the delete of a release that
+	// still has assets, as GitHub did for a 352-asset draft.
+	DeleteTimesOutWithAssets bool `yaml:"delete_times_out_with_assets"`
 }
 
 type publishServer struct {
@@ -104,11 +107,12 @@ type publishCase struct {
 }
 
 type permitCase struct {
-	Name    string  `yaml:"name"`
-	Method  string  `yaml:"method"`
-	URL     string  `yaml:"url"`
-	Created []int64 `yaml:"created"`
-	Call    string  `yaml:"call"`
+	Name      string  `yaml:"name"`
+	Method    string  `yaml:"method"`
+	URL       string  `yaml:"url"`
+	Created   []int64 `yaml:"created"`
+	OwnAssets []int64 `yaml:"own_assets"`
+	Call      string  `yaml:"call"`
 }
 
 // deleteCase drives DeleteOwn in process with a counting sleep.
@@ -183,6 +187,7 @@ type fakeRelease struct {
 }
 
 type fakeAsset struct {
+	ID     int64  `json:"id"`
 	Name   string `json:"name"`
 	Size   int64  `json:"size"`
 	Digest string `json:"digest"`
@@ -199,6 +204,7 @@ type fakeReleaseServer struct {
 	tags     map[string]bool
 	releases []*fakeRelease
 	nextID   int64
+	assetID  int64
 	requests []string
 	server   *httptest.Server
 }
@@ -210,7 +216,7 @@ func digestOf(content []byte) string {
 
 func newFakeReleaseServer(t *testing.T, cfg publishServer, local []publishAssetFile) *fakeReleaseServer {
 	t.Helper()
-	s := &fakeReleaseServer{t: t, cfg: cfg, tags: map[string]bool{}, nextID: fakeFirstID}
+	s := &fakeReleaseServer{t: t, cfg: cfg, tags: map[string]bool{}, nextID: fakeFirstID, assetID: 765391956}
 	for _, tag := range cfg.Tags {
 		s.tags[tag] = true
 	}
@@ -225,7 +231,8 @@ func newFakeReleaseServer(t *testing.T, cfg publishServer, local []publishAssetF
 				if contains(r.Corrupt, a.Name) {
 					digest = digestOf([]byte(a.Content + "?"))
 				}
-				rel.Assets = append(rel.Assets, fakeAsset{Name: a.Name, Size: int64(len(a.Content)), Digest: digest, State: intent.AssetStateUploaded})
+				s.assetID++
+				rel.Assets = append(rel.Assets, fakeAsset{ID: s.assetID, Name: a.Name, Size: int64(len(a.Content)), Digest: digest, State: intent.AssetStateUploaded})
 			}
 		}
 		s.releases = append(s.releases, rel)
@@ -253,6 +260,7 @@ func contains(list []string, s string) bool {
 
 var (
 	fakeReleasePath = regexp.MustCompile(`^/repos/` + regexp.QuoteMeta(fakeReleaseRepo) + `/releases/([0-9]+)(/assets)?$`)
+	fakeAssetPath   = regexp.MustCompile(`^/repos/` + regexp.QuoteMeta(fakeReleaseRepo) + `/releases/assets/([0-9]+)$`)
 	fakeTagRefPath  = regexp.MustCompile(`^/repos/` + regexp.QuoteMeta(fakeReleaseRepo) + `/git/ref/tags/(.+)$`)
 )
 
@@ -334,6 +342,20 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if m := fakeAssetPath.FindStringSubmatch(path); m != nil && r.Method == http.MethodDelete {
+		aid, _ := strconv.ParseInt(m[1], 10, 64)
+		for _, rel := range s.releases {
+			for i, a := range rel.Assets {
+				if a.ID == aid {
+					rel.Assets = append(rel.Assets[:i], rel.Assets[i+1:]...)
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+			}
+		}
+		s.writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+		return
+	}
 	m := fakeReleasePath.FindStringSubmatch(path)
 	if m == nil {
 		s.writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
@@ -367,6 +389,10 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusOK, rel)
 	case r.Method == http.MethodDelete:
 		f := s.cfg.Faults
+		if f.DeleteTimesOutWithAssets && len(rel.Assets) > 0 {
+			s.writeJSON(w, http.StatusBadGateway, map[string]string{"message": "Server Error"})
+			return
+		}
 		if f.DeleteStatus == 0 || f.DeleteRemoves {
 			for i, x := range s.releases {
 				if x.ID == id {
@@ -394,11 +420,13 @@ func (s *fakeReleaseServer) upload(w http.ResponseWriter, r *http.Request, rel *
 	}
 	f := s.cfg.Faults
 	if name == f.UploadFail {
-		rel.Assets = append(rel.Assets, fakeAsset{Name: name, Size: 0, State: "starter"})
+		s.assetID++
+		rel.Assets = append(rel.Assets, fakeAsset{ID: s.assetID, Name: name, Size: 0, State: "starter"})
 		s.writeJSON(w, http.StatusBadGateway, map[string]string{"message": "Bad Gateway"})
 		return
 	}
-	asset := fakeAsset{Name: name, Size: int64(len(data)), Digest: digestOf(data), State: intent.AssetStateUploaded}
+	s.assetID++
+	asset := fakeAsset{ID: s.assetID, Name: name, Size: int64(len(data)), Digest: digestOf(data), State: intent.AssetStateUploaded}
 	if name == f.Corrupt {
 		asset.Digest = digestOf(append(data, '?'))
 	}
@@ -406,7 +434,8 @@ func (s *fakeReleaseServer) upload(w http.ResponseWriter, r *http.Request, rel *
 		rel.Assets = append(rel.Assets, asset)
 	}
 	if f.Extra != "" && len(rel.Assets) == 1 {
-		rel.Assets = append(rel.Assets, fakeAsset{Name: f.Extra, Size: 1, Digest: digestOf([]byte("x")), State: intent.AssetStateUploaded})
+		s.assetID++
+		rel.Assets = append(rel.Assets, fakeAsset{ID: s.assetID, Name: f.Extra, Size: 1, Digest: digestOf([]byte("x")), State: intent.AssetStateUploaded})
 	}
 	s.writeJSON(w, http.StatusCreated, asset)
 }
@@ -502,6 +531,9 @@ func TestPublishRelease_Permit(t *testing.T) {
 			for _, id := range c.Created {
 				w.created[id] = true
 			}
+			for _, id := range c.OwnAssets {
+				w.ownAssets[id] = true
+			}
 			call, err := w.permit(c.Method, c.URL)
 			if c.Call == "" {
 				if err == nil {
@@ -560,6 +592,13 @@ func TestPublishRelease_DeleteConfirm(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			asset := filepath.Join(t.TempDir(), "a.json")
+			if err := os.WriteFile(asset, []byte("{}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.Upload(id, asset, "a.json"); err != nil {
+				t.Fatal(err)
+			}
 			err = w.DeleteOwn(id)
 			if (err == nil) != c.Deleted {
 				t.Fatalf("DeleteOwn = %v, want deleted=%t", err, c.Deleted)
@@ -569,6 +608,11 @@ func TestPublishRelease_DeleteConfirm(t *testing.T) {
 			}
 			if c.Deleted && w.created[id] {
 				t.Fatalf("a deleted release is still recorded as this run's")
+			}
+			api.mu.Lock()
+			defer api.mu.Unlock()
+			if c.Deleted != (api.find(id) == nil) {
+				t.Fatalf("the fake still holds release %d: %t, want deleted=%t", id, api.find(id) != nil, c.Deleted)
 			}
 		})
 	}
