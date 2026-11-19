@@ -86,15 +86,18 @@ sets:
     refused: ["", "pull-requests", "actions", "Contents"]
 
   # The actions a job that may hold a credential may use, each pinned to a
-  # commit: check out, download what an earlier job prepared, mint. Setup
-  # actions, uploads and actions/github-script are refused there: each runs
-  # code the checker cannot read with the credential in reach.
+  # commit: check out, download what an earlier job prepared, mint, and (in a
+  # tag-triggered publish job only) set up Go to build the release tool.
+  # Other setup actions, caches, uploads and actions/github-script are
+  # refused there: each runs code the checker cannot read with the
+  # credential in reach.
   - name: allowed-action
     members:
       - actions/checkout
       - actions/download-artifact
       - actions/create-github-app-token
-    refused: ["", "softprops/action-gh-release", "actions/github-script", "actions/setup-go", "actions/upload-artifact", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
+      - actions/setup-go
+    refused: ["", "softprops/action-gh-release", "actions/github-script", "actions/cache", "actions/upload-artifact", "ad-m/github-push-action", "actions/checkout@v5", "Actions/Checkout"]
 
   # The with: inputs those actions may take in such a job.
   - name: action-input
@@ -115,12 +118,16 @@ sets:
       - permission-contents
       - permission-pull-requests
       - permission-issues
+      - repository
+      - sparse-checkout
+      - go-version-file
+      - cache
     refused: ["", "files", "draft", "make_latest", "token", "artifact-ids", "merge-multiple", "github-api-url", "Path"]
 
   # The env names a credential step may carry: three credential carriers and
   # the values the templates' typed parts read.
   - name: template-env
-    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, TITLE, BODY, PRERELEASE, LATEST, PR_NUMBER, JOURNEY_APP_TOKEN, EVIDENCE_DIR]
+    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, TITLE, BODY, PRERELEASE, LATEST, PR_NUMBER, JOURNEY_APP_TOKEN, EVIDENCE_DIR, GOWORK]
     refused: ["", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "NODE_OPTIONS", "CANDIDATE", "gh_token"]
 
   - name: credential-template
@@ -135,15 +142,16 @@ sets:
       - release-view
       - release-edit
       - release-create
-      - release-list
+      - release-publish
       - pr-comment
       - run-reviewed-script
-    refused: ["", "push", "gh-api", "Push-Own-Branch"]
+    refused: ["", "push", "gh-api", "release-list", "Push-Own-Branch"]
 
   # The commands a job that may hold a credential may run without one: move
-  # what an earlier job bundled into the local repository.
+  # what an earlier job bundled into the local repository, or build the
+  # release tool from the publish job's pinned infra checkout.
   - name: plumbing-template
-    members: [fetch-bundle-branch, fetch-bundle-tag, check-tag-ancestor]
+    members: [fetch-bundle-branch, fetch-bundle-tag, check-tag-ancestor, build-release-tool]
     refused: ["", "fetch", "git-config", "Fetch-Bundle-Branch"]
 
   # Why a job may hold a credential; it has no parser of its own.

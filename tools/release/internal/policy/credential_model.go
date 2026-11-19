@@ -132,10 +132,13 @@ const (
 	ActionDownloadArtifact AllowedAction = "actions/download-artifact"
 	// ActionCreateAppToken mints the releaser App token.
 	ActionCreateAppToken AllowedAction = "actions/create-github-app-token"
+	// ActionSetupGo installs Go for the publish job's build of the release
+	// tool; tag-triggered publish jobs only.
+	ActionSetupGo AllowedAction = "actions/setup-go"
 )
 
 // AllAllowedActions is the canonical closed set of allowed actions.
-var AllAllowedActions = []AllowedAction{ActionCheckout, ActionDownloadArtifact, ActionCreateAppToken}
+var AllAllowedActions = []AllowedAction{ActionCheckout, ActionDownloadArtifact, ActionCreateAppToken, ActionSetupGo}
 
 func (a AllowedAction) String() string { return string(a) }
 
@@ -198,6 +201,16 @@ const (
 	InputPermissionPullRequests ActionInput = "permission-pull-requests"
 	// InputPermissionIssues narrows the token's issues permission.
 	InputPermissionIssues ActionInput = "permission-issues"
+	// InputRepository is the publish job's tool checkout repository, which
+	// must be the tool's; with it, checkout also takes ref, path and
+	// sparse-checkout.
+	InputRepository ActionInput = "repository"
+	// InputSparseCheckout narrows the publish job's tool checkout.
+	InputSparseCheckout ActionInput = "sparse-checkout"
+	// InputGoVersionFile is setup-go's version file, the tool's go.mod.
+	InputGoVersionFile ActionInput = "go-version-file"
+	// InputCache is setup-go's cache switch, which must be false.
+	InputCache ActionInput = "cache"
 )
 
 // AllActionInputs is the canonical closed set of action inputs.
@@ -218,6 +231,10 @@ var AllActionInputs = []ActionInput{
 	InputPermissionContents,
 	InputPermissionPullRequests,
 	InputPermissionIssues,
+	InputRepository,
+	InputSparseCheckout,
+	InputGoVersionFile,
+	InputCache,
 }
 
 func (i ActionInput) String() string { return string(i) }
@@ -242,6 +259,8 @@ func inputsOf(action AllowedAction) []ActionInput {
 		return []ActionInput{InputArtifactName, InputArtifactPath}
 	case ActionCreateAppToken:
 		return []ActionInput{InputAppID, InputClientID, InputPrivateKey, InputOwner, InputRepositories, InputPermissionContents, InputPermissionPullRequests, InputPermissionIssues}
+	case ActionSetupGo:
+		return []ActionInput{InputGoVersionFile, InputCache}
 	}
 	return nil
 }
@@ -295,6 +314,9 @@ const (
 	TemplateEnvJourneyAppToken TemplateEnv = "JOURNEY_APP_TOKEN"
 	// TemplateEnvEvidenceDir names the downloaded evidence directory.
 	TemplateEnvEvidenceDir TemplateEnv = "EVIDENCE_DIR"
+	// TemplateEnvGoWork turns workspace mode off for the publish job's build
+	// of the release tool; that build step's own env only, value off.
+	TemplateEnvGoWork TemplateEnv = "GOWORK"
 )
 
 // AllTemplateEnvs is the canonical closed set of credential-step env names.
@@ -310,6 +332,7 @@ var AllTemplateEnvs = []TemplateEnv{
 	TemplateEnvPRNumber,
 	TemplateEnvJourneyAppToken,
 	TemplateEnvEvidenceDir,
+	TemplateEnvGoWork,
 }
 
 func (e TemplateEnv) String() string { return string(e) }
@@ -335,6 +358,8 @@ func (e TemplateEnv) allowedFor(class credentialJobClass) bool {
 	switch e {
 	case TemplateEnvPRNumber, TemplateEnvJourneyAppToken, TemplateEnvEvidenceDir:
 		return class == credentialJobComment
+	case TemplateEnvGoWork:
+		return class == credentialJobPublish
 	default:
 		return true
 	}

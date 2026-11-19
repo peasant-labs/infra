@@ -292,8 +292,8 @@ func (c *queueChecker) checkCredentialActions() {
 				member, err := ParseAllowedAction(action)
 				if !ok || err != nil || !slices.Contains(actionsFor(cj.class), member) {
 					if isReleaseUploadAction(action) {
-						emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", a release-upload action, which is not an allowed action: release assets reach a Release only through one atomic gh command",
-							"replace the action, and any separate gh release create, with "+atomicReleaseCreateShape+", then publish with gh release edit --draft=false")
+						emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", a release-upload action, which is not an allowed action: release assets reach a Release only through the "+TemplateReleasePublish.String()+" template",
+							"replace the action, and any separate gh release create, with "+TemplateReleasePublish.Shape())
 						continue
 					}
 					emit(stepLabel(jobName, i, step)+" uses "+strconv.Quote(uses)+", which is not an allowed action", allowed)
@@ -331,6 +331,10 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 	if action == ActionCheckout && class == credentialJobComment {
 		allowed = append(allowed, InputRef, InputArtifactPath)
 	}
+	toolCheckout := action == ActionCheckout && class == credentialJobPublish && mappingValue(mappingValue(step, "with"), InputRepository.String()) != nil
+	if toolCheckout {
+		allowed = append(allowed, InputRepository, InputRef, InputArtifactPath, InputSparseCheckout)
+	}
 	if action == ActionDownloadArtifact && cj.viaWorkflowRun() {
 		allowed = append(allowed, InputRunID, InputGitHubToken)
 	}
@@ -360,6 +364,9 @@ func actionInputFault(step, job *yaml.Node, cj credentialJob) string {
 		if why := commentMintInputFault(with); why != "" {
 			return why
 		}
+	}
+	if toolCheckout && valueOf(mappingValue(with, InputRepository.String())) != toolRepository {
+		return "checks out " + quote(valueOf(mappingValue(with, InputRepository.String()))) + "; a publish job checks out another repository only to build the release tool from " + toolRepository
 	}
 	if action == ActionCheckout && class == credentialJobComment {
 		if ref := mappingValue(with, InputRef.String()); ref != nil && soleExpression(ref.Value) != defaultBranchExpression {

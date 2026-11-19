@@ -270,7 +270,13 @@ func actionsFor(class credentialJobClass) []AllowedAction {
 	if !slices.Contains(allCredentialJobClasses, class) {
 		return nil
 	}
-	return slices.Clone(AllAllowedActions)
+	var out []AllowedAction
+	for _, a := range AllAllowedActions {
+		if a != ActionSetupGo || class == credentialJobPublish {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func mintInputsFor(class credentialJobClass) []ActionInput {

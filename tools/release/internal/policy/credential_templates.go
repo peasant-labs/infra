@@ -45,9 +45,9 @@ const (
 	// TemplateReleaseCreate creates the Release of the triggering tag, which
 	// must already exist.
 	TemplateReleaseCreate CredentialTemplate = "release-create"
-	// TemplateReleaseList lists the repository's releases, drafts included,
-	// to refuse a create when any release or draft already names the tag.
-	TemplateReleaseList CredentialTemplate = "release-list"
+	// TemplateReleasePublish publishes the triggering tag's Release with its
+	// assets through the release tool built in the same job.
+	TemplateReleasePublish CredentialTemplate = "release-publish"
 	// TemplatePRComment comments on the PR that triggered the run.
 	TemplatePRComment CredentialTemplate = "pr-comment"
 	// TemplateReviewedScript runs the policy's default-branch evidence script.
@@ -66,7 +66,7 @@ var AllCredentialTemplates = []CredentialTemplate{
 	TemplateReleaseView,
 	TemplateReleaseEdit,
 	TemplateReleaseCreate,
-	TemplateReleaseList,
+	TemplateReleasePublish,
 	TemplatePRComment,
 	TemplateReviewedScript,
 }
@@ -102,13 +102,13 @@ func (t CredentialTemplate) Shape() string {
 	case TemplateQueueRead:
 		return `gh api graphql [-F <name>=<literal>]... -f query='<a mergeQueue query>' [> <file>]`
 	case TemplateReleaseView:
-		return `gh release view <triggering tag> [--repo <repo>] [--json <fields>] [--jq <literal filter>]`
+		return `gh release view <triggering tag> [--repo <repo>]`
 	case TemplateReleaseEdit:
 		return `gh release edit <triggering tag> [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
 	case TemplateReleaseCreate:
-		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]] [<one quoted '<dir>/*' | <file>...>, with --draft]`
-	case TemplateReleaseList:
-		return releaseListShape
+		return `gh release create <triggering tag> --verify-tag [--repo <repo>] [--title <text>] [--notes <text> | --notes-file <file>] [--draft[=<v>]] [--prerelease[=<v>]] [--latest[=<v>]]`
+	case TemplateReleasePublish:
+		return releasePublishShape
 	case TemplatePRComment:
 		return `gh pr comment [--repo "$GITHUB_REPOSITORY"] [--edit-last] [--create-if-none] "${PR_NUMBER}" (--body-file|-F) <file>`
 	case TemplateReviewedScript:
@@ -125,7 +125,7 @@ func templatesFor(class credentialJobClass) []CredentialTemplate {
 	case credentialJobBot:
 		return []CredentialTemplate{TemplatePushOwnBranch, TemplatePRCreate, TemplatePREdit, TemplatePRClose, TemplatePRMerge, TemplateQueueRead}
 	case credentialJobPublish:
-		return []CredentialTemplate{TemplateReleaseView, TemplateReleaseEdit, TemplateReleaseCreate, TemplateReleaseList}
+		return []CredentialTemplate{TemplateReleaseView, TemplateReleaseEdit, TemplateReleaseCreate, TemplateReleasePublish}
 	case credentialJobComment:
 		return []CredentialTemplate{TemplatePRComment, TemplateReviewedScript}
 	}
@@ -150,10 +150,14 @@ const (
 	// commit or an ancestor of it, so a tag pushed from here names a commit
 	// that is already on the branch the run is on; release job only.
 	PlumbingCheckTagAncestor PlumbingTemplate = "check-tag-ancestor"
+	// PlumbingBuildReleaseTool builds the release tool from the job's pinned
+	// tool checkout into the runner's temporary directory, exactly as a
+	// tag-verify job does; tag-triggered publish job only.
+	PlumbingBuildReleaseTool PlumbingTemplate = "build-release-tool"
 )
 
 // AllPlumbingTemplates is the canonical closed set of plumbing templates.
-var AllPlumbingTemplates = []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag, PlumbingCheckTagAncestor}
+var AllPlumbingTemplates = []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag, PlumbingCheckTagAncestor, PlumbingBuildReleaseTool}
 
 func (t PlumbingTemplate) String() string { return string(t) }
 
@@ -177,6 +181,8 @@ func (t PlumbingTemplate) Shape() string {
 		return `git fetch [--no-tags] <file>` + bundleSuffix + ` "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}:` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}"`
 	case PlumbingCheckTagAncestor:
 		return `git merge-base --is-ancestor "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}" "${` + runnerEnvSHA + `}"`
+	case PlumbingBuildReleaseTool:
+		return VerifyStepBuild.Shape()
 	}
 	return "<unknown plumbing template>"
 }
@@ -188,6 +194,8 @@ func plumbingFor(class credentialJobClass) []PlumbingTemplate {
 		return []PlumbingTemplate{PlumbingFetchBundleBranch, PlumbingFetchBundleTag, PlumbingCheckTagAncestor}
 	case credentialJobBot:
 		return []PlumbingTemplate{PlumbingFetchBundleBranch}
+	case credentialJobPublish:
+		return []PlumbingTemplate{PlumbingBuildReleaseTool}
 	}
 	return nil
 }
@@ -233,6 +241,7 @@ const (
 	ghVerbList         = "list"
 	ghVerbComment      = "comment"
 	cmdNode            = "node"
+	cmdGo              = "go"
 	ghFlagHead         = "--head"
 	ghFlagVerifyTag    = "--verify-tag"
 	ghFlagDraft        = "--draft"
@@ -310,12 +319,13 @@ func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
 				return TemplateReleaseEdit, true
 			case ghVerbCreate:
 				return TemplateReleaseCreate, true
-			case ghVerbList:
-				return TemplateReleaseList, true
 			}
 		}
 	case cmdNode:
 		return TemplateReviewedScript, true
+	}
+	if len(words) > 1 && words[0].params("", runnerEnvTemp, "/"+intent.ProgramName) && literalAt(words, 1) == intent.CommandPublishRelease.String() {
+		return TemplateReleasePublish, true
 	}
 	return "", false
 }
@@ -364,8 +374,8 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 		why = s.matchQueueRead(words[3:])
 	case TemplateReleaseView:
 		why = s.matchReleaseView(words[3:])
-	case TemplateReleaseList:
-		why = s.matchReleaseList(words[3:])
+	case TemplateReleasePublish:
+		why = s.matchReleasePublish(words[1:])
 	case TemplateReleaseEdit:
 		why = s.matchRelease(words[3:], releaseFlags(), false)
 	case TemplateReleaseCreate:
@@ -438,6 +448,23 @@ func (s templateStep) matchPRComment(words []templateWord) string {
 // against the plumbing templates its class may run. It returns the template
 // and "" when the command is exactly one of them, or the reason it is not.
 func matchPlumbing(words []templateWord, s templateStep) (PlumbingTemplate, string) {
+	if literalAt(words, 0) == cmdGo {
+		tmpl := PlumbingBuildReleaseTool
+		if !slices.Contains(plumbingFor(s.class), tmpl) {
+			return tmpl, "a " + s.class.String() + " may not run the " + tmpl.String() + " plumbing template"
+		}
+		toolPath, why := verifyToolCheckout(stepsOf(s.job))
+		if why != "" {
+			return tmpl, "builds the release tool, but the job " + why
+		}
+		if matchVerifyBuild(words, toolPath) != "" {
+			return tmpl, "the command is not the build template `" + tmpl.Shape() + "` for the job's tool checkout " + quote(toolPath)
+		}
+		if strings.TrimSpace(s.env[TemplateEnvGoWork.String()]) != VerifyEnvGoWork.Value() {
+			return tmpl, "builds the tool without " + TemplateEnvGoWork.String() + ": " + VerifyEnvGoWork.Value() + ", so a go.work file in a parent directory could replace the tool's modules"
+		}
+		return tmpl, ""
+	}
 	if literalAt(words, 0) != cmdGit {
 		return "", "the command is none of the plumbing templates"
 	}
@@ -1003,106 +1030,22 @@ func (s templateStep) matchQueueRead(words []templateWord) string {
 	return ""
 }
 
-// matchReleaseView permits only release-state fields and a literal jq filter.
-// Imports are refused: imported jq modules could otherwise read credentials
-// without naming an environment-reading builtin in the filter itself.
+// matchReleaseView permits a plain view of the triggering tag's Release.
+// The --json/--jq form that judged a release's completeness in jq is
+// retired: release-publish verifies the release itself, by id, against the
+// exact local manifest.
 func (s templateStep) matchReleaseView(words []templateWord) string {
 	spec := flagSpec{"--repo": flagRepo, "-R": flagRepo, "--json": flagLiteral, "--jq": flagLiteral}
-	if why := s.matchRelease(words, spec, false); why != "" {
+	f, why := s.parseFlags(words, spec)
+	if why != "" {
 		return why
 	}
-	f, _ := s.parseFlags(words, spec)
-	jsonWord, hasJSON := f.flags["--json"]
-	if hasJSON {
-		if !namesCurrentReleaseRepository(f, s.env) {
-			return "release-state view must name the current repository exactly once with --repo or -R and \"$GITHUB_REPOSITORY\""
-		}
-		fields, _ := jsonWord.literal()
-		seen := map[string]bool{}
-		for _, field := range strings.Split(fields, ",") {
-			if (field != "isDraft" && field != "isImmutable" && field != "assets") || seen[field] {
-				return "--json must list only isDraft, isImmutable and assets, without duplicates"
-			}
-			seen[field] = true
-		}
+	_, hasJSON := f.flags["--json"]
+	_, hasJQ := f.flags["--jq"]
+	if hasJSON || hasJQ {
+		return "gh release view --json/--jq is retired from credential jobs: " + TemplateReleasePublish.String() + " verifies the release by id against the exact local assets; run " + releasePublishShape
 	}
-	if jqWord, ok := f.flags["--jq"]; ok {
-		if !hasJSON {
-			return "--jq requires --json"
-		}
-		filter, _ := jqWord.literal()
-		if strings.TrimSpace(filter) == "" || strings.Contains(filter, "$") {
-			return "--jq must be a nonempty literal filter without variables"
-		}
-		for _, word := range jqIdentifiers.FindAllString(filter, -1) {
-			switch word {
-			case "env", "input", "inputs", "input_filename", "input_line_number", "system", "import", "include", "module":
-				return "--jq may not read the environment or input, run system commands, or import modules"
-			}
-		}
-	}
-	return ""
-}
-
-var jqIdentifiers = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-
-const (
-	releaseListLimit  = "100"
-	releaseListFields = "tagName,isDraft"
-	// releaseListTagRead is the one environment read the list filter may
-	// make: the triggering tag, which the step maps from github.ref_name.
-	releaseListTagRead = "env.TAG"
-	releaseListShape   = `gh release list --repo "$GITHUB_REPOSITORY" --limit ` + releaseListLimit + ` --json ` + releaseListFields + ` --jq '<literal filter comparing .tagName with ` + releaseListTagRead + ` and calling error()>'`
-)
-
-// releaseListSpec is the flag spec of the one release-list form.
-func releaseListSpec() flagSpec {
-	return flagSpec{"--repo": flagRepo, "--limit": flagLiteral, "--json": flagLiteral, "--jq": flagLiteral}
-}
-
-// matchReleaseList permits one exact form: gh lists drafts by default, so a
-// filter that errors on any entry for the triggering tag refuses a create
-// beside a leftover draft. The filter is literal, may read the environment
-// only as env.TAG, and TAG must be the triggering tag.
-func (s templateStep) matchReleaseList(words []templateWord) string {
-	f, why := s.parseFlags(words, releaseListSpec())
-	if why != "" {
-		return why + "; the release-list template is " + releaseListShape
-	}
-	if len(f.positional) != 0 {
-		return "gh release list takes no positional words; the template is " + releaseListShape
-	}
-	if !namesCurrentReleaseRepository(f, s.env) || !f.flags["--repo"].params("", runnerEnvRepository, "") {
-		return "release list must name the current repository with --repo \"$GITHUB_REPOSITORY\"; the template is " + releaseListShape
-	}
-	for flag, want := range map[string]string{"--limit": releaseListLimit, "--json": releaseListFields} {
-		w, ok := f.flags[flag]
-		got, _ := w.literal()
-		if !ok || got != want {
-			return "release list must pass " + flag + " " + want + "; the template is " + releaseListShape
-		}
-	}
-	jqWord, ok := f.flags["--jq"]
-	if !ok {
-		return "release list must pass a literal --jq filter; the template is " + releaseListShape
-	}
-	filter, _ := jqWord.literal()
-	if strings.Contains(filter, "$") {
-		return "--jq must be a literal filter without variables"
-	}
-	if !strings.Contains(filter, ".tagName == "+releaseListTagRead) || !strings.Contains(filter, "error(") {
-		return "--jq must compare .tagName == " + releaseListTagRead + " and call error() when a release or draft names the tag"
-	}
-	if soleExpression(s.env[TemplateEnvTag.String()]) != triggeringRefName {
-		return "release list reads " + releaseListTagRead + ", so the step must map " + TemplateEnvTag.String() + " from ${{ " + triggeringRefName + " }}"
-	}
-	for _, word := range jqIdentifiers.FindAllString(strings.ReplaceAll(filter, releaseListTagRead, ""), -1) {
-		switch word {
-		case "env", "input", "inputs", "input_filename", "input_line_number", "system", "import", "include", "module":
-			return "--jq may read the environment only as " + releaseListTagRead + ", and may not read input, run system commands, or import modules"
-		}
-	}
-	return ""
+	return s.matchRelease(words, flagSpec{"--repo": flagRepo, "-R": flagRepo}, false)
 }
 
 // matchRelease checks a gh release view, edit, or create on the triggering
@@ -1120,13 +1063,8 @@ func (s templateStep) matchRelease(words []templateWord, spec flagSpec, create b
 		if _, ok := f.flags[ghFlagVerifyTag]; !ok {
 			return "gh release create does not pass " + ghFlagVerifyTag + ", so it would create the tag when it is missing"
 		}
-		if assets := f.positional[1:]; len(assets) > 0 {
-			if why := releaseAssetWordsFault(assets); why != "" {
-				return why
-			}
-			if !draftFlagTrue(f) {
-				return "gh release create names assets without " + ghFlagDraft + "; the atomic create must leave the release a draft for the separate verify and publish steps"
-			}
+		if len(f.positional) > 1 {
+			return "gh release create names assets, which is retired: release assets reach a Release only through " + TemplateReleasePublish.String() + ", which creates the draft, uploads, verifies and publishes by release id; run " + releasePublishShape
 		}
 	}
 	if !s.triggeringTag(f.positional[0]) {

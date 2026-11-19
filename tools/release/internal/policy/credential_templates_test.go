@@ -99,8 +99,9 @@ func TestPushHelperUsesGitCredentials(t *testing.T) {
 
 // credentialCommandsDoc is the workflow every row's job sits in: a planning
 // job whose plan step runs the planner and whose outputs map its tag and a
-// PR number, an unrelated job, and the credential job that needs the
-// planning job.
+// PR number, an unrelated job, a release-kind job whose outputs declare
+// prerelease and latest, and the credential job that needs the planning and
+// release-kind jobs and checks out the release tool.
 const credentialCommandsDoc = `jobs:
   plan:
     outputs:
@@ -116,12 +117,28 @@ const credentialCommandsDoc = `jobs:
   lint:
     outputs:
       tag: ${{ steps.plan.outputs.tag }}
+      prerelease: ${{ steps.kind.outputs.kind == 'rc' }}
     steps:
       - id: plan
         run: release-intent plan --branch develop --mode tag
+  guard:
+    outputs:
+      kind: ${{ steps.kind.outputs.kind }}
+      prerelease: ${{ steps.kind.outputs.kind == 'rc' }}
+      latest: ${{ steps.kind.outputs.kind == 'final' }}
+    steps:
+      - id: kind
+        run: echo kind=final >> "$GITHUB_OUTPUT"
   cred:
-    needs: [plan]
-    steps: []
+    needs: [plan, guard]
+    steps:
+      - id: tool
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: peasant-labs/infra
+          ref: 71e687cef7eede9a63659be98ce9adac3c563398
+          path: infra-tool
+          persist-credentials: false
 `
 
 // TestCredentialCommands drives the production tokenizer and the template
