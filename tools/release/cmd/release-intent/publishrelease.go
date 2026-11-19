@@ -68,8 +68,12 @@ func runPublishRelease(flags flagValues) error {
 func reject(err error) error { return rejectAs(intent.CommandPublishRelease, err) }
 
 func publishRelease(w *releaseWriter, opts publishOptions) error {
-	if opts.rehearse && !strings.HasPrefix(opts.tag, intent.RehearsalTagPrefix) {
-		return reject(intent.CheckRehearsal(opts.tag, false))
+	if opts.rehearse {
+		// The name alone is checked before any request; CheckRehearsal
+		// below repeats it with the tag's existence once that is read.
+		if err := intent.CheckRehearsalTag(opts.tag); err != nil {
+			return reject(err)
+		}
 	}
 	notes, err := readNotes(opts.notes, opts.assets)
 	if err != nil {
@@ -216,7 +220,7 @@ func verifyPublished(w *releaseWriter, opts publishOptions, id int64, manifest [
 	if err != nil {
 		return err
 	}
-	if err := intent.JudgePublished(opts.repo, rel, manifest, assets, opts.requireImmutable, rerun); err != nil {
+	if err := intent.JudgePublished(opts.repo, rel, manifest, assets, intent.PublishWant{Prerelease: opts.prerelease, RequireImmutable: opts.requireImmutable, Rerun: rerun}); err != nil {
 		return reject(err)
 	}
 	return nil

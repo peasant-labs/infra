@@ -217,19 +217,30 @@ func deleteCommands(repo string, rs []ReleaseFact) string {
 	return strings.Join(cmds, " && ")
 }
 
+// CheckRehearsalTag accepts only a rehearsal-prefixed tag name. It needs no
+// network, so the command runs it before any request; CheckRehearsal runs
+// it again with the tag's existence once that has been read.
+func CheckRehearsalTag(tag string) error {
+	if strings.HasPrefix(tag, RehearsalTagPrefix) && len(tag) > len(RehearsalTagPrefix) {
+		return nil
+	}
+	return rehearsalError(tag, "a rehearsal tag starts with "+strconv.Quote(RehearsalTagPrefix)+", so no release tag can be rehearsed")
+}
+
 // CheckRehearsal accepts a rehearsal only for a rehearsal-prefixed tag that
 // does not exist: GitHub creates the tag when a release is published, so a
 // rehearsal may never come near a real tag.
 func CheckRehearsal(tag string, tagExists bool) error {
-	why := ""
-	switch {
-	case !strings.HasPrefix(tag, RehearsalTagPrefix) || len(tag) == len(RehearsalTagPrefix):
-		why = "a rehearsal tag starts with " + strconv.Quote(RehearsalTagPrefix) + ", so no release tag can be rehearsed"
-	case tagExists:
-		why = "the tag exists on the remote, and a rehearsal draft must never sit beside a pushed tag"
-	default:
-		return nil
+	if err := CheckRehearsalTag(tag); err != nil {
+		return err
 	}
+	if tagExists {
+		return rehearsalError(tag, "the tag exists on the remote, and a rehearsal draft must never sit beside a pushed tag")
+	}
+	return nil
+}
+
+func rehearsalError(tag, why string) *Error {
 	return &Error{
 		Code:  ErrRehearsalRefused,
 		What:  "the rehearsal tag " + strconv.Quote(tag) + " is refused",
@@ -376,13 +387,25 @@ func JudgeDraft(repo string, rel ReleaseFact, local []LocalAsset, remote []Relea
 	return e
 }
 
+// PublishWant is what a published release must also be, beyond carrying
+// exactly the local assets.
+type PublishWant struct {
+	// Prerelease is the run's --prerelease: the release must match it.
+	Prerelease bool
+	// RequireImmutable requires GitHub to report the release immutable.
+	RequireImmutable bool
+	// Rerun marks a release a previous run published, met by this run.
+	Rerun bool
+}
+
 // JudgePublished accepts a published release only when it carries exactly
-// the local manifest and, when required, GitHub reports it immutable. After
-// publish and on a rerun alike, a published release is never changed: a
-// failure is fixed forward with a new tag.
-func JudgePublished(repo string, rel ReleaseFact, local []LocalAsset, remote []ReleaseAssetFact, requireImmutable, rerun bool) error {
+// the local manifest, its prerelease flag is the run's, and, when required,
+// GitHub reports it immutable. After publish and on a rerun alike, a
+// published release is never changed: a failure is fixed forward with a new
+// tag.
+func JudgePublished(repo string, rel ReleaseFact, local []LocalAsset, remote []ReleaseAssetFact, want PublishWant) error {
 	when := "verifying the release this run just published"
-	if rerun {
+	if want.Rerun {
 		when = "checking the release a previous run published for this tag"
 	}
 	d := DiffAssets(local, remote)
@@ -399,14 +422,20 @@ func JudgePublished(repo string, rel ReleaseFact, local []LocalAsset, remote []R
 	}
 	switch {
 	case rel.Draft:
-		return fail(ErrPublishedReleaseIncomplete, "is still a draft", "a published release is what the tag's users download")
+		e := fail(ErrPublishedReleaseIncomplete, "is still a draft after this run's publish request was accepted", "a release is published only when GitHub reports it no longer a draft")
+		e.Means = "the release is not published yet, and the command neither deletes nor changes it, because the accepted publish may still land"
+		e.Fix = "read it by id (gh api repos/" + repo + "/releases/" + strconv.FormatInt(rel.ID, 10) + "): if it is published, rerun the job, which checks it without changing it; if it is still a draft, delete it with " + DeleteCommand(repo, rel.ID) + " and rerun"
+		return e
 	case len(d.Missing)+len(d.Extra)+len(d.NotUploaded)+len(d.NoDigest) > 0:
 		return fail(ErrPublishedReleaseIncomplete, "does not carry exactly the local assets: "+d.String(),
 			"a release is complete only when it carries every local file and nothing else, each with a digest GitHub reports")
 	case len(d.Changed) > 0:
 		return fail(ErrPublishedReleaseDiffers, "carries assets whose bytes differ from the local files: "+d.String(),
 			"the same name with another size or sha256 digest is another build's file")
-	case requireImmutable && !rel.Immutable:
+	case rel.Prerelease != want.Prerelease:
+		return fail(ErrPublishedReleaseDiffers, "is published with prerelease="+strconv.FormatBool(rel.Prerelease)+", but this run publishes prerelease="+strconv.FormatBool(want.Prerelease),
+			"whether a release is a prerelease is part of what the release kind decided for the tag")
+	case want.RequireImmutable && !rel.Immutable:
 		return fail(ErrReleaseNotImmutable, "is not immutable",
 			"this repository requires immutable releases, so its assets and tag cannot change after publication")
 	}

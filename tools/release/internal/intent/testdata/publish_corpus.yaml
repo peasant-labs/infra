@@ -40,6 +40,10 @@ required_names:
   - published-rerun-digest
   - published-duplicate-name
   - published-not-immutable
+  - published-rc-matches
+  - published-prerelease-differs
+  - rehearsal-tag-name-only
+  - rehearsal-tag-name-only-release-tag
 cases:
   - name: local-flat-files
     input:
@@ -297,7 +301,7 @@ cases:
       release: {id: 450679062, tag: v0.58.0, draft: true, immutable: true}
       local: *local_real
       remote: *remote_real
-    expected: {code: published-release-incomplete, contains: ["still a draft"]}
+    expected: {code: published-release-incomplete, contains: ["still a draft", "neither deletes nor changes it", "gh api -X DELETE repos/peasant-labs/schema/releases/450679062"]}
     classification: must-fail
     sibling: published-exact-immutable
     provenance: {source: boundary, ref: "publish edit accepted but the release stayed a draft"}
@@ -357,3 +361,39 @@ cases:
     sibling: published-exact-immutable
     provenance: {source: requirement, ref: "schema requires immutable releases"}
     mutation: {description: "GitHub reports the release mutable."}
+  - name: published-rc-matches
+    input:
+      op: published
+      release: {id: 450679062, tag: v0.58.0, draft: false, prerelease: true, immutable: true}
+      local: *local_real
+      remote: *remote_real
+      want_prerelease: true
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "an rc is published as a prerelease"}
+    mutation: {description: "A prerelease release met by an rc run."}
+  - name: published-prerelease-differs
+    input:
+      op: published
+      release: {id: 450679062, tag: v0.58.0, draft: false, prerelease: true, immutable: true}
+      local: *local_real
+      remote: *remote_real
+      rerun: true
+    expected: {code: published-release-differs, contains: ["prerelease=true, but this run publishes prerelease=false"]}
+    classification: must-fail
+    sibling: published-rerun-exact
+    provenance: {source: requirement, ref: "the published prerelease flag must be the run's"}
+    mutation: {description: "A final run meets the tag's release published as a prerelease."}
+  - name: rehearsal-tag-name-only
+    input: {op: rehearsal-tag, tag: rehearsal-1763500000}
+    expected: {}
+    classification: must-pass
+    provenance: {source: requirement, ref: "the name-only rehearsal check runs before any request"}
+    mutation: {description: "A rehearsal tag name."}
+  - name: rehearsal-tag-name-only-release-tag
+    input: {op: rehearsal-tag, tag: v0.59.0}
+    expected: {code: rehearsal-refused}
+    classification: must-fail
+    sibling: rehearsal-tag-name-only
+    provenance: {source: requirement, ref: "the name-only rehearsal check runs before any request"}
+    mutation: {description: "A release tag name."}

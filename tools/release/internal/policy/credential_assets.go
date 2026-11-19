@@ -271,8 +271,9 @@ func (c *queueChecker) publisherFault(file string, doc, job *yaml.Node) (string,
 	if why := publisherConcurrencyFault(doc, job); why != "" {
 		return why, 0, nil
 	}
+	build := slices.Index(publisherOrder, publisherBuild)
 	for i, step := range steps {
-		if i != 2 {
+		if i != build {
 			if _, set := effectiveEnv(doc, job, step)[TemplateEnvGoWork.String()]; set {
 				return "runs with " + TemplateEnvGoWork.String() + ", which only the build step's own env may set", i, step
 			}

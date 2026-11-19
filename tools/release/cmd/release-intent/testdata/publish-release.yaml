@@ -47,6 +47,7 @@ required_names:
   - asset-list-past-page-one
   - asset-list-past-page-cap
   - file-changes-after-manifest
+  - rerun-prerelease-differs
 cases:
   - name: final-publishes
     input:
@@ -448,6 +449,23 @@ cases:
     sibling: final-publishes
     provenance: {source: requirement, ref: "the manifest is hashed once at the start; GitHub's digest of what was uploaded is compared with it"}
     mutation: {description: "A file is rewritten, same size, after the manifest is hashed and before its own upload."}
+  - name: rerun-prerelease-differs
+    input:
+      tag: v0.58.0
+      prerelease: "false"
+      latest: "true"
+      server:
+        tags: [v0.58.0]
+        releases: [{id: 450679062, tag: v0.58.0, prerelease: true, immutable: true, local_assets: true}]
+    expected:
+      exit: 2
+      lines: [release_id=450679062, error=published-release-differs]
+      stderr: ["prerelease=true, but this run publishes prerelease=false"]
+      after: [{id: 450679062, draft: false, prerelease: true, assets: 3}]
+    classification: must-fail
+    sibling: rerun-complete-no-op
+    provenance: {source: requirement, ref: "the published prerelease flag must be the run's"}
+    mutation: {description: "A final run meets the tag's release published as a prerelease."}
 
 # The writer's allow-list (permit), for repo peasant-labs/schema and tag
 # v0.58.0 against github.com. call is the allowed call, or "" for a refusal,

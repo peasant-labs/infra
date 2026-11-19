@@ -22,9 +22,11 @@ const (
 	publishOpLocal     publishOp = "local"
 	publishOpSelect    publishOp = "select"
 	publishOpRehearsal publishOp = "rehearsal"
-	publishOpTag       publishOp = "tag"
-	publishOpDraft     publishOp = "draft"
-	publishOpPublished publishOp = "published"
+	// publishOpRehearsalTag is the name-only check run before any request.
+	publishOpRehearsalTag publishOp = "rehearsal-tag"
+	publishOpTag          publishOp = "tag"
+	publishOpDraft        publishOp = "draft"
+	publishOpPublished    publishOp = "published"
 )
 
 const publishRepo = "peasant-labs/schema"
@@ -40,6 +42,7 @@ type publishInput struct {
 	Local            []intent.LocalAsset       `yaml:"local"`
 	Remote           []intent.ReleaseAssetFact `yaml:"remote"`
 	RequireImmutable bool                      `yaml:"require_immutable"`
+	WantPrerelease   bool                      `yaml:"want_prerelease"`
 	Rerun            bool                      `yaml:"rerun"`
 }
 
@@ -60,6 +63,8 @@ func runPublishOp(t *testing.T, in publishInput) (int64, error) {
 			return r.ID, err
 		}
 		return 0, err
+	case publishOpRehearsalTag:
+		return 0, intent.CheckRehearsalTag(in.Tag)
 	case publishOpRehearsal:
 		return 0, intent.CheckRehearsal(in.Tag, in.TagExists)
 	case publishOpTag:
@@ -67,7 +72,7 @@ func runPublishOp(t *testing.T, in publishInput) (int64, error) {
 	case publishOpDraft:
 		return 0, intent.JudgeDraft(publishRepo, in.Release, in.Local, in.Remote)
 	case publishOpPublished:
-		return 0, intent.JudgePublished(publishRepo, in.Release, in.Local, in.Remote, in.RequireImmutable, in.Rerun)
+		return 0, intent.JudgePublished(publishRepo, in.Release, in.Local, in.Remote, intent.PublishWant{Prerelease: in.WantPrerelease, RequireImmutable: in.RequireImmutable, Rerun: in.Rerun})
 	}
 	t.Fatalf("unknown op %q", in.Op)
 	return 0, nil
