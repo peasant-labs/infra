@@ -262,7 +262,7 @@ in
 
     imageRef = mkOption {
       type = types.str;
-      default = "quay.io/peasant-labs/github-runner@sha256:078b20f289f2852c45a92b862894536624b90e759ce9ff2e405b12db9ca565ae";
+      default = "quay.io/peasant-labs/github-runner@sha256:2ed732ce969039005d32a279fe05ece6b312766c19372d9b0dbc04d863a8d39a";
       description = ''
         Digest-pinned reference to the runner container image. The host pulls
         this exact digest and verifies it against {option}`imageSigner` before
