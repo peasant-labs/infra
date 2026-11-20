@@ -47,9 +47,13 @@ jobs:
       # The exact version unstring asserts (astgrep.RequiredVersion). The tests
       # fail, never skip, without it.
       - name: Install ast-grep
+        # The pool's tool cache is shared across concurrent VMs; keep this install job-private.
         run: |
-          npm install --global @ast-grep/cli@0.51.2
-          ast-grep --version
+          set -euo pipefail
+          prefix="$RUNNER_TEMP/ast-grep"
+          npm install --prefix "$prefix" --no-save --no-package-lock @ast-grep/cli@0.51.2
+          echo "$prefix/node_modules/.bin" >> "$GITHUB_PATH"
+          "$prefix/node_modules/.bin/ast-grep" --version
 
       - name: Formatting
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
@@ -58,4 +62,6 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./...
+        run: |
+          command -v ast-grep
+          go test ./...
