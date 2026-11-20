@@ -93,47 +93,35 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
     steps:
+      - name: Check out the release tool
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: peasant-labs/infra
+          ref: 71e687cef7eede9a63659be98ce9adac3c563398
+          path: infra-tool
+          sparse-checkout: tools/release
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: infra-tool/tools/release/go.mod
+          cache: false
+      - name: Build release-intent
+        env:
+          GOWORK: "off"
+        run: go build -C infra-tool/tools/release -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent
       - name: Download the release assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: release-dist
           path: dist
-      - name: Look for an existing release
-        id: view
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
-      - name: Refuse an existing release for the tag
-        id: list
-        if: steps.view.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error("a release or draft already exists for this tag") else "no release for this tag" end'
-      - name: Create the draft release
-        id: create
-        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$TAG" --notes-file dist/release-notes.md --prerelease="$PRERELEASE" 'dist/assets/*'
-      - name: Verify the draft before publishing
-        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets --jq 'if .isDraft != true or (.assets | length) == 0 then error("draft is incomplete") else "draft holds assets" end'
       - name: Publish the release
-        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.guard.outputs.kind == 'rc' }}
           LATEST: ${{ needs.guard.outputs.kind == 'final' }}
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE" --latest="$LATEST"
-      - name: Verify the published release
-        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isImmutable,assets --jq 'if .isDraft != false or .isImmutable != true or (.assets | length) == 0 then error("release is incomplete") else "release is published" end'
+        run: '"${RUNNER_TEMP}/release-intent" publish-release --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets dist/assets --notes dist/release-notes.md --prerelease "$PRERELEASE" --latest "$LATEST" --require-immutable'
   npm-publish:
     needs: [guard, nix-vendor-hash, contract-gates, verify-tag]
     runs-on: ubuntu-latest

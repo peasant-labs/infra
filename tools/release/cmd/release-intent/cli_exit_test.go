@@ -22,6 +22,17 @@ import (
 var testBinaryPath string
 
 func TestMain(m *testing.M) {
+	// The process tests run a binary built from this package by go build,
+	// which go test's result cache cannot see. The cache keys on the test
+	// binary, and the linker drops every command handler no test calls in
+	// process, so a change to such a handler (or to the internal packages
+	// only it reaches) used to leave a stale "(cached)" pass. Referencing
+	// main keeps everything the built binary contains in the test binary,
+	// so its content, and the cache key, change with it. The condition is
+	// never true at run time.
+	if len(os.Args) == 0 {
+		main()
+	}
 	os.Exit(testutil.RunWithIsolatedGitConfig(&binaryRunner{m: m}))
 }
 

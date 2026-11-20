@@ -172,9 +172,13 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   be a required check.
 - **The module depends on no other `peasant-labs` module.** Its test support
   lives in `tools/release/internal/testcase`.
-- **`inherit-verdict` is the only command that reads the network.** It uses
-  read-only GitHub REST GETs over the standard library (`githubapi.go`), never
-  a client library, and fails closed: a release-only candidate whose base
+- **`inherit-verdict` reads the network and `publish-release` writes it; no
+  other command does.** The writer may call only the release endpoints of
+  `--repo` listed in `githubwriter.go`'s allow-list, runs only in a publish job
+  built from a pinned infra SHA before the release artifact is downloaded, and
+  receives the token only in its own step env. Both use GitHub REST over the
+  standard library, never a client library. `inherit-verdict` uses read-only
+  GETs (`githubapi.go`) and fails closed: a release-only candidate whose base
   commit has no successful, marker-recorded merge-queue verdict is rejected,
   never sent back to the test suite. The release-only set is the changelog and
   version fields only; never widen it with `protected_paths` or
@@ -237,26 +241,26 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
   and every job of a workflow that names `workflow_run` is a listed comment
   job (a deliberate scope limit; a probe job would need its own typed class).
   A missing artifact fails closed; a stale run is the script's exit 0.
-  `pull_request_target` stays refused in every comment workflow. The
-  release-assets action takes only the build job's `release-dist` handoff and
-  the triggering tag. Its gate is either `view.success || create.success`
-  (the existing published-create flow) or `view.failure && create.success`
-  (the immutable flow: verified draft create, asset upload, then a gated
-  `--draft=false` publish edit). The action requires literal `draft: true`
-  in the immutable flow; in the published-create flow `draft` must be absent
-  or literal `false`. `prerelease` always reads a needed job's output.
-  `make_latest` must do so in the published-create flow; it may be omitted in
-  the draft flow, and should be omitted because drafts cannot be marked latest.
-  If present there it still reads a needed job's output. The immutable flow's
-  action reads `prerelease` from a needed release-kind job. Its publish edit
-  names the current repository explicitly with exactly one `--repo` or `-R`,
-  passes `--draft=false`, and binds `--prerelease` and `--latest` to that same
-  job's declared outputs, either directly or by matching the job's own output
-  comparison. The checker does not validate the producer's computation.
-  An existing release makes the immutable flow a no-op on rerun. A failed draft
-  is a burned release; the fix is forward. The checker cannot inspect the
-  action's implementation: verify that its exact pin finds the existing draft
-  and honors `draft: true` while uploading. The
+  `pull_request_target` stays refused in every comment workflow. A publish
+  job that publishes release assets is exactly five steps, in order, none
+  with an `if` or a `continue-on-error` key: a pinned `peasant-labs/infra`
+  tool checkout, `actions/setup-go` with `cache: false`, the tool build with
+  `GOWORK: "off"` (the tag-verify job's three shapes, so the tool is built
+  before untrusted bytes arrive), the build job's `release-dist` download,
+  and one `release-publish` template (`release-intent publish-release`),
+  under a `concurrency` group keyed only on the tag with a written-out
+  `cancel-in-progress: false` (one publish run per tag). Its
+  `PRERELEASE` and `LATEST` read one needed release-kind job's declared
+  outputs, directly or by matching that job's own output comparison; the
+  checker does not validate the producer's computation. `--rehearse` is
+  refused in a workflow. The `gh release create` with assets, `gh release
+  list` and `gh release view --json/--jq` forms are retired; notes-only
+  `gh release create/edit/view` flows are unchanged. The command verifies
+  the exact manifest by name, size and digest, by release id; an existing
+  complete release makes a rerun a no-op, and anything published wrong is
+  fixed forward. `--rehearse` (draft-only, never-pushed `rehearsal-*` tags,
+  maintainer machine) is deleted once schema and peasant have each published
+  one release through the command. The
   `--print-required` mode prints the contexts but retains the policy verdict.
 - **A release tag is checked before it leaves the release job.** The release
   workflow triggers only on push, schedule and workflow_dispatch, and the
@@ -275,8 +279,8 @@ SHA and build `./tools/release/cmd/release-intent`; they never import it.
 - **A no-`continue-on-error` clause refuses the key, not a value.** The
   title-guard job and its steps, every step `release-actions-gated` gates, the
   tag-verify job, and the tag path (the ancestry check, the tag push and the
-  release job), plus a comment job and its comment steps, the release-assets
-  action and its publish job, refuse the `continue-on-error` key whatever its
+  release job), plus a comment job and its comment steps and every step of the
+  release-assets publisher, refuse the `continue-on-error` key whatever its
   value. GitHub
   evaluates the key as a value, and the documented
   `continue-on-error: ${{ fromJSON('true') }}` form makes a failed check or

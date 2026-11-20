@@ -73,7 +73,7 @@ func shapeOf(f intent.Flag) flagShape {
 	case intent.FlagReleasePR:
 		return flagShape{"N", "the release PR number, a positive integer"}
 	case intent.FlagTag:
-		return flagShape{"TAG", "the release tag to verify"}
+		return flagShape{"TAG", "the release tag to verify or publish"}
 	case intent.FlagReport:
 		return flagShape{"FILE", "the strict contract report"}
 	case intent.FlagUntil:
@@ -85,9 +85,21 @@ func shapeOf(f intent.Flag) flagShape {
 	case intent.FlagFreezePlan:
 		return flagShape{"FILE", "the freeze plan used for the release commit"}
 	case intent.FlagRepo:
-		return flagShape{"OWNER/NAME", "the repository whose base-commit checks are read"}
+		return flagShape{"OWNER/NAME", "the repository whose base-commit checks are read, or whose release is published"}
 	case intent.FlagWait:
 		return flagShape{"DURATION", "how long to wait for a pending base verdict, for example 20m"}
+	case intent.FlagAssets:
+		return flagShape{"DIR", "the flat directory of files to publish as the release's assets"}
+	case intent.FlagNotes:
+		return flagShape{"FILE", "the release notes file, outside the asset directory"}
+	case intent.FlagPrerelease:
+		return flagShape{"BOOL", "whether the release is a prerelease, true or false"}
+	case intent.FlagLatest:
+		return flagShape{"BOOL", "whether the release becomes the latest release, true or false"}
+	case intent.FlagRequireImmutable:
+		return flagShape{"", "require GitHub to report the published release immutable"}
+	case intent.FlagRehearse:
+		return flagShape{"", "create, fill and verify a draft for a never-pushed rehearsal-* tag, then delete it; never publish"}
 	case intent.FlagPrintRangeBase:
 		return flagShape{"", "print the final tag before the revision without judging"}
 	default:

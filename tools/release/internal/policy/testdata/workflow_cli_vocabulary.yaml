@@ -20,6 +20,7 @@ required_names:
   - accept-queue-gate
   - accept-verify-tag
   - accept-inherit-verdict
+  - accept-publish-release
   - accept-expression-value
   - accept-separated-invocations
   - accept-attached-separator
@@ -37,6 +38,7 @@ required_names:
   - reject-queue-gate-missing-release-pr
   - reject-verify-tag-missing-branch
   - reject-inherit-verdict-missing-repo
+  - reject-publish-release-missing-assets
   - reject-equals-form
   - reject-substitution-missing-rev
   - reject-command-typo
@@ -80,6 +82,9 @@ cases:
     problems: []
   - name: accept-inherit-verdict
     run: release-intent inherit-verdict --base "$BASE" --head "$HEAD" --repo "$GITHUB_REPOSITORY" --wait 20m
+    problems: []
+  - name: accept-publish-release
+    run: '"${RUNNER_TEMP}/release-intent" publish-release --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets dist/assets --notes dist/release-notes.md --prerelease "$PRERELEASE" --latest "$LATEST"'
     problems: []
   - name: accept-expression-value
     run: release-intent plan --branch main --mode "${{ vars.RELEASE_BATCH_MODE }}" --verdict ${{ steps.verify.outcome == 'success' && 'taggable' || 'rejected' }}
@@ -144,6 +149,10 @@ cases:
     run: release-intent inherit-verdict --base "$BASE" --head "$HEAD"
     problems: ['missing required flag "--repo"']
     sibling: accept-inherit-verdict
+  - name: reject-publish-release-missing-assets
+    run: '"${RUNNER_TEMP}/release-intent" publish-release --tag "$TAG" --repo "$GITHUB_REPOSITORY" --notes dist/release-notes.md --prerelease "$PRERELEASE" --latest "$LATEST"'
+    problems: ['missing required flag "--assets"']
+    sibling: accept-publish-release
   - name: reject-equals-form
     run: release-intent group-pr --ref=ref
     problems: ['unknown flag "--ref=ref"', 'missing required flag "--ref"']

@@ -1,0 +1,556 @@
+# publish-release against a stateful fake GitHub (publishrelease_test.go).
+# The release and asset objects follow the shapes recorded from
+# peasant-labs/schema on 2026-11-18:
+#   /tmp/opencode/publish-release-github-tag-v0.58.0.json (one release,
+#     id 450679062, immutable, assets with name, size, digest and state),
+#   /tmp/opencode/publish-release-github-assets-v0.58.0.json (the first
+#     assets page, 100 entries, of the same release),
+#   /tmp/opencode/publish-release-github-releases.json (the first releases
+#     page: drafts listed beside published releases, newest first).
+# Like GitHub (seen on the first real rehearsal, 2026-11-19), the fake's
+# rel="next" link names the repository by id, /repositories/1273930850/...;
+# the writer builds page URLs itself and never follows it.
+# The fake serves only the fields the writer reads (id, tag_name, draft,
+# prerelease, immutable; asset id, name, size, digest, state). It omits
+# upload_url, html_url, url and the other URL fields on purpose: the writer
+# never follows a URL from a response, it builds each request URL itself from
+# --repo and the release or asset id, so permit judges every request.
+# Invariant: every check (the draft before publish, the release after it, and
+# a rerun's published release) compares GitHub's per-asset digest with the
+# manifest hashed at the start. The fake's digest is the SHA-256 of the bytes
+# it received, unless a fault row says otherwise.
+# The asset names are three of v0.58.0's; their contents are short stand-ins.
+# The fake server gives the first release a run creates id 9001. A reject
+# row names the accept row it differs from by one fault.
+assets:
+  - {name: annotation-push-request-0.10.0.schema.json, content: '{"a":10}'}
+  - {name: annotation-push-request-0.11.0.schema.json, content: '{"a":11}'}
+  - {name: annotation-push-request-0.12.0.schema.json, content: '{"a":12}'}
+notes: |
+  - add the kickstart preview stream contract (#264)
+required_names:
+  - final-publishes
+  - rc-publishes
+  - rerun-complete-no-op
+  - rerun-incomplete-fails
+  - rerun-digest-differs
+  - leftover-draft-fails
+  - leftover-draft-on-page-two
+  - list-cap-fails
+  - upload-failure-deletes-own-draft
+  - upload-failure-delete-fails
+  - digest-mismatch-deletes-own-draft
+  - extra-asset-deletes-own-draft
+  - missing-asset-deletes-own-draft
+  - not-immutable-after-publish
+  - tag-missing
+  - rehearse-creates-verifies-deletes
+  - rehearse-release-tag-refused
+  - rehearse-pushed-tag-refused
+  - rehearse-digest-mismatch
+  - draft-published-by-another-actor
+  - publish-lands-late-not-deleted
+  - redirect-refused
+  - digest-reported-late
+  - create-answer-lost
+  - asset-list-past-page-one
+  - asset-list-past-page-cap
+  - file-changes-after-manifest
+  - rerun-prerelease-differs
+cases:
+  - name: final-publishes
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      require_immutable: true
+      server: {tags: [v0.59.0], immutable_on_publish: true}
+    expected:
+      exit: 0
+      lines: [release_id=9001, state=published]
+      stderr: ["manifest of 3 files", "uploaded 3/3 annotation-push-request-0.12.0.schema.json"]
+      after: [{id: 9001, draft: false, prerelease: false, make_latest: "true", assets: 3}]
+    classification: must-pass
+    provenance: &req {source: requirement, ref: "publish-release: create, upload, verify, publish, verify, by id"}
+    mutation: {description: "A final release with immutable releases on."}
+  - name: rc-publishes
+    input:
+      tag: v0.59.0-rc1
+      prerelease: "true"
+      latest: "false"
+      server: {tags: [v0.59.0-rc1]}
+    expected:
+      exit: 0
+      lines: [release_id=9001, state=published]
+      after: [{id: 9001, draft: false, prerelease: true, make_latest: "false", assets: 3}]
+    classification: must-pass
+    provenance: *req
+    mutation: {description: "An rc: a prerelease that is never latest, without --require-immutable."}
+  - name: rerun-complete-no-op
+    input:
+      tag: v0.58.0
+      prerelease: "false"
+      latest: "true"
+      require_immutable: true
+      server:
+        tags: [v0.58.0]
+        releases: [{id: 450679062, tag: v0.58.0, immutable: true, local_assets: true}]
+    expected:
+      exit: 0
+      lines: [release_id=450679062, state=already-published]
+      stderr: ["checking it without changing it"]
+      after: [{id: 450679062, draft: false, assets: 3}]
+    classification: must-pass
+    provenance: {source: requirement, ref: "rerun on a complete published release is a no-op"}
+    mutation: {description: "Re-run all jobs after a successful publish."}
+  - name: rerun-incomplete-fails
+    input:
+      tag: v0.58.0
+      prerelease: "false"
+      latest: "true"
+      server:
+        tags: [v0.58.0]
+        releases: [{id: 450679062, tag: v0.58.0, immutable: true, local_assets: true, drop: [annotation-push-request-0.11.0.schema.json]}]
+    expected:
+      exit: 2
+      lines: [release_id=450679062, error=published-release-incomplete]
+      stderr: ["1 missing (annotation-push-request-0.11.0.schema.json)", "fix forward with a new tag"]
+      after: [{id: 450679062, draft: false, assets: 2}]
+    classification: must-fail
+    sibling: rerun-complete-no-op
+    provenance: {source: bug, ref: "a partial published release passed the old length-only check"}
+    mutation: {description: "The published release lacks one asset."}
+  - name: rerun-digest-differs
+    input:
+      tag: v0.58.0
+      prerelease: "false"
+      latest: "true"
+      server:
+        tags: [v0.58.0]
+        releases: [{id: 450679062, tag: v0.58.0, immutable: true, local_assets: true, corrupt: [annotation-push-request-0.10.0.schema.json]}]
+    expected:
+      exit: 2
+      lines: [release_id=450679062, error=published-release-differs]
+      after: [{id: 450679062, draft: false, assets: 3}]
+    classification: must-fail
+    sibling: rerun-complete-no-op
+    provenance: {source: requirement, ref: "strict rerun compare: names, sizes and digests"}
+    mutation: {description: "The rebuild's bytes differ from the published asset."}
+  - name: leftover-draft-fails
+    input:
+      tag: v0.57.1
+      prerelease: "false"
+      latest: "true"
+      server:
+        tags: [v0.57.1]
+        releases: [{id: 449898580, tag: v0.57.1, draft: true, local_assets: true}]
+    expected:
+      exit: 2
+      lines: [error=draft-exists]
+      stderr: ["gh api -X DELETE repos/peasant-labs/schema/releases/449898580"]
+      after: [{id: 449898580, draft: true, assets: 3}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: bug, ref: "the real leftover v0.57.1 draft id 449898580 in /tmp/opencode/publish-release-github-releases.json"}
+    mutation: {description: "A draft this run did not create; it is left untouched."}
+  - name: leftover-draft-on-page-two
+    input:
+      tag: v0.57.1
+      prerelease: "false"
+      latest: "true"
+      server:
+        tags: [v0.57.1]
+        filler: 40
+        releases: [{id: 449898580, tag: v0.57.1, draft: true}]
+    expected:
+      exit: 2
+      lines: [error=draft-exists]
+      after: [{id: 449898580, draft: true, assets: 0}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "page through every release; no 100-release window"}
+    mutation: {description: "40 newer releases push the draft past the first 30-release page."}
+  - name: list-cap-fails
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], filler: 1501}
+    expected:
+      exit: 2
+      lines: [error=release-list-truncated]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: boundary, ref: "50 pages of 30 releases is the cap; fail closed past it"}
+    mutation: {description: "1501 releases need a 51st page."}
+  - name: upload-failure-deletes-own-draft
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {upload_fail: annotation-push-request-0.11.0.schema.json}}
+    expected:
+      exit: 1
+      lines: [release_id=9001]
+      stderr: ["status 502", "deleted this run's draft id 9001"]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "on failure before publish, delete the run's own draft by id"}
+    mutation: {description: "The second upload fails with 502."}
+  - name: upload-failure-delete-fails
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {upload_fail: annotation-push-request-0.11.0.schema.json, delete_status: 403}}
+    expected:
+      exit: 1
+      lines: [release_id=9001]
+      stderr: ["could not delete this run's draft id 9001", "status 403", "gh api -X DELETE repos/peasant-labs/schema/releases/9001"]
+      after: [{id: 9001, draft: true, assets: 2}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "a draft that cannot be deleted is named with its delete command"}
+    mutation: {description: "The upload fails and the cleanup delete fails too."}
+  - name: digest-mismatch-deletes-own-draft
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {corrupt: annotation-push-request-0.12.0.schema.json}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["1 changed (annotation-push-request-0.12.0.schema.json)", "deleted this run's draft id 9001"]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "GitHub's digest must equal the local SHA-256"}
+    mutation: {description: "GitHub stores other bytes for one asset."}
+  - name: extra-asset-deletes-own-draft
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {extra: stray.json}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["1 extra (stray.json)"]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "nothing extra"}
+    mutation: {description: "An asset no local file names appears on the draft."}
+  - name: missing-asset-deletes-own-draft
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {drop: annotation-push-request-0.10.0.schema.json}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["1 missing (annotation-push-request-0.10.0.schema.json)"]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "nothing missing"}
+    mutation: {description: "An upload is acknowledged but never lands on the draft."}
+  - name: not-immutable-after-publish
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      require_immutable: true
+      server: {tags: [v0.59.0]}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=release-not-immutable]
+      after: [{id: 9001, draft: false, prerelease: false, make_latest: "true", assets: 3}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "schema requires immutable releases; a published release is never touched"}
+    mutation: {description: "Immutable releases are off in the repository."}
+  - name: tag-missing
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {}
+    expected:
+      exit: 2
+      lines: [error=tag-missing]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "publishing would create the tag at the default branch"}
+    mutation: {description: "The tag ref is absent."}
+  - name: rehearse-creates-verifies-deletes
+    input:
+      tag: rehearsal-1763500000
+      prerelease: "false"
+      latest: "true"
+      rehearse: true
+      server: {}
+    expected:
+      exit: 0
+      lines: [release_id=9001, state=rehearsed]
+      stderr: ["rehearsal draft id 9001 verified with 3 assets and deleted"]
+    classification: must-pass
+    provenance: {source: requirement, ref: "rehearsal creates, uploads, verifies, deletes by id, never publishes"}
+    mutation: {description: "A never-pushed rehearsal tag."}
+  - name: rehearse-release-tag-refused
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      rehearse: true
+      server: {tags: [v0.59.0]}
+    expected:
+      exit: 2
+      lines: [error=rehearsal-refused]
+      no_requests: true
+    classification: must-fail
+    sibling: rehearse-creates-verifies-deletes
+    provenance: {source: requirement, ref: "--rehearse only accepts rehearsal-* tags"}
+    mutation: {description: "A release tag under --rehearse."}
+  - name: rehearse-pushed-tag-refused
+    input:
+      tag: rehearsal-1763500000
+      prerelease: "false"
+      latest: "true"
+      rehearse: true
+      server: {tags: [rehearsal-1763500000]}
+    expected:
+      exit: 2
+      lines: [error=rehearsal-refused]
+    classification: must-fail
+    sibling: rehearse-creates-verifies-deletes
+    provenance: {source: requirement, ref: "the rehearsal tag must not exist on the remote"}
+    mutation: {description: "The rehearsal tag was pushed."}
+  - name: rehearse-digest-mismatch
+    input:
+      tag: rehearsal-1763500000
+      prerelease: "false"
+      latest: "true"
+      rehearse: true
+      server: {faults: {corrupt: annotation-push-request-0.11.0.schema.json}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["deleted this run's draft id 9001"]
+    classification: must-fail
+    sibling: rehearse-creates-verifies-deletes
+    provenance: {source: requirement, ref: "the strict-failure rehearsal: verification fails and the draft is deleted"}
+    mutation: {description: "GitHub stores other bytes for one asset during a rehearsal."}
+  - name: draft-published-by-another-actor
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {publish_on_upload: annotation-push-request-0.12.0.schema.json}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["is no longer a draft before this run published it", "not deleting release id 9001", "it is immutable; do not delete it"]
+      after: [{id: 9001, draft: false, assets: 3}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "never delete a non-draft: another actor publishes this run's draft mid-run"}
+    mutation: {description: "Someone publishes the draft as the last upload lands; the run refuses to delete it."}
+  - name: publish-lands-late-not-deleted
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {patch_lands_on_read: 2}}
+    expected:
+      exit: 1
+      lines: [release_id=9001]
+      stderr: ["status 502", "not deleting release id 9001", "it is immutable; do not delete it"]
+      after: [{id: 9001, draft: false, make_latest: "true", assets: 3}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "never delete a non-draft: a publish request that timed out lands after the read-back"}
+    mutation: {description: "The publish answers 502 and the read-back still sees a draft, but the publish lands before the cleanup's read; the cleanup refuses."}
+  - name: redirect-refused
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {redirect_list: true}}
+    expected:
+      exit: 1
+      stderr: ["(list-releases): status 302"]
+      requests: ["GET /repos/peasant-labs/schema/releases"]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "a 3xx surfaces as a status error and never bypasses permit"}
+    mutation: {description: "The release listing redirects elsewhere; the writer does not follow it."}
+  - name: digest-reported-late
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {digest_null_reads: 1}}
+    expected:
+      exit: 0
+      lines: [release_id=9001, state=published]
+      stderr: ["has not reported a digest for every asset of release id 9001 yet; reading again in 1s"]
+      after: [{id: 9001, draft: false, make_latest: "true", assets: 3}]
+    classification: must-pass
+    provenance: {source: requirement, ref: "a digest GitHub reports late is read again, not judged missing"}
+    mutation: {description: "The first asset listing reports every digest as null; the second reports them."}
+  - name: create-answer-lost
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {create_lost: true}}
+    expected:
+      exit: 1
+      stderr: ["(create-release): status 502", "A draft for v0.59.0 may exist; list releases and delete it by id before rerunning", "select(.draft and .tag_name == \"v0.59.0\")", "gh api -X DELETE repos/peasant-labs/schema/releases/<id>"]
+      after: [{id: 9001, draft: true, assets: 0}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "a lost create answer may leave a draft the run cannot identify"}
+    mutation: {description: "GitHub creates the draft but the answer is a 502."}
+  - name: asset-list-past-page-one
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      extra_local_assets: 150
+      server: {tags: [v0.59.0]}
+    expected:
+      exit: 0
+      lines: [release_id=9001, state=published]
+      stderr: ["manifest of 153 files", "uploaded 153/153"]
+      after: [{id: 9001, draft: false, make_latest: "true", assets: 153}]
+    classification: must-pass
+    provenance: {source: requirement, ref: "the asset list is read past its first 100-asset page"}
+    mutation: {description: "153 assets: the draft and published checks each read two asset pages."}
+  - name: asset-list-past-page-cap
+    input:
+      tag: v0.58.0
+      prerelease: "false"
+      latest: "true"
+      server:
+        tags: [v0.58.0]
+        releases: [{id: 450679062, tag: v0.58.0, immutable: true, local_assets: true, filler_assets: 5000}]
+    expected:
+      exit: 1
+      lines: [release_id=450679062]
+      stderr: ["more than 50 pages of assets; refusing to judge a partial list"]
+      after: [{id: 450679062, draft: false, assets: 5003}]
+    classification: must-fail
+    sibling: rerun-complete-no-op
+    provenance: {source: boundary, ref: "50 pages of 100 assets is the cap; a partial asset list is never judged"}
+    mutation: {description: "The published release carries 5003 assets, one page past the cap."}
+  - name: file-changes-after-manifest
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {rewrite_local_on_upload: {at: annotation-push-request-0.10.0.schema.json, file: annotation-push-request-0.12.0.schema.json}}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["1 changed (annotation-push-request-0.12.0.schema.json)", "deleted this run's draft id 9001"]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "the manifest is hashed once at the start; GitHub's digest of what was uploaded is compared with it"}
+    mutation: {description: "A file is rewritten, same size, after the manifest is hashed and before its own upload."}
+  - name: rerun-prerelease-differs
+    input:
+      tag: v0.58.0
+      prerelease: "false"
+      latest: "true"
+      server:
+        tags: [v0.58.0]
+        releases: [{id: 450679062, tag: v0.58.0, prerelease: true, immutable: true, local_assets: true}]
+    expected:
+      exit: 2
+      lines: [release_id=450679062, error=published-release-differs]
+      stderr: ["prerelease=true, but this run publishes prerelease=false"]
+      after: [{id: 450679062, draft: false, prerelease: true, assets: 3}]
+    classification: must-fail
+    sibling: rerun-complete-no-op
+    provenance: {source: requirement, ref: "the published prerelease flag must be the run's"}
+    mutation: {description: "A final run meets the tag's release published as a prerelease."}
+
+# The writer's allow-list (permit), for repo peasant-labs/schema and tag
+# v0.58.0 against github.com. call is the allowed call, or "" for a refusal,
+# whose message must contain error_contains (the clause that fired). created
+# are this run's releases, confirmed those read back as drafts, own_assets
+# asset ids listed on this run's release 9001.
+permit_required_names:
+  - list-releases
+  - list-releases-page-two
+  - read-tag-ref
+  - create-release
+  - upload-own
+  - read-release
+  - list-assets
+  - update-own
+  - delete-own
+  - delete-own-asset
+  - refuse-delete-own-unconfirmed
+  - refuse-delete-own-asset-unconfirmed
+  - refuse-delete-not-own
+  - refuse-update-not-own
+  - refuse-upload-not-own
+  - refuse-upload-on-api-host
+  - refuse-other-repo
+  - refuse-other-tag-ref
+  - refuse-delete-tag-ref
+  - refuse-delete-asset
+  - refuse-delete-foreign-asset
+  - refuse-http-scheme
+  - refuse-foreign-host
+  - refuse-upload-host-read
+  - refuse-generate-notes
+  - refuse-extra-query
+permit_cases:
+  - {name: list-releases, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30", call: "list-releases"}
+  - {name: list-releases-page-two, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&page=2", call: "list-releases"}
+  - {name: read-tag-ref, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/git/ref/tags/v0.58.0", call: "read-tag-ref"}
+  - {name: create-release, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases", call: "create-release"}
+  - {name: upload-own, method: POST, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?name=a.json", created: [9001], call: "upload-asset"}
+  - {name: read-release, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062", call: "read-release"}
+  - {name: list-assets, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062/assets?per_page=100", call: "list-assets"}
+  - {name: update-own, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], call: "update-release"}
+  - {name: delete-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], confirmed: [9001], call: "delete-release"}
+  - {name: delete-own-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], confirmed: [9001], own_assets: [765391957], call: "delete-asset"}
+  - {name: refuse-delete-own-unconfirmed, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], error_contains: "was not read back as a draft before the delete", call: ""}
+  - {name: refuse-delete-own-asset-unconfirmed, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], own_assets: [765391957], error_contains: "was not read back as a draft before the delete", call: ""}
+  - {name: refuse-delete-not-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/449898580", created: [9001], confirmed: [9001], error_contains: "was not created by this run", call: ""}
+  - {name: refuse-update-not-own, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062", error_contains: "was not created by this run", call: ""}
+  - {name: refuse-upload-not-own, method: POST, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/450679062/assets?name=a.json", error_contains: "was not created by this run", call: ""}
+  - {name: refuse-upload-on-api-host, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001/assets?name=a.json", created: [9001], error_contains: "the method does not belong to the endpoint", call: ""}
+  - {name: refuse-other-repo, method: GET, url: "https://api.github.com/repos/peasant-labs/peasant/releases?per_page=30", error_contains: "the path is not under /repos/peasant-labs/schema", call: ""}
+  - {name: refuse-other-tag-ref, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/git/ref/tags/v0.57.1", error_contains: "the path is not a release endpoint", call: ""}
+  - {name: refuse-delete-tag-ref, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/git/refs/tags/v0.58.0", error_contains: "the path is not a release endpoint", call: ""}
+  - {name: refuse-delete-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [450679062], confirmed: [450679062], error_contains: "is not on a release this run created", call: ""}
+  - {name: refuse-delete-foreign-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [9001], confirmed: [9001], own_assets: [765391957], error_contains: "is not on a release this run created", call: ""}
+  - {name: refuse-http-scheme, method: GET, url: "http://api.github.com/repos/peasant-labs/schema/releases?per_page=30", error_contains: "the host is not https://api.github.com", call: ""}
+  - {name: refuse-foreign-host, method: GET, url: "https://evil.example/repos/peasant-labs/schema/releases?per_page=30", error_contains: "the host is not https://api.github.com", call: ""}
+  - {name: refuse-upload-host-read, method: GET, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?per_page=100", created: [9001], error_contains: "takes only POST /releases/<id>/assets", call: ""}
+  - {name: refuse-generate-notes, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/generate-notes", error_contains: "the path is not a release endpoint", call: ""}
+  - {name: refuse-extra-query, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases?per_page=30&access_token=x", error_contains: "a listing carries only per_page and page", call: ""}
+
+# DeleteOwn (in process, counting sleeps; the schedule has 5 waits).
+# GitHub answered 502 to the delete of the second and third real
+# rehearsals' 352-asset drafts (ids 450936274 and 450940320): the first was
+# removed in the background, the second was not. A server error makes the
+# writer delete the release's assets one by one, then the empty release,
+# then read it back.
+delete_required_names:
+  - delete-no-content
+  - delete-times-out-with-assets
+  - delete-502-removed
+  - delete-502-kept
+  - delete-403
+delete_cases:
+  - {name: delete-no-content, faults: {}, deleted: true, sleeps: 0}
+  - {name: delete-times-out-with-assets, faults: {delete_times_out_with_assets: true}, deleted: true, sleeps: 0}
+  - {name: delete-502-removed, faults: {delete_status: 502, delete_removes: true}, deleted: true, sleeps: 0}
+  - {name: delete-502-kept, faults: {delete_status: 502}, deleted: false, sleeps: 5}
+  - {name: delete-403, faults: {delete_status: 403}, deleted: false, sleeps: 0}

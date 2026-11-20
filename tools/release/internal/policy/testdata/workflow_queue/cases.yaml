@@ -38,68 +38,43 @@ required_names:
   - accept-comment-pat
   - accept-reviewed-script
   - accept-atomic-release-assets
-  - accept-atomic-assets-gate-expression-form
-  - reject-atomic-assets-create-gate-or-true
-  - reject-atomic-assets-create-gate-or-mix
-  - reject-atomic-assets-create-gate-self
-  - reject-atomic-assets-create-gate-always
-  - reject-atomic-assets-fake-gate
-  - reject-atomic-assets-fake-list-gate
-  - reject-atomic-assets-publish-gate-or-true
-  - reject-atomic-assets-publish-gate-or-mix
-  - reject-atomic-assets-publish-gate-self
-  - reject-atomic-assets-publish-fake-gate
-  - reject-schema-atomic-create-gate
-  - reject-atomic-assets-missing-list-check
-  - reject-atomic-assets-list-check-after-create
-  - reject-atomic-assets-list-check-continue-on-error
-  - reject-atomic-assets-glob-not-asset
-  - reject-atomic-assets-two-globs
-  - reject-atomic-assets-command-substitution
+  - accept-publisher-job-concurrency
+  - reject-publisher-no-concurrency
+  - reject-publisher-concurrency-cancels
+  - reject-publisher-concurrency-cancel-implicit
+  - reject-publisher-concurrency-not-keyed
+  - reject-publisher-concurrency-keyed-on-sha
+  - reject-publisher-concurrency-scalar
+  - reject-publisher-rehearse-equals-true
+  - reject-publisher-job-level-token
+  - reject-retired-gh-assets-publisher
+  - reject-retired-schema-gh-publisher
+  - reject-publisher-build-after-download
+  - reject-publisher-build-other-output
+  - reject-publisher-tool-checkout-unpinned
+  - reject-publisher-tool-checkout-other-repo
+  - reject-publisher-setup-go-cache
+  - reject-publisher-gowork-missing
+  - reject-publisher-step-if
+  - reject-publisher-continue-on-error-false
+  - reject-publisher-second-release-template
+  - reject-publisher-two-publishers
+  - reject-publisher-rehearse
+  - reject-publisher-plus-upload-action
+  - reject-publisher-repo-overridden
+  - reject-publisher-latest-other-job
+  - reject-publisher-latest-undeclared
+  - reject-schema-publisher-latest-wrong-comparison
+  - reject-schema-publisher-kind-source-mismatch
+  - reject-atomic-assets-wrong-artifact
+  - reject-atomic-assets-wrong-path
+  - reject-atomic-assets-conditional-download
   - reject-release-upload-action
-  - reject-atomic-assets-create-plus-action
-  - reject-atomic-assets-two-creates
   - reject-release-assets-in-release-job
-  - accept-atomic-assets-publish-short-repo
   - accept-schema-draft-direct-guard-outputs
   - accept-unrelated-release-edit-without-repo
-  - reject-atomic-assets-publish-no-repo
-  - reject-atomic-assets-publish-two-repos
-  - reject-atomic-assets-publish-overridden-repo
-  - reject-atomic-assets-publish-latest-missing
-  - reject-atomic-assets-publish-latest-literal
-  - reject-atomic-assets-publish-latest-wrong-output
-  - reject-atomic-assets-publish-latest-other-job
-  - reject-atomic-assets-publish-latest-undeclared
-  - reject-atomic-assets-publish-latest-bare
-  - reject-atomic-assets-publish-prerelease-missing
-  - reject-atomic-assets-publish-prerelease-literal
-  - reject-atomic-assets-publish-prerelease-wrong-output
-  - reject-schema-draft-latest-wrong-comparison
-  - reject-schema-draft-latest-guard-mismatch
-  - reject-schema-draft-prerelease-guard-mismatch
-  - reject-schema-draft-kind-source-mismatch
-  - reject-schema-draft-publish-gate
   - reject-checkout-draft-input
   - accept-schema-atomic-release-assets
-  - accept-schema-release-view-completeness
-  - accept-draft-atomic-assets-explicit-true
-  - accept-draft-atomic-assets-publish-dual-gate
-  - reject-atomic-assets-view-not-continuable
-  - reject-atomic-assets-view-no-credential
-  - reject-atomic-assets-create-ungated
-  - reject-atomic-assets-create-no-verify
-  - reject-atomic-assets-without-draft
-  - reject-atomic-assets-create-false
-  - reject-atomic-assets-create-dynamic
-  - reject-atomic-assets-create-wrong-tag
-  - reject-atomic-assets-create-other-repo
-  - reject-atomic-assets-create-no-credential
-  - reject-atomic-assets-publish-ungated
-  - reject-atomic-assets-publish-always
-  - reject-atomic-assets-publish-missing-draft-false
-  - reject-atomic-assets-publish-other-repo
-  - reject-atomic-assets-publish-continue-on-error
   - accept-tag-publish-no-tap
   - accept-vendor-hash-split
   - reject-comment-job-unlisted
@@ -188,13 +163,9 @@ required_names:
   - reject-pat-action-input
   - reject-pat-run-text
   - reject-pat-unlisted-job
-  - reject-atomic-assets-wrong-artifact
-  - reject-atomic-assets-wrong-path
   - reject-atomic-assets-unneeded-build
-  - reject-atomic-assets-other-repository-gate
   - reject-atomic-assets-wrong-build-path
   - reject-atomic-assets-duplicate-upload
-  - reject-atomic-assets-conditional-download
   - reject-tag-publish-assets-no-verify
   - reject-vendor-hash-nix-in-update
   - reject-vendor-hash-push-develop
@@ -485,17 +456,403 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "release assets handoff" }
     mutation: { description: "Publish the verified build artifact through the pinned action." }
-  - name: accept-atomic-assets-publish-short-repo
+  - name: accept-publisher-job-concurrency
     input:
       overlay: accept-atomic-release-assets
       edits:
         - file: workflows/release.yml
-          old: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"'
-          new: 'gh release edit "$TAG" -R "$GITHUB_REPOSITORY"'
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: ""
+        - file: workflows/release.yml
+          old: "    needs: [verify, build]\n    runs-on: ubuntu-24.04\n"
+          new: "    needs: [verify, build]\n    runs-on: ubuntu-24.04\n    concurrency:\n      group: publish-${{ github.ref }}\n      cancel-in-progress: false\n"
     expected: { rule: release-assets-one-atomic-create }
     classification: must-pass
-    provenance: { source: requirement, ref: "draft publish repository" }
-    mutation: { description: "Name the current repository with the short flag." }
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "The publish job, not the workflow, holds one run per tag." }
+
+  - name: reject-publisher-no-concurrency
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: ""
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["without a concurrency group keyed on the tag"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "Drop the concurrency group: two runs of one tag can each publish." }
+
+  - name: reject-publisher-concurrency-cancels
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: true\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["cancel-in-progress: false"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "Let a second run cancel a publish between its upload and its cleanup." }
+
+  - name: reject-publisher-concurrency-cancel-implicit
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency:\n  group: release-${{ github.ref_name }}\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["literal cancel-in-progress: false"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "Leave cancel-in-progress to its default instead of writing it out." }
+
+  - name: reject-publisher-concurrency-not-keyed
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency:\n  group: release\n  cancel-in-progress: false\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["keyed on the tag"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "One group for every tag would serialize, but not key, the publish; the rule wants the tag." }
+
+  - name: reject-publisher-concurrency-keyed-on-sha
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency:\n  group: release-${{ github.sha }}\n  cancel-in-progress: false\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["keyed on the tag"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "Key the group on the commit: two tags on one commit share it, and a retagged run does not." }
+
+  - name: reject-publisher-concurrency-scalar
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "concurrency:\n  group: release-${{ github.ref_name }}\n  cancel-in-progress: false\n"
+          new: "concurrency: release-${{ github.ref_name }}\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["without cancel-in-progress: false"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one publish run per tag" }
+    mutation: { description: "The scalar form cannot write cancel-in-progress out." }
+
+  - name: reject-publisher-rehearse-equals-true
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--latest \"$LATEST\"'"
+          new: "--latest \"$LATEST\" --rehearse=true'"
+    expected: { rule: credential-steps-run-one-template, also: [tool-calls-match-the-cli], want_contains: ["--rehearse=true"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "--rehearse is refused in a workflow in every spelling" }
+    mutation: { description: "Rehearse inside the workflow with --rehearse=true." }
+
+  - name: reject-publisher-job-level-token
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "    env:\n      TAG: ${{ github.ref_name }}\n    steps:\n      - name: Check out the release tool"
+          new: "    env:\n      TAG: ${{ github.ref_name }}\n      GH_TOKEN: ${{ github.token }}\n    steps:\n      - name: Check out the release tool"
+    expected: { rule: credentials-stay-in-listed-jobs, also: [credential-steps-run-one-template], want_contains: ["jobs.publish.env reads github.token"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "the token reaches only the publish step's own env, never setup-go or the build" }
+    mutation: { description: "Put GH_TOKEN in the publish job's env, where every step, setup-go and the build included, would see it." }
+
+  - name: reject-retired-gh-assets-publisher
+    input:
+      overlay: reject-retired-gh-assets-publisher
+    expected: { rule: release-assets-one-atomic-create, also: [credential-steps-run-one-template], want_contains: ["retired form", "release-publish"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: bug, ref: "schema v0.55.0-v0.57.1: asset publishing through gh, verified by asset count only" }
+    mutation: { description: "The retired gh release view/list/create-with-assets/edit publisher." }
+
+  - name: reject-retired-schema-gh-publisher
+    input:
+      overlay: reject-retired-schema-gh-publisher
+    expected: { rule: release-assets-one-atomic-create, also: [credential-steps-run-one-template], want_contains: ["retired form"] }
+    sibling: accept-schema-atomic-release-assets
+    classification: must-fail
+    provenance: { source: bug, ref: "schema release.yml at origin/develop ff34dbc, the seven-step gh publisher" }
+    mutation: { description: "Schema's current seven-step gh publisher." }
+
+  - name: reject-publisher-build-after-download
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Build release-intent\n        env:\n          GOWORK: \"off\"\n        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n      - name: Download the release assets\n        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: release-dist\n          path: dist\n"
+          new: "      - name: Download the release assets\n        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: release-dist\n          path: dist\n      - name: Build release-intent\n        env:\n          GOWORK: \"off\"\n        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["is not the build step"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Build the tool after the untrusted release-dist bytes arrive." }
+
+  - name: reject-publisher-build-other-output
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n      - name: Download"
+          new: "        run: go build -C infra-tool/tools/release -o dist/release-intent ./cmd/release-intent\n      - name: Download"
+    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-run-no-general-steps], want_contains: ["is not the build step"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "the publish job builds the tool exactly like the tag-verify job" }
+    mutation: { description: "Build the binary into the directory the release artifact lands in." }
+
+  - name: reject-publisher-tool-checkout-unpinned
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          ref: 71e687cef7eede9a63659be98ce9adac3c563398\n          path: infra-tool\n          sparse-checkout: tools/release\n          persist-credentials: false\n      - name: Set up Go"
+          new: "          ref: main\n          path: infra-tool\n          sparse-checkout: tools/release\n          persist-credentials: false\n      - name: Set up Go"
+    expected: { rule: release-assets-one-atomic-create, also: [tool-pin-is-a-sha], want_contains: ["40-hex commit"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Check out the tool at a branch instead of a commit." }
+
+  - name: reject-publisher-tool-checkout-other-repo
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          repository: peasant-labs/infra\n          ref: 71e687cef7eede9a63659be98ce9adac3c563398\n          path: infra-tool\n          sparse-checkout: tools/release\n          persist-credentials: false\n      - name: Set up Go"
+          new: "          repository: peasant-labs/other\n          ref: 71e687cef7eede9a63659be98ce9adac3c563398\n          path: infra-tool\n          sparse-checkout: tools/release\n          persist-credentials: false\n      - name: Set up Go"
+    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-use-pinned-actions], want_contains: ["comes only from peasant-labs/infra"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Build the publisher from another repository." }
+
+  - name: reject-publisher-setup-go-cache
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          go-version-file: infra-tool/tools/release/go.mod\n          cache: false\n      - name: Build release-intent"
+          new: "          go-version-file: infra-tool/tools/release/go.mod\n          cache: true\n      - name: Build release-intent"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["cache must be false"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Restore another run's Go build cache into the publisher build." }
+
+  - name: reject-publisher-gowork-missing
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Build release-intent\n        env:\n          GOWORK: \"off\"\n        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+          new: "      - name: Build release-intent\n        run: go build -C infra-tool/tools/release -o \"${RUNNER_TEMP}/release-intent\" ./cmd/release-intent\n"
+    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-run-no-general-steps], want_contains: ["GOWORK"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Build the tool with workspace mode on." }
+
+  - name: reject-publisher-step-if
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Publish the release\n        id: publish\n"
+          new: "      - name: Publish the release\n        id: publish\n        if: github.ref_type == 'tag'\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["sets if"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Gate the publish step." }
+
+  - name: reject-publisher-continue-on-error-false
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Publish the release\n        id: publish\n"
+          new: "      - name: Publish the release\n        id: publish\n        continue-on-error: false\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["sets continue-on-error"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "continue-on-error is refused as a key, whatever its value" }
+    mutation: { description: "Set continue-on-error to false: the key is refused at any value." }
+
+  - name: reject-publisher-second-release-template
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Publish the release\n"
+          new: "      - name: Look for the release\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\"\n      - name: Publish the release\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["runs release-view beside publish-release"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Add a gh release view beside the publisher." }
+
+  - name: reject-publisher-two-publishers
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Publish the release\n        id: publish\n"
+          new: "      - name: Publish once\n        env:\n          GH_TOKEN: ${{ github.token }}\n          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n          LATEST: ${{ needs.build.outputs.latest }}\n        run: '\"${RUNNER_TEMP}/release-intent\" publish-release --tag \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --assets dist/assets --notes dist/notes.md --prerelease \"$PRERELEASE\" --latest \"$LATEST\"'\n      - name: Publish the release\n        id: publish\n"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["second publish-release"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Run the publisher twice." }
+
+  - name: reject-publisher-rehearse
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "--latest \"$LATEST\"'"
+          new: "--latest \"$LATEST\" --rehearse'"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["a rehearsal runs only from a maintainer's machine"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "--rehearse is refused inside workflows" }
+    mutation: { description: "Rehearse inside the workflow." }
+
+  - name: reject-publisher-plus-upload-action
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Publish the release\n"
+          new: "      - name: Upload more assets\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          files: dist/*\n      - name: Publish the release\n"
+    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-use-pinned-actions], want_contains: ["has 6 steps"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: bug, ref: "schema v0.55.0-v0.57.1 published empty: two creators for one tag" }
+    mutation: { description: "Upload through an action beside the publisher." }
+
+  - name: reject-publisher-repo-overridden
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          LATEST: ${{ needs.build.outputs.latest }}\n        run:"
+          new: "          LATEST: ${{ needs.build.outputs.latest }}\n          GITHUB_REPOSITORY: other/repository\n        run:"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["GITHUB_REPOSITORY"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Override the runner's repository value in the publisher's env." }
+
+  - name: reject-publisher-latest-other-job
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "LATEST: ${{ needs.build.outputs.latest }}"
+          new: "LATEST: ${{ needs.verify.outputs.latest }}"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["LATEST does not read"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Take the latest decision from a different needed job." }
+
+  - name: reject-publisher-latest-undeclared
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      latest: ${{ steps.flags.outputs.latest }}\n"
+          new: ""
+    expected: { rule: credential-steps-run-one-template, want_contains: ["LATEST does not read"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "one atomic publisher" }
+    mutation: { description: "Read a latest output the needed job never declares." }
+
+  - name: reject-schema-publisher-latest-wrong-comparison
+    input:
+      overlay: accept-schema-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "LATEST: ${{ needs.guard.outputs.kind == 'final' }}"
+          new: "LATEST: ${{ needs.guard.outputs.kind == 'rc' }}"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["LATEST does not read"] }
+    sibling: accept-schema-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "guard comparison binding" }
+    mutation: { description: "Use the prerelease comparison for the latest flag." }
+
+  - name: reject-schema-publisher-kind-source-mismatch
+    input:
+      overlay: accept-schema-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "kind: ${{ steps.parse.outputs.kind }}"
+          new: "kind: ${{ steps.other.outputs.kind }}"
+    expected: { rule: credential-steps-run-one-template, want_contains: ["PRERELEASE does not read"] }
+    sibling: accept-schema-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "guard comparison binding" }
+    mutation: { description: "Have the compared kind output originate from a different step." }
+
+  - name: reject-atomic-assets-wrong-artifact
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          name: release-dist\n          path: dist\n      - name: Publish the release"
+          new: "          name: other\n          path: dist\n      - name: Publish the release"
+    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-run-no-general-steps], want_contains: ["release-dist"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Download a different artifact." }
+
+  - name: reject-atomic-assets-wrong-path
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "          name: release-dist\n          path: dist\n      - name: Publish the release"
+          new: "          name: release-dist\n          path: other\n      - name: Publish the release"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["into dist"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Download the artifact somewhere else." }
+
+  - name: reject-atomic-assets-conditional-download
+    input:
+      overlay: accept-atomic-release-assets
+      edits:
+        - file: workflows/release.yml
+          old: "      - name: Download the release assets\n        uses:"
+          new: "      - name: Download the release assets\n        if: false\n        uses:"
+    expected: { rule: release-assets-one-atomic-create, want_contains: ["sets if"] }
+    sibling: accept-atomic-release-assets
+    classification: must-fail
+    provenance: { source: requirement, ref: "release artifact provenance" }
+    mutation: { description: "Skip the release artifact download." }
+
   - name: accept-schema-draft-direct-guard-outputs
     input:
       overlay: accept-schema-atomic-release-assets
@@ -507,17 +864,6 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "draft publish guard outputs" }
     mutation: { description: "Publish with direct reads of the guard's prerelease and latest outputs." }
-  - name: accept-schema-release-view-completeness
-    input:
-      overlay: accept-schema-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: '      - name: Create the draft release'
-          new: "      - name: Inspect existing release\n        if: steps.view.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --json isDraft,assets --jq 'if (.isDraft | type) != \"boolean\" or (.assets | type) != \"array\" or .isDraft or (.assets | length == 0) then error(\"release is incomplete; tags are immutable, so fix forward with a new tag\") else \"existing release is published and has assets\" end'\n      - name: Create the draft release"
-    expected: { rule: credential-steps-run-one-template }
-    classification: must-pass
-    provenance: { source: requirement, ref: "read release completeness in a credential job" }
-    mutation: { description: "Permit a literal filter over release state in the mounted workflow." }
   - name: accept-unrelated-release-edit-without-repo
     input:
       overlay: accept-tag-publish
@@ -529,210 +875,6 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "unrelated release edit compatibility" }
     mutation: { description: "Preserve optional repository selection on unrelated release edits." }
-  - name: reject-atomic-assets-publish-no-repo
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"'
-          new: 'gh release edit "$TAG"'
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit", "current repository"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish repository" }
-    mutation: { description: "Omit the repository from the artifact-only publisher." }
-  - name: reject-atomic-assets-publish-two-repos
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"'
-          new: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" -R "$GITHUB_REPOSITORY"'
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit", "current repository"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish repository" }
-    mutation: { description: "Pass two repository flags instead of one." }
-  - name: reject-atomic-assets-publish-overridden-repo
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "          LATEST: ${{ needs.build.outputs.latest }}\n"
-          new: "          LATEST: ${{ needs.build.outputs.latest }}\n          GITHUB_REPOSITORY: other/repository\n"
-    expected: { rule: release-assets-one-atomic-create, also: [credential-steps-run-one-template], want_contains: ["current repository"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish repository" }
-    mutation: { description: "Override the runner's repository value in the publish edit." }
-  - name: reject-atomic-assets-publish-latest-missing
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: ' --latest="$LATEST"'
-          new: ""
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--latest", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish latest" }
-    mutation: { description: "Omit the explicit latest decision from the publish edit." }
-  - name: reject-atomic-assets-publish-latest-literal
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: '--latest="$LATEST"'
-          new: "--latest=true"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--latest", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish latest" }
-    mutation: { description: "Replace the guard's latest decision with a literal." }
-  - name: reject-atomic-assets-publish-latest-wrong-output
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "LATEST: ${{ needs.build.outputs.latest }}"
-          new: "LATEST: ${{ needs.build.outputs.prerelease }}"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--latest", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish latest" }
-    mutation: { description: "Use the prerelease decision as the latest decision." }
-  - name: reject-atomic-assets-publish-latest-other-job
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "LATEST: ${{ needs.build.outputs.latest }}"
-          new: "LATEST: ${{ needs.verify.outputs.latest }}"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--latest", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish latest" }
-    mutation: { description: "Take the latest decision from a different needed job." }
-  - name: reject-atomic-assets-publish-latest-undeclared
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      latest: ${{ steps.flags.outputs.latest }}\n"
-          new: ""
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--latest", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish latest" }
-    mutation: { description: "Read a latest output the needed job never declares." }
-  - name: reject-atomic-assets-publish-latest-bare
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: '--latest="$LATEST"'
-          new: "--latest"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--latest", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish latest" }
-    mutation: { description: "Use a bare latest switch instead of the needed job's decision." }
-  - name: reject-atomic-assets-publish-prerelease-missing
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: ' --draft=false --prerelease="$PRERELEASE"'
-          new: ' --draft=false'
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--prerelease", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish prerelease" }
-    mutation: { description: "Omit the explicit prerelease decision from the publish edit." }
-  - name: reject-atomic-assets-publish-prerelease-literal
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: '--draft=false --prerelease="$PRERELEASE"'
-          new: '--draft=false --prerelease=false'
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--prerelease", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish prerelease" }
-    mutation: { description: "Replace the guard's prerelease decision with a literal." }
-  - name: reject-atomic-assets-publish-prerelease-wrong-output
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "          PRERELEASE: ${{ needs.build.outputs.prerelease }}\n          LATEST:"
-          new: "          PRERELEASE: ${{ needs.build.outputs.latest }}\n          LATEST:"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--prerelease", "output"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish prerelease" }
-    mutation: { description: "Use the latest decision as the prerelease decision." }
-  - name: reject-schema-draft-latest-wrong-comparison
-    input:
-      overlay: accept-schema-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "LATEST: ${{ needs.guard.outputs.kind == 'final' }}"
-          new: "LATEST: ${{ needs.guard.outputs.kind == 'rc' }}"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--latest", "output"] }
-    sibling: accept-schema-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "guard comparison binding" }
-    mutation: { description: "Use the prerelease comparison for the latest flag." }
-  - name: reject-schema-draft-latest-guard-mismatch
-    input:
-      overlay: accept-schema-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "latest: ${{ steps.parse.outputs.kind == 'final' }}"
-          new: "latest: ${{ steps.parse.outputs.kind == 'rc' }}"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--latest", "output"] }
-    sibling: accept-schema-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "guard comparison binding" }
-    mutation: { description: "Change the declared latest decision without changing the publish comparison." }
-  - name: reject-schema-draft-prerelease-guard-mismatch
-    input:
-      overlay: accept-schema-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "prerelease: ${{ steps.parse.outputs.kind == 'rc' }}"
-          new: "prerelease: ${{ steps.parse.outputs.kind == 'final' }}"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--prerelease", "output"] }
-    sibling: accept-schema-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "guard comparison binding" }
-    mutation: { description: "Change the declared prerelease decision without changing the publish comparison." }
-  - name: reject-schema-draft-kind-source-mismatch
-    input:
-      overlay: accept-schema-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "kind: ${{ steps.parse.outputs.kind }}"
-          new: "kind: ${{ steps.other.outputs.kind }}"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--prerelease", "output"] }
-    sibling: accept-schema-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "guard comparison binding" }
-    mutation: { description: "Have the compared kind output originate from a different step." }
-  - name: reject-schema-draft-publish-gate
-    input:
-      overlay: accept-schema-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - name: Publish the release\n        if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'\n"
-          new: "      - name: Publish the release\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
-    sibling: accept-schema-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "schema release publish gate" }
-    mutation: { description: "Remove the schema publish gate." }
   - name: reject-checkout-draft-input
     input:
       overlay: accept-tag-publish
@@ -751,208 +893,6 @@ cases:
     classification: must-pass
     provenance: { source: requirement, ref: "schema-style release workflow" }
     mutation: { description: "Accept the sanitized schema release graph and its guard-owned draft publication." }
-  - name: accept-draft-atomic-assets-explicit-true
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--verify-tag --draft --title"
-          new: "--verify-tag --draft=true --title"
-    expected: { rule: release-assets-one-atomic-create }
-    classification: must-pass
-    provenance: { source: requirement, ref: "immutable release assets" }
-    mutation: { description: "Use the explicit true spelling for draft creation." }
-  - name: accept-draft-atomic-assets-publish-dual-gate
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.create.outcome == 'success'"
-          new: "if: steps.view.outcome == 'failure' && steps.create.outcome == 'success'"
-    expected: { rule: release-assets-one-atomic-create }
-    classification: must-pass
-    provenance: { source: requirement, ref: "immutable release assets" }
-    mutation: { description: "Gate the publish edit on both the missing view and successful creation." }
-  - name: reject-atomic-assets-view-not-continuable
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "        continue-on-error: true\n"
-          new: ""
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["continue-on-error: true"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft creation after missing release" }
-    mutation: { description: "Let a missing view fail the job before the draft can be created." }
-  - name: reject-atomic-assets-view-no-credential
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - id: view\n        continue-on-error: true\n        env:\n          GH_TOKEN: ${{ github.token }}\n"
-          new: "      - id: view\n        continue-on-error: true\n"
-    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-run-no-general-steps], want_contains: ["not an earlier gh release view"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft release credential" }
-    mutation: { description: "Remove the credential from the release-view step." }
-  - name: reject-atomic-assets-create-ungated
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'\n"
-          new: ""
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft rerun behavior" }
-    mutation: { description: "Attempt to create the release even when it already exists." }
-  - name: reject-atomic-assets-create-no-verify
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--verify-tag --draft --title"
-          new: "--draft --title"
-    expected: { rule: credential-steps-run-one-template, want_contains: ["--verify-tag"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft tag verification" }
-    mutation: { description: "Permit creation of a missing tag." }
-  - name: reject-atomic-assets-without-draft
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--verify-tag --draft --title"
-          new: "--verify-tag --title"
-    expected: { rule: credential-steps-run-one-template, want_contains: ["without --draft"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "immutable release assets" }
-    mutation: { description: "Create a published release before uploading." }
-  - name: reject-atomic-assets-create-false
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--verify-tag --draft --title"
-          new: "--verify-tag --draft=false --title"
-    expected: { rule: credential-steps-run-one-template, want_contains: ["without --draft"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "immutable release assets" }
-    mutation: { description: "Pass a false draft flag at creation." }
-  - name: reject-atomic-assets-create-dynamic
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--verify-tag --draft --title"
-          new: '--verify-tag --draft="$PRERELEASE" --title'
-    expected: { rule: credential-steps-run-one-template, want_contains: ["without --draft"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "immutable release assets" }
-    mutation: { description: "Use a dynamic draft value that could publish immediately." }
-  - name: reject-atomic-assets-create-wrong-tag
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: 'gh release create "$TAG"'
-          new: 'gh release create v9.9.9'
-    expected: { rule: credential-steps-run-one-template, want_contains: ["not the triggering tag"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft release target" }
-    mutation: { description: "Create a release for another tag." }
-  - name: reject-atomic-assets-create-other-repo
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: 'gh release create "$TAG" --repo "$GITHUB_REPOSITORY"'
-          new: 'gh release create "$TAG" --repo other/repository'
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["current repository"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft release target" }
-    mutation: { description: "Create a release in another repository." }
-  - name: reject-atomic-assets-create-no-credential
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - id: create\n        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'\n        env:\n          GH_TOKEN: ${{ github.token }}\n"
-          new: "      - id: create\n        if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'\n        env:\n"
-    expected: { rule: credential-jobs-run-no-general-steps, want_contains: ["general step"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft release credential" }
-    mutation: { description: "Remove the credential from the release-create step." }
-  - name: reject-atomic-assets-publish-ungated
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "        if: steps.create.outcome == 'success'\n"
-          new: ""
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft rerun behavior" }
-    mutation: { description: "Publish even on a rerun with an existing release." }
-  - name: reject-atomic-assets-publish-always
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.create.outcome == 'success'"
-          new: "if: always() && steps.create.outcome == 'success'"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft upload failure" }
-    mutation: { description: "Publish after an asset upload fails." }
-  - name: reject-atomic-assets-publish-missing-draft-false
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--draft=false --prerelease"
-          new: "--prerelease"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["--draft=false"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish edit" }
-    mutation: { description: "Edit the release without publishing the draft." }
-  - name: reject-atomic-assets-publish-other-repo
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: 'gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"'
-          new: 'gh release edit "$TAG" --repo other/repository'
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["current repository"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish target" }
-    mutation: { description: "Publish a release in another repository." }
-  - name: reject-atomic-assets-publish-continue-on-error
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - id: publish\n"
-          new: "      - id: publish\n        continue-on-error: true\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["must not set continue-on-error"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "draft publish failure" }
-    mutation: { description: "Hide an unsuccessful publish edit." }
   - name: accept-tag-publish-no-tap
     input: { overlay: accept-atomic-release-assets }
     expected: { rule: tag-publish-verifies-the-tag }
@@ -1409,30 +1349,6 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "personal token confinement" }
     mutation: { description: "Read the listed PAT in a different job." }
-  - name: reject-atomic-assets-wrong-artifact
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: release-dist\n          path: dist\n"
-          new: "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: other\n          path: dist\n"
-    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-run-no-general-steps], want_contains: ["release-dist"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release artifact provenance" }
-    mutation: { description: "Download a different artifact." }
-  - name: reject-atomic-assets-wrong-path
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "          name: release-dist\n          path: dist\n      - id: view"
-          new: "          name: release-dist\n          path: other\n      - id: view"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["into dist"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release artifact provenance" }
-    mutation: { description: "Download the artifact somewhere else." }
   - name: reject-atomic-assets-unneeded-build
     input:
       overlay: accept-atomic-release-assets
@@ -1440,23 +1356,11 @@ cases:
         - file: workflows/release.yml
           old: "needs: [verify, build]"
           new: "needs: [verify]"
-    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-run-no-general-steps], want_contains: ["build"] }
+    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-run-no-general-steps, credential-steps-run-one-template], want_contains: ["build"] }
     sibling: accept-atomic-release-assets
     classification: must-fail
     provenance: { source: requirement, ref: "release artifact provenance" }
     mutation: { description: "Remove the needed build job." }
-  - name: reject-atomic-assets-other-repository-gate
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: 'gh release view "$TAG" --repo "$GITHUB_REPOSITORY"'
-          new: 'gh release view "$TAG" --repo other/repository'
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["current repository"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release creation gate" }
-    mutation: { description: "Check a different repository before the upload." }
   - name: reject-atomic-assets-wrong-build-path
     input:
       overlay: accept-atomic-release-assets
@@ -1481,18 +1385,6 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "release artifact provenance" }
     mutation: { description: "Another job can upload the same artifact name." }
-  - name: reject-atomic-assets-conditional-download
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "- uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
-          new: "- if: false\n        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["unconditionally download"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release artifact provenance" }
-    mutation: { description: "Skip the release artifact download." }
   - name: reject-tag-publish-assets-no-verify
     input:
       overlay: accept-atomic-release-assets
@@ -3071,42 +2963,6 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "cross-run download only for workflow_run" }
     mutation: { description: "Pass a token to a pull_request comment job's download." }
-  - name: reject-atomic-assets-glob-not-asset
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--notes-file dist/notes.md"
-          new: "--notes-file 'dist/*'"
-    expected: { rule: credential-steps-run-one-template, want_contains: ["--notes-file"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "one atomic release create" }
-    mutation: { description: "Put a directory glob at the notes-file position instead of the asset position." }
-  - name: reject-atomic-assets-two-globs
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--prerelease=\"$PRERELEASE\" 'dist/*'"
-          new: "--prerelease=\"$PRERELEASE\" 'dist/*' 'dist/*'"
-    expected: { rule: credential-steps-run-one-template, want_contains: ["is not the one asset word"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "one atomic release create" }
-    mutation: { description: "Name the asset glob twice." }
-  - name: reject-atomic-assets-command-substitution
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "--prerelease=\"$PRERELEASE\" 'dist/*'"
-          new: "--prerelease=\"$PRERELEASE\" \"$(ls dist)\""
-    expected: { rule: credential-steps-run-one-template, want_contains: ["a substitution"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "one atomic release create" }
-    mutation: { description: "Compute the asset list with command substitution." }
   - name: reject-release-upload-action
     input: { overlay: reject-release-upload-action }
     expected: { rule: credential-jobs-use-pinned-actions, want_contains: ["release-upload action", "gh release create"] }
@@ -3114,30 +2970,6 @@ cases:
     classification: must-fail
     provenance: { source: bug, ref: "schema v0.55.0-v0.57.1 published empty: the upload action filled a second draft" }
     mutation: { description: "Create the release with gh and upload its assets with softprops/action-gh-release." }
-  - name: reject-atomic-assets-create-plus-action
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - id: publish\n"
-          new: "      - name: Upload more assets\n        uses: softprops/action-gh-release@0123456789abcdef0123456789abcdef01234567\n        with:\n          files: dist/*\n      - id: publish\n"
-    expected: { rule: release-assets-one-atomic-create, also: [credential-jobs-use-pinned-actions], want_contains: ["release-upload action", "two tools would write the Release"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: bug, ref: "schema v0.55.0-v0.57.1 published empty: two creators for one tag" }
-    mutation: { description: "Upload through an action beside the atomic create." }
-  - name: reject-atomic-assets-two-creates
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - id: publish\n"
-          new: "      - id: create-again\n        if: steps.create.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release create \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --verify-tag --draft\n      - id: publish\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["not the only gh release create"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: bug, ref: "schema v0.55.0-v0.57.1 published empty: two creators for one tag" }
-    mutation: { description: "Add a second release create in the publish job." }
   - name: reject-release-assets-in-release-job
     input:
       overlay: ""
@@ -3150,188 +2982,6 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "release action class" }
     mutation: { description: "Use the release action in the release job." }
-  - name: reject-atomic-assets-missing-list-check
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - name: Refuse an existing release for the tag\n        id: list\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release list --repo \"$GITHUB_REPOSITORY\" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error(\"a release or draft already exists for this tag\") else \"no release for this tag\" end'\n"
-          new: ""
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["not the job's gh release list check"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: bug, ref: "a failed view can be an API error, and a leftover draft would get a second draft beside it" }
-    mutation: { description: "Create after a failed view without listing the tag's releases and drafts." }
-  - name: reject-atomic-assets-list-check-after-create
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "      - name: Refuse an existing release for the tag\n        id: list\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release list --repo \"$GITHUB_REPOSITORY\" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error(\"a release or draft already exists for this tag\") else \"no release for this tag\" end'\n"
-          new: ""
-        - file: workflows/release.yml
-          old: "      - id: publish\n"
-          new: "      - name: Refuse an existing release for the tag\n        id: list\n        if: steps.view.outcome == 'failure'\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release list --repo \"$GITHUB_REPOSITORY\" --limit 100 --json tagName,isDraft --jq '[.[] | select(.tagName == env.TAG)] | if length > 0 then error(\"a release or draft already exists for this tag\") else \"no release for this tag\" end'\n      - id: publish\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["after the view and before the create"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: bug, ref: "the list check must stop the create" }
-    mutation: { description: "Move the list check after the create." }
-  - name: reject-atomic-assets-list-check-continue-on-error
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "        id: list\n"
-          new: "        id: list\n        continue-on-error: true\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["not set continue-on-error"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: bug, ref: "the list check must fail closed on an API error" }
-    mutation: { description: "Let a failed list check continue to the create." }
-  - name: accept-atomic-assets-gate-expression-form
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-          new: "if: ${{ ( steps.view.outcome=='failure' && steps.list.outcome=='success' ) }}"
-    expected: { rule: release-assets-one-atomic-create }
-    classification: must-pass
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Write the create gate as a parenthesized expression without spaces." }
-  - name: reject-atomic-assets-create-gate-or-true
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-          new: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success' || true"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Append || true to the create gate." }
-  - name: reject-atomic-assets-create-gate-or-mix
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-          new: "if: steps.view.outcome == 'failure' || steps.list.outcome == 'success'"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Join the create gate's outcomes with ||." }
-  - name: reject-atomic-assets-create-gate-self
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-          new: "if: steps.view.outcome == 'failure' && steps.view.outcome == 'success'"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Gate the create on the view twice." }
-  - name: reject-atomic-assets-create-gate-always
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-          new: "if: always() && steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Add a status function to the create gate." }
-  - name: reject-atomic-assets-fake-gate
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-          new: "if: steps.publish.outcome == 'failure' && steps.list.outcome == 'success'"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["not an earlier gh release view"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Gate the create on a step that is not the view." }
-  - name: reject-atomic-assets-fake-list-gate
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-          new: "if: steps.view.outcome == 'failure' && steps.publish.outcome == 'success'"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["not the job's gh release list check"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Gate the create on a step that is not the list check." }
-  - name: reject-atomic-assets-publish-gate-or-true
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "        if: steps.create.outcome == 'success'\n"
-          new: "        if: steps.create.outcome == 'success' || true\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Append || true to the publish gate." }
-  - name: reject-atomic-assets-publish-gate-or-mix
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "        if: steps.create.outcome == 'success'\n"
-          new: "        if: steps.view.outcome == 'failure' || steps.create.outcome == 'success'\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Join the publish gate's outcomes with ||." }
-  - name: reject-atomic-assets-publish-gate-self
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "        if: steps.create.outcome == 'success'\n"
-          new: "        if: steps.create.outcome == 'success' && steps.create.outcome == 'success'\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Gate the publish on the create twice." }
-  - name: reject-atomic-assets-publish-fake-gate
-    input:
-      overlay: accept-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "        if: steps.create.outcome == 'success'\n"
-          new: "        if: steps.list.outcome == 'success'\n"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["publish edit must be gated"] }
-    sibling: accept-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Gate the publish on the list check instead of the create." }
-  - name: reject-schema-atomic-create-gate
-    input:
-      overlay: accept-schema-atomic-release-assets
-      edits:
-        - file: workflows/release.yml
-          old: "if: steps.view.outcome == 'failure' && steps.list.outcome == 'success'"
-          new: "if: steps.view.outcome == 'failure'"
-    expected: { rule: release-assets-one-atomic-create, want_contains: ["steps.<list>.outcome == 'success'"] }
-    sibling: accept-schema-atomic-release-assets
-    classification: must-fail
-    provenance: { source: requirement, ref: "release create and publish gates" }
-    mutation: { description: "Remove the list check from the schema create gate." }
   - name: accept-inherit-verdict
     input: { overlay: accept-inherit-verdict }
     expected: { rule: inherited-verdicts-are-recorded, want_contains: [] }

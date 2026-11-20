@@ -14,9 +14,10 @@ import (
 	"github.com/peasant-labs/infra/tools/release/internal/intent"
 )
 
-// The GitHub REST reader behind inherit-verdict. It is the tool's only
-// network seam: read-only GETs over the standard library, no client library,
-// and no other command uses it. Every failure is returned as an error, which
+// The GitHub REST reader behind inherit-verdict: read-only GETs over the
+// standard library, no client library, and no other command uses it. The
+// only other network seam is publish-release's writer (githubwriter.go),
+// which shares these transport rules. Every failure is returned as an error, which
 // the command turns into exit 1, so an API fault is never a verdict.
 
 const (
@@ -57,7 +58,7 @@ func newGitHubReader(apiBase, repo, token string, client *http.Client) (*githubR
 		return nil, usageErr("%s: $%s %q is not an https URL (plain http is allowed only for a loopback test server); the token must not travel in clear text. Unset it to use %s", intent.CommandInheritVerdict, githubAPIEnv, apiBase, defaultGitHubAPI)
 	}
 	return &githubReader{
-		base: strings.TrimSuffix(apiBase, "/"), repo: repo, token: token, client: client,
+		base: strings.TrimSuffix(apiBase, "/"), repo: repo, token: token, client: noRedirects(client),
 		jobs: map[int64]intent.JobFact{}, runs: map[int64]intent.RunFact{},
 	}, nil
 }
@@ -240,6 +241,16 @@ func (g *githubReader) get(target string) ([]byte, []string, error) {
 		return nil, nil, fmt.Errorf("GitHub API GET %s: %s. The job needs a token (GH_TOKEN) with checks: read and actions: read on %s", req.URL.Path, resp.Status, g.repo)
 	}
 	return body, resp.Header.Values("Link"), nil
+}
+
+// noRedirects returns a copy of the client that never follows a redirect:
+// a 3xx answer is returned as it is, so it surfaces as a status error and no
+// request reaches a URL the caller did not choose (and, for the writer,
+// permit did not check), with or without the token.
+func noRedirects(c *http.Client) *http.Client {
+	cp := *c
+	cp.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &cp
 }
 
 // isLoopback reports whether a host is the local machine, where a test

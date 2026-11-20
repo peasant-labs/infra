@@ -15,6 +15,10 @@ guard:
 # go.sum are used as committed and never rewritten).
 RELEASE_TOOL_GO = GOFLAGS=-mod=readonly go
 
+# -count=1 bypasses go test's result cache. cmd/release-intent's process tests
+# run a binary that TestMain builds with go build, which the cache cannot see;
+# TestMain keeps main reachable so the test binary changes with it, and the
+# gate does not rely on that alone.
 release-tool-check:
 	cd tools/release && { test -z "$$(gofmt -l .)" || { gofmt -l .; exit 1; }; }
 	cd tools/release && $(RELEASE_TOOL_GO) build ./...

@@ -72,6 +72,11 @@ const (
 	OutputInheritedFrom OutputKey = "inherited_from"
 	// OutputVerdictSource carries the VerdictSource of the inherited verdict.
 	OutputVerdictSource OutputKey = "verdict_source"
+	// OutputReleaseID carries the id of the release publish-release created
+	// or found.
+	OutputReleaseID OutputKey = "release_id"
+	// OutputState carries the PublishState of a publish-release run.
+	OutputState OutputKey = "state"
 )
 
 // AllOutputKeys is the canonical closed set of step-output keys.
@@ -81,6 +86,7 @@ var AllOutputKeys = []OutputKey{
 	OutputTag, OutputError, OutputPR, OutputGate, OutputFresh, OutputPush,
 	OutputKind, OutputOK, OutputSurfaces, OutputFrozen, OutputTitle, OutputSource,
 	OutputReleaseOnly, OutputReason, OutputInherit, OutputInheritedFrom, OutputVerdictSource,
+	OutputReleaseID, OutputState,
 }
 
 func (k OutputKey) String() string { return string(k) }

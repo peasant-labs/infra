@@ -275,10 +275,11 @@ release-intent inherit-verdict --base "$BASE_SHA" --head "$HEAD_SHA" --repo "$GI
 policy and the aggregator's workflow are read at the base, so a candidate
 cannot widen what counts as release content.
 
-This is the tool's only command that reads the network: read-only GitHub
-REST GETs over the standard library, never a client library. Every other
-command reads git and files only; `queue-gate` reads the queue answer a
-workflow step fetched.
+`inherit-verdict` reads the network and `publish-release` writes it; no other
+command does. Both use GitHub REST over the standard library, never a client
+library; `inherit-verdict` sends only read-only GETs. Every other command
+reads git and files only; `queue-gate` reads the queue answer a workflow step
+fetched.
 
 **Release-only.** The whole `base..head` tree diff (not a merge-base range)
 must modify in place the changelog and, optionally, version files whose only
@@ -373,3 +374,95 @@ verdict, because no job of that name passed in the base run.
 Markers are kept, rather than inheriting only from bases whose full suite
 ran, because a docs-only or release base is common: without a recorded
 source, every release built on one would lose inheritance.
+
+## Publishing a release
+
+```sh
+"${RUNNER_TEMP}/release-intent" publish-release --tag "$TAG" --repo "$GITHUB_REPOSITORY" \
+  --assets dist/assets --notes dist/release-notes.md --prerelease "$PRERELEASE" --latest "$LATEST" \
+  [--require-immutable]
+```
+
+This is the one way release assets reach a GitHub Release; the workflow
+policy requires the publish job shape in the top-level README ("Prepared
+Release assets"). `--prerelease` and `--latest` take `true` or `false`, never
+both `true`. The command assumes it is the only run for its tag: a second
+run overlapping it would create, verify and publish its own release. The
+policy therefore requires the workflow or the publish job to set
+`concurrency: {group: release-${{ github.ref_name }}, cancel-in-progress: false}`
+(`github.ref` is accepted too; every `concurrency` it sets must write out
+`cancel-in-progress: false`). The token is `GH_TOKEN` (or `GITHUB_TOKEN`) with
+`contents: write`.
+
+1. **Manifest, before any request.** `--assets` holds at least one entry, all
+   flat regular files (no symlink, no subdirectory) whose names GitHub keeps
+   (`[A-Za-z0-9._+-]`, no leading or trailing period); otherwise
+   `release-assets-invalid`. Each file's name, size and SHA-256 is read once.
+   The notes are a non-empty regular file outside `--assets`.
+2. **List every release**, drafts included, 30 per page: a release object
+   embeds its assets (a 352-asset schema release is about 580 KiB), so 100 per
+   page would pass the response cap. Reaching the page cap with another page
+   left is `release-list-truncated`. The page URLs are built from the listing
+   path: GitHub's `rel="next"` link names the repository by numeric id, so it
+   is read only as "another page follows".
+3. **Decide.** A draft for the tag is `draft-exists`, naming each id and
+   `gh api -X DELETE repos/<repo>/releases/<id>`; the command never deletes a
+   release it did not create. Two published releases are `release-ambiguous`.
+   One published release is the rerun path: it is compared, never changed.
+   Exactly the manifest, with the run's prerelease flag (and immutable under
+   `--require-immutable`), prints
+   `state=already-published` and exits 0; otherwise
+   `published-release-incomplete` (missing, extra, not uploaded, digest not
+   reported), `published-release-differs` (same name, other size or digest;
+   or another prerelease flag) or
+   `release-not-immutable`, each fixed forward with a new tag.
+4. **Tag.** With no release, `refs/tags/<tag>` must exist (`tag-missing`):
+   publishing a draft for a missing tag would create it at the default branch.
+5. **Create, upload, verify, publish, verify**, all by release id: the draft
+   (`release_id=` is printed at once), one upload per file to
+   `uploads.github.com`, then the draft's assets compared with the manifest
+   (`draft-incomplete`), the publish (`draft: false`, `prerelease`,
+   `make_latest`), and the published release compared again. Before each
+   compare, the asset list is read again (after 1, 2, 4 and 8 s) while an
+   uploaded asset has no digest yet; a digest still missing is reported as
+   "digest not reported", not as a mismatch. A create whose answer is lost (no
+   answer, a server error, no id) may have made a draft: the error says so and
+   gives the read that lists the tag's drafts by id and the by-id delete. A
+   publish request that fails is read back by id: still a draft is cleaned up,
+   published is verified.
+6. **Cleanup.** Any failure before the publish deletes this run's own draft by
+   id. Every delete first reads the release back by id: a 404 is already gone,
+   and a release that is no longer a draft (published by someone else, or by
+   this run's publish landing late) is immutable and is never deleted; the
+   command says so and leaves it. GitHub has no conditional delete, so a
+   publish landing between that read and the delete is not excluded. GitHub answers a delete of a release with hundreds of assets with 502
+   after about ten seconds and may keep it, so a server error or a lost answer
+   makes the command delete that draft's assets one by one, then the empty
+   draft, and read it back until it is gone. If that fails it prints the id
+   and the delete command.
+
+Exit 0 prints `release_id=` and `state=` (`published`, `already-published`,
+`rehearsed`); exit 2 is a typed rejection with `error=` and the six-part
+diagnostic; exit 1 is a usage, API or transport failure, with `release_id=` on
+stdout once a draft exists. The lines are appended to `GITHUB_OUTPUT` too.
+
+**The writer** (`cmd/release-intent/githubwriter.go`) maps every request to a
+closed allow-list before sending it: list releases, read the tag's ref,
+create a release, upload an asset, read a release, list its assets, update a
+release, delete a release, and delete an asset, all on `--repo` and its
+`--tag`. Update, upload and delete name only a release this run created, and
+asset delete only an asset listed on such a release. Anything else is refused
+as a programming error. The API base is `https://api.github.com` (uploads to
+`https://uploads.github.com`) or, for tests, a plain-http loopback server; a
+response over 32 MiB is an error; a redirect is never followed (it is a
+status error), so no request bypasses the allow-list; the token travels only
+in the `Authorization` header and is never printed. A release or asset delete
+is permitted only after the read-back found the release still a draft.
+
+**Rehearsal.** `--rehearse` runs steps 1-2, refuses unless the tag starts with
+`rehearsal-` and neither a release nor a ref exists for it
+(`rehearsal-refused`), then creates, uploads and verifies a draft and deletes
+it by id; it never publishes, and prints `state=rehearsed`. It proves GitHub's
+real draft semantics at full scale from a maintainer's machine, and the
+workflow policy refuses it. Remove it once schema and peasant have each
+published one release through the command.
