@@ -4,7 +4,8 @@
 
   // The runner image pins live in one Containerfile. Renovate tracks the pins
   // that have an upstream feed: the Ubuntu base digest (native dockerfile
-  // manager), the actions/runner release, and the Docker CLI static tarball.
+  // manager), the actions/runner release, the Docker CLI static tarball, and
+  // the GitHub CLI release.
   // UBUNTU_SNAPSHOT has no upstream index (the snapshot service accepts any
   // timestamp after 2023-03-01 and publishes no listing), so it stays a
   // deliberate manual bump — move it together with the base digest and the apt
@@ -29,6 +30,16 @@
       "depNameTemplate": "docker",
       "extractVersionTemplate": "^docker-(?<version>\\d+\\.\\d+\\.\\d+)\\.tgz$",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "GitHub CLI release pinned by the runner container image",
+      "managerFilePatterns": ["/runner-image/Containerfile$/"],
+      "matchStrings": ["ARG GH_VERSION=(?<currentValue>\\S+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "cli/cli",
+      "extractVersionTemplate": "^v?(?<version>.*)$",
+      "versioningTemplate": "semver-coerced"
     }
   ],
 
@@ -62,7 +73,7 @@
       "matchFileNames": ["runner-image/Containerfile"],
       "groupName": "runner image pins",
       "prBodyNotes": [
-        "Bump the matching `RUNNER_SHA256` / `DOCKER_SHA256` arg for any version change; the image build verifies the download against it."
+        "Bump the matching `RUNNER_SHA256` / `DOCKER_SHA256` / `GH_SHA256` arg for any version change; the image build verifies the download against it. `GH_SHA256` is the linux_amd64 tarball's line in the release's `gh_<version>_checksums.txt`."
       ]
     }
   ],

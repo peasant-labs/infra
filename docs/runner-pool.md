@@ -110,6 +110,24 @@ identity and the GitHub Actions OIDC issuer before starting any container. A
 stamp file records the verified reference, so a reboot needs neither the
 registry nor Sigstore. The pin lives in the module's `imageRef`.
 
+### Rolling out a Containerfile change
+
+Merging a change to `runner-image/Containerfile` changes nothing on the pool.
+Every pool consumer pins a digest, so the change reaches jobs only after:
+
+1. Merge the change to `main`.
+2. Run the `runner-image` workflow on `main` and copy the digest from its
+   run summary.
+3. Set the `imageRef` default in `modules/nixos/services/github-runner/default.nix`
+   to that digest (the signer does not change), and merge it.
+4. In the maintainer's dotfiles, set the `runner-vm` module's `imageDigest`
+   to the same digest, set its `sha256` to `lib.fakeHash`, build once, and
+   copy in the reported hash. Update the dotfiles `infra` flake input too.
+5. Rebuild the desktop, then run the smoke workflow on the pool.
+
+[infra PR 114's rollout section](https://github.com/peasant-labs/infra/pull/114#rollout-the-pool-does-not-change-until-all-of-these-are-done)
+is a worked example.
+
 Verify a published image by hand:
 
 ```sh
