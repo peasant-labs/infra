@@ -100,3 +100,42 @@ func TestBuildWithGoModDownload(t *testing.T) {
 		}
 	}
 }
+
+// An exclude predicate filters the scanned repository only: even one that
+// excludes every path, including the module-relative paths of the schema's
+// own files, leaves the pinned schema module's members in the catalog.
+func TestBuildExclusionNeverFiltersSchemaMembers(t *testing.T) {
+	proxy := buildProxy(t, schemaFixtureDir, schemaFixtureModule, schemaFixtureVersion)
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"go.mod":  "module example.test/app\n\nrequire example.test/schema v0.0.1\n",
+		"main.go": "package main\n\ntype Mode string\n\nconst (\n\tA Mode = \"repo-a\"\n\tB Mode = \"repo-b\"\n)\n",
+	})
+	b := catalog.NewBuilder(catalog.BuilderDeps{Runner: newRunner(t), Modules: catalog.GoModDownload{GoCommand: goBinary(t)}})
+	c, err := b.Build(context.Background(), catalog.BuildRequest{
+		Dir: dir, Lang: rules.LangGo, Roots: []string{"."}, SchemaModule: schemaFixtureModule, Env: offlineGoEnv(t, proxy),
+		Excluded: func(string) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	got := c.Values()
+	has := func(v string) bool {
+		for _, g := range got {
+			if g == v {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []string{"public", "private", "queued", "shared"} {
+		if !has(want) {
+			t.Errorf("catalog values %v lack the schema member %q", got, want)
+		}
+	}
+	for _, gone := range []string{"repo-a", "repo-b"} {
+		if has(gone) {
+			t.Errorf("catalog values %v keep the excluded repository member %q", got, gone)
+		}
+	}
+}

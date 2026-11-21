@@ -102,31 +102,50 @@ func TestTypedCheckIsOptInAndNotBaselined(t *testing.T) {
 	}
 }
 
-// An excluded file is skipped by the typed pass, and a file next to it is
-// still reported.
-func TestTypedCheckSkipsExcludedFiles(t *testing.T) {
-	var f struct {
-		Module, Source, Config, Vendored, Exclusion string
+// requiredTypedFixtureKeys are the keys each typed fixture must keep. The
+// exclusion keys protect the tests that prove both typed passes skip an
+// excluded file.
+var requiredTypedFixtureKeys = map[string][]string{
+	"check.yaml": {"module", "source", "config", "markedSource", "exemption", "vendored", "exclusion"},
+	"mount.yaml": {"module", "source", "config", "typed", "want", "vendored", "vendoredWant", "exclusion"},
+}
+
+func TestRequiredTypedFixtureKeysExist(t *testing.T) {
+	for name, data := range map[string][]byte{"check.yaml": typedCheckFixture, "mount.yaml": typedMountFixture} {
+		var keys map[string]any
+		if err := yaml.Unmarshal(data, &keys); err != nil {
+			t.Fatalf("decode testdata/typed/%s: %v", name, err)
+		}
+		for _, want := range requiredTypedFixtureKeys[name] {
+			if _, ok := keys[want]; !ok {
+				t.Errorf("testdata/typed/%s is missing required key %q", name, want)
+			}
+		}
 	}
-	if err := yaml.Unmarshal(typedCheckFixture, &f); err != nil {
-		t.Fatal(err)
-	}
+}
+
+// typedRepo writes files into a new Go module directory and returns a
+// function that runs the built command there, offline, with stdout and
+// stderr combined.
+func typedRepo(t *testing.T, files map[string]string) (write func(name, content string), run func(args ...string) (string, error)) {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "src", "third_party", "sqlite"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	write := func(name, content string) {
+	write = func(name, content string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(content), 0o600); err != nil {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write("go.mod", f.Module)
-	write("src/example.go", f.Source)
-	write("src/third_party/sqlite/blob.go", f.Vendored)
+	for name, content := range files {
+		write(name, content)
+	}
 	bin := unstringBinary(t)
 	ag := astgreptest.Require(t)
-	run := func(args ...string) (string, error) {
+	run = func(args ...string) (string, error) {
 		t.Helper()
 		c := exec.Command(bin, append(args, "--ast-grep", ag)...)
 		c.Dir = dir
@@ -137,9 +156,23 @@ func TestTypedCheckSkipsExcludedFiles(t *testing.T) {
 		err := c.Run()
 		return output.String(), err
 	}
+	return write, run
+}
+
+// An excluded file is skipped by the typed closed-set pass, and a file next
+// to it is still reported.
+func TestTypedCheckSkipsExcludedFiles(t *testing.T) {
+	var f struct {
+		Module, Source, Config, Vendored, Exclusion string
+	}
+	if err := yaml.Unmarshal(typedCheckFixture, &f); err != nil {
+		t.Fatal(err)
+	}
 	const vendored = "src/third_party/sqlite/blob.go"
 	typedConfig := f.Config + "typed:\n  goClosedSetLiteral: true\n"
-	write(".unstring.yaml", typedConfig)
+	write, run := typedRepo(t, map[string]string{
+		"go.mod": f.Module, "src/example.go": f.Source, vendored: f.Vendored, ".unstring.yaml": typedConfig,
+	})
 	if out, err := run("init"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}
@@ -154,6 +187,38 @@ func TestTypedCheckSkipsExcludedFiles(t *testing.T) {
 	}
 	if strings.Contains(out, vendored) {
 		t.Fatalf("the typed pass reported an excluded file:\n%s", out)
+	}
+}
+
+// An excluded file is skipped by the typed mount pass, and a mount next to
+// it is still reported.
+func TestTypedMountCheckSkipsExcludedFiles(t *testing.T) {
+	var f struct {
+		Module, Source, Config, Typed, Vendored, Exclusion string
+		Want                                               []string
+		VendoredWant                                       string `yaml:"vendoredWant"`
+	}
+	if err := yaml.Unmarshal(typedMountFixture, &f); err != nil {
+		t.Fatal(err)
+	}
+	write, run := typedRepo(t, map[string]string{
+		"go.mod": f.Module, "src/router.go": f.Source, "src/third_party/upstream/router.go": f.Vendored,
+		".unstring.yaml": f.Config + f.Typed,
+	})
+	if out, err := run("init"); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	out, err := run("check")
+	if err == nil || !strings.Contains(out, f.VendoredWant) || !strings.Contains(out, f.Want[0]) {
+		t.Fatalf("without the exclusion, check must report both mounts: %v\n%s", err, out)
+	}
+	write(".unstring.yaml", f.Config+f.Exclusion+f.Typed)
+	out, err = run("check")
+	if err == nil || !strings.Contains(out, f.Want[0]) {
+		t.Fatalf("the exclusion hid the mount next to it: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "src/third_party/") {
+		t.Fatalf("the typed mount pass reported an excluded file:\n%s", out)
 	}
 }
 

@@ -5,13 +5,13 @@ import (
 	"strings"
 )
 
-// MatchPath reports whether file matches an exempt path. Both are relative to
-// the config's directory with `/` separators.
+// MatchPath reports whether file matches an exempt or exclude path. Both are
+// relative to the config's directory with `/` separators.
 //
 // A path is a glob: `*`, `?` and `[…]` match within one segment, and a `**`
 // segment matches any number of segments, none included. A path without any
-// wildcard also matches every file below it, so `backend/gen` exempts the
-// directory.
+// wildcard also matches every file below it, so `backend/gen` exempts or
+// excludes the directory.
 func MatchPath(pattern, file string) bool {
 	if !strings.ContainsAny(pattern, "*?[") {
 		return file == pattern || strings.HasPrefix(file, pattern+"/")
