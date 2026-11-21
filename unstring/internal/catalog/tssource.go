@@ -50,8 +50,9 @@ var allTSDiscovery = []discoveryRule{
 var unionDiscovery = []discoveryRule{discoverUnionAlias, discoverSchemaUnionInline}
 
 // harvestTS runs the given discovery rules over roots (relative to dir) and
-// turns their matches into members, with sites relative to dir.
-func harvestTS(ctx context.Context, runner astgrep.Runner, dir string, roots []string, discovery []discoveryRule) ([]Member, error) {
+// turns their matches into members, with sites relative to dir. A match in a
+// file for which excluded reports true is dropped; nil excludes nothing.
+func harvestTS(ctx context.Context, runner astgrep.Runner, dir string, roots []string, discovery []discoveryRule, excluded func(string) bool) ([]Member, error) {
 	if len(roots) == 0 {
 		return nil, nil
 	}
@@ -92,7 +93,7 @@ func harvestTS(ctx context.Context, runner astgrep.Runner, dir string, roots []s
 	var members []Member
 	for _, m := range matches {
 		d, ok := byID[m.RuleID]
-		if !ok {
+		if !ok || (excluded != nil && excluded(m.File)) {
 			continue
 		}
 		site := DefinitionSite{File: m.File, Line: m.Line}

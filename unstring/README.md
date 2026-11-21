@@ -198,13 +198,15 @@ refused.
 | `endpoints.mountFiles` | none; the mount-file rule is omitted |
 | `dataDirs` | `testdata`, `fixtures`, `__fixtures__`, `captures` |
 | `exempt` | none |
+| `exclude` | none |
 
 `endpoints.prefixes` are the API path prefixes the endpoint rules look for.
 `endpoints.callees` are TypeScript functions whose first argument is an API
 path. `dataDirs` are single directory names, not paths. `exempt` is a list of
 `{rule, paths, reason}` entries. `paths` are globs (`*`, `?`, `[…]`, and `**`
 for any number of directories). A path with no wildcard also matches every
-file below it. `reason` is required.
+file below it. `reason` is required. `exclude` is a list of `{paths, reason}`
+entries with the same path rules; see [Exclusions](#exclusions).
 
 ```yaml
 version: 1
@@ -224,6 +226,9 @@ exempt:
   - rule: "*"
     paths: [server/gen/**]
     reason: generated output, regenerated from the queries
+exclude:
+  - paths: [server/third_party]
+    reason: vendored copy of an upstream driver, patched in place
 ```
 
 ## Mount files
@@ -282,6 +287,34 @@ match.
 An exemption of any other rule is a review decision. The tool does not apply
 that header check to it, and the exemption is not a way to keep a hand-written
 literal: the file should still be generated. Every entry needs a reason.
+
+## Exclusions
+
+An `exclude` entry removes the files its paths match from unstring entirely.
+No rule of either language scans them, the optional typed checks skip them,
+and they contribute no member to the Go or TypeScript catalog. An excluded file
+has no baseline entry: an entry for it is stale, and `update` removes it, so
+adding an exclusion only lowers the baseline.
+
+```yaml
+exclude:
+  - paths: [third_party]
+    reason: vendored copy of an upstream SQLite driver
+```
+
+The difference from `exempt`: an exemption keeps a file the repository owns
+(usually generated code) in the catalog and removes one rule or every rule
+from it. An exclusion is for code outside the repository's ownership, whose
+literals belong to another project's vocabulary, so it is not scanned at all.
+Reviewers should accept an exclusion only for vendored or third-party code,
+never for the repository's own code.
+
+The paths follow the exempt path rules: globs relative to the config's
+directory, and a path with no wildcard matches every file below it. Each
+entry needs a `reason`. The config is refused when an entry has no paths or
+no reason, when a path is absolute or contains `..` or `\`, when a path
+covers an entire configured root (remove the root instead), and when a path
+matches no file under a configured root.
 
 ## Optional typed Go check
 

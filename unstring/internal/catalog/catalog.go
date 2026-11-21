@@ -75,6 +75,10 @@ type BuildRequest struct {
 	// Env is the environment for `go mod download`, in os.Environ form. Tests
 	// pass a file proxy here; production passes the process environment.
 	Env []string
+	// Excluded reports whether a repository file, relative to Dir with `/`
+	// separators, is excluded by the config: it contributes no member. Nil
+	// excludes nothing. The schema module is never filtered by it.
+	Excluded func(file string) bool
 }
 
 // Values returns every distinct member value, sorted in byte order.

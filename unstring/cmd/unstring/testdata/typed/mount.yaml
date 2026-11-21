@@ -42,3 +42,18 @@ missingRouter: |
 missingRouterWant:
   - 'the router package github.com/go-chi/chi/v5 is not imported'
   - 'typed.goMountLiteral.routers'
+# A vendored package under the Go root that mounts a literal route; the typed
+# mount pass reports it unless the file is excluded.
+vendored: |
+  package upstream
+
+  import "net/http"
+
+  func Mount(mux *http.ServeMux, h http.HandlerFunc) {
+  	mux.HandleFunc("/vendored", h)
+  }
+vendoredWant: 'src/third_party/upstream/router.go:6  "/vendored"'
+exclusion: |
+  exclude:
+    - paths: [src/third_party]
+      reason: vendored copy of an upstream router helper

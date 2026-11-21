@@ -314,6 +314,8 @@ at a version pinned in one place (their `Makefile` or `package.json`).
 - The two closed-set rules accept no `unstring-allow` marker, and an `exempt`
   entry for them must match generated files only. "This value is one of ours"
   is not a reason on any rule.
+- An `exclude` entry is accepted only for vendored or third-party code the
+  repository does not own; owned or generated code uses `exempt`.
 - The guard never edits a consumer's own ast-grep config and never passes
   `--error=unused-suppression`.
 - Tests are fixtures with required-name manifests and run the real ast-grep;

@@ -85,13 +85,18 @@ func replacement(pkg *packages.Package, file *ast.File, pos token.Pos, member *t
 type Program struct {
 	dir  string
 	pkgs []*packages.Package
+	// excluded reports whether a file, relative to dir with `/` separators,
+	// is excluded by the config; no pass looks at it. Nil excludes nothing.
+	excluded func(string) bool
 }
 
 // LoadGo loads each configured root with its test packages. A package error
 // fails the load: a pass over a tree that does not type-check would be silent
-// exactly where the types are missing.
-func LoadGo(ctx context.Context, dir string, roots, env []string) (*Program, error) {
-	prog := &Program{dir: dir}
+// exactly where the types are missing. Excluded packages are still loaded,
+// because the packages that import them need their types, but no pass reports
+// a site in a file for which excluded returns true; nil excludes nothing.
+func LoadGo(ctx context.Context, dir string, roots, env []string, excluded func(string) bool) (*Program, error) {
+	prog := &Program{dir: dir, excluded: excluded}
 	for _, root := range roots {
 		rootDir := filepath.Join(dir, filepath.FromSlash(root))
 		cfg := &packages.Config{Context: ctx, Dir: rootDir, Env: env, Tests: true, Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedForTest | packages.NeedImports | packages.NeedDeps}
@@ -127,6 +132,11 @@ func (p *Program) eachFile(includeTests bool, fn func(pkg *packages.Package, fil
 			if isTest != (pkg.ForTest != "") || (isTest && !includeTests) {
 				continue
 			}
+			if p.excluded != nil {
+				if rel, _, ok := p.site(pkg, file.Pos()); ok && p.excluded(rel) {
+					continue
+				}
+			}
 			fn(pkg, file)
 		}
 	}
@@ -146,7 +156,7 @@ func (p *Program) site(pkg *packages.Package, pos token.Pos) (string, token.Posi
 
 // ScanGo loads each configured root and runs the closed-set-literal pass.
 func ScanGo(ctx context.Context, dir string, roots, env []string) ([]Finding, error) {
-	prog, err := LoadGo(ctx, dir, roots, env)
+	prog, err := LoadGo(ctx, dir, roots, env, nil)
 	if err != nil {
 		return nil, err
 	}
