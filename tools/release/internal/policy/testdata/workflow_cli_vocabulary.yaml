@@ -10,6 +10,7 @@
 required_names:
   - accept-check-config
   - accept-check-workflows
+  - accept-check-workflows-npm-only
   - accept-check-title
   - accept-check-contract
   - accept-freeze-plan
@@ -52,6 +53,9 @@ cases:
     problems: []
   - name: accept-check-workflows
     run: release-intent check-workflows --dir .github/workflows
+    problems: []
+  - name: accept-check-workflows-npm-only
+    run: release-intent check-workflows --dir .github/workflows --npm-only
     problems: []
   - name: accept-check-title
     run: release-intent check-title --base a --head b --author c --head-branch d

@@ -91,6 +91,9 @@ const (
 	FlagDir Flag = "--dir"
 	// FlagPrintRequired prints the required check contexts.
 	FlagPrintRequired Flag = "--print-required"
+	// FlagNpmOnly checks only the global-npm-install rule without requiring a
+	// queue policy or release config.
+	FlagNpmOnly Flag = "--npm-only"
 	// FlagBase names the PR base revision.
 	FlagBase Flag = "--base"
 	// FlagHead names the PR head revision.
@@ -155,7 +158,7 @@ const (
 
 // AllFlags is the canonical closed set of flags across every subcommand.
 var AllFlags = []Flag{
-	FlagConfig, FlagPolicy, FlagDir, FlagPrintRequired,
+	FlagConfig, FlagPolicy, FlagDir, FlagPrintRequired, FlagNpmOnly,
 	FlagBase, FlagHead, FlagAuthor, FlagHeadBranch,
 	FlagRev, FlagRef,
 	FlagBranch, FlagMode, FlagFloor, FlagFreezeFloor, FlagVerdict,
@@ -192,7 +195,7 @@ func (c Command) Flags() []FlagUse {
 	case CommandCheckConfig:
 		return []FlagUse{{FlagConfig, false}}
 	case CommandCheckWorkflows:
-		return []FlagUse{{FlagPolicy, false}, {FlagDir, true}, {FlagPrintRequired, false}}
+		return []FlagUse{{FlagPolicy, false}, {FlagDir, true}, {FlagPrintRequired, false}, {FlagNpmOnly, false}}
 	case CommandCheckTitle:
 		return []FlagUse{{FlagBase, true}, {FlagHead, true}, {FlagAuthor, true}, {FlagHeadBranch, true}}
 	case CommandCheckContract:

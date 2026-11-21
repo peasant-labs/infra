@@ -68,7 +68,25 @@ func CheckWorkflows(policy QueuePolicy, cfg intent.Config, dir string) ([]Diagno
 	c.checkClassify()
 	c.checkToolCalls()
 	c.checkInheritVerdict()
+	c.checkPrivateNpm()
 	return c.diagnostics, append([]RequiredContext(nil), policy.Queue.Required...)
+}
+
+// CheckPrivateNpm validates every workflow file in dir against only the
+// global-npm-install rule (QueueRulePrivateNpm), without requiring a queue
+// policy or release config. Repositories without release-queue policy files
+// use this standalone mode to guard the shared runner tool cache.
+func CheckPrivateNpm(dir string) []Diagnostic {
+	c := &queueChecker{dir: dir}
+	if err := c.load(); err != nil {
+		return []Diagnostic{{
+			Rule:     QueueRulePrivateNpm,
+			Workflow: dir,
+			Message:  "check workflows: " + dir + ": rule " + QueueRulePrivateNpm.String() + ": cannot list the workflows directory: " + err.Error() + ". Fix the " + intent.FlagDir.String() + " path or run from the repository root",
+		}}
+	}
+	c.checkPrivateNpm()
+	return c.diagnostics
 }
 
 // queueChecker holds one CheckWorkflows run: the parsed workflow files keyed by

@@ -110,6 +110,12 @@ type releaseWriter struct {
 	// a release published since (by this run's late publish or by someone
 	// else) is immutable and is never deleted.
 	confirmedDraft map[int64]bool
+	// allowDelete gates automatic DELETE requests (delete-release and
+	// delete-asset). Because GitHub's REST API cannot enforce draft-only
+	// deletion, real release runs keep allowDelete false and never issue
+	// automatic DELETE requests; only --rehearse on a never-pushed
+	// rehearsal-* tag enables it.
+	allowDelete bool
 	// sleep waits between read-backs; tests replace it.
 	sleep func(time.Duration)
 }
@@ -205,6 +211,14 @@ func (w *releaseWriter) permit(method, target string) (releaseCall, error) {
 	}
 	if call != callListReleases && call != callListAssets && call != callUploadAsset && u.RawQuery != "" {
 		return refuse("the call carries no query")
+	}
+	if call == callUpdateRelease && w.allowDelete {
+		return refuse("rehearsal mode never publishes a release")
+	}
+	if call == callDeleteRelease || call == callDeleteAsset {
+		if !w.allowDelete {
+			return refuse("automatic deletion is disabled when GitHub cannot enforce draft-only deletion")
+		}
 	}
 	if call == callDeleteAsset {
 		release, ok := w.ownAssets[id]
@@ -503,26 +517,32 @@ func (w *releaseWriter) ReadRelease(id int64) (intent.ReleaseFact, error) {
 	if r.ID != id {
 		return intent.ReleaseFact{}, fmt.Errorf("GitHub API GET releases/%d: the response is release %d", id, r.ID)
 	}
+	if !r.Draft {
+		w.forget(id)
+	}
 	return r.fact(), nil
 }
 
-// Publish turns this run's draft into the published release. A published
-// release is no longer this run's draft: nothing may upload to, update or
-// delete it afterwards.
+// Publish turns this run's draft into the published release. Once a publish
+// request is attempted, this run forgets the release regardless of whether the
+// answer arrived, so nothing may upload to, update or delete it afterwards.
 func (w *releaseWriter) Publish(id int64, prerelease, latest bool) error {
 	_, err := w.expect(http.StatusOK, http.MethodPatch, w.repoURL("/releases/"+strconv.FormatInt(id, 10)), map[string]any{
 		"draft": false, "prerelease": prerelease, "make_latest": strconv.FormatBool(latest),
 	})
-	if err == nil {
-		w.forget(id)
-	}
+	w.forget(id)
 	return err
 }
 
-// forget drops a release from this run's own drafts.
+// forget drops a release and any recorded assets from this run's own drafts.
 func (w *releaseWriter) forget(id int64) {
 	delete(w.created, id)
 	delete(w.confirmedDraft, id)
+	for asset, release := range w.ownAssets {
+		if release == id {
+			delete(w.ownAssets, asset)
+		}
+	}
 }
 
 // publishedError refuses to delete a release that is no longer a draft.
@@ -535,25 +555,36 @@ func (e *publishedError) Error() string {
 	return fmt.Sprintf("release id %d is no longer a draft: it was published (by this run's publish landing late, or by someone else); it is immutable; do not delete it. Rerun the job: a rerun checks a published release exactly without changing it; if it is not this build's release, fix forward with a new tag", e.id)
 }
 
+// unconfirmedStatusError wraps a readback failure that left a release's
+// draft/published/deleted status unconfirmed. Callers must preserve it and
+// must not print deletion advice.
+type unconfirmedStatusError struct {
+	err error
+}
+
+func (e *unconfirmedStatusError) Error() string { return e.err.Error() }
+func (e *unconfirmedStatusError) Unwrap() error { return e.err }
+
 // confirmDraft reads this run's release by id right before a delete: gone
 // is true for a 404. A release that is no longer a draft is dropped from
-// this run's drafts and refused with publishedError.
+// this run's drafts and refused with publishedError. A readback failure
+// returns unconfirmedStatusError.
 func (w *releaseWriter) confirmDraft(id int64) (bool, error) {
 	delete(w.confirmedDraft, id)
 	target := w.repoURL("/releases/" + strconv.FormatInt(id, 10))
 	call, resp, err := w.send(http.MethodGet, target, nil, 0, "")
 	switch {
 	case err != nil:
-		return false, err
+		return false, &unconfirmedStatusError{err: err}
 	case resp.status == http.StatusNotFound:
 		w.forget(id)
 		return true, nil
 	case resp.status != http.StatusOK:
-		return false, w.statusError(call, http.MethodGet, target, resp)
+		return false, &unconfirmedStatusError{err: w.statusError(call, http.MethodGet, target, resp)}
 	}
 	var r apiRelease
 	if err := json.Unmarshal(resp.body, &r); err != nil || r.ID != id {
-		return false, fmt.Errorf("GitHub API GET releases/%d: cannot read the release back before deleting it", id)
+		return false, &unconfirmedStatusError{err: fmt.Errorf("GitHub API GET releases/%d: cannot read the release back before deleting it", id)}
 	}
 	if !r.Draft {
 		w.forget(id)
@@ -567,18 +598,17 @@ func (w *releaseWriter) confirmDraft(id int64) (bool, error) {
 // after a delete that answered with a server error or no answer.
 var deleteConfirmSchedule = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second}
 
-// DeleteOwn deletes a release this run created, by id. GitHub's delete of a
-// release with hundreds of assets times out at its gateway (502 after about
-// ten seconds; seen on the second and third real rehearsals, 2026-11-19,
-// once removed in the background and once not), so a delete answered with
-// a server error or no answer first deletes the release's assets one by
-// one, then the empty release, and then reads it back until it is gone.
+// DeleteOwn deletes a rehearsal draft this run created, by id. GitHub's delete
+// of a release with hundreds of assets times out at its gateway (502 after
+// about ten seconds; seen on the second and third real rehearsals, 2026-11-19,
+// once removed in the background and once not), so a delete answered with a
+// server error or no answer first deletes the release's assets one by one,
+// then the empty release, and then reads it back until it is gone.
 //
-// Every delete is preceded by a read by id (confirmDraft): only a release
-// still a draft is deleted, a 404 is already gone, and a release published
-// since is refused. GitHub has no conditional delete, so a publish landing
-// between that read and the delete is not excluded; the window is one
-// request long.
+// Real release runs keep allowDelete false because GitHub has no conditional
+// draft-only delete; permit refuses DeleteOwn unless allowDelete is enabled.
+// Every delete and asset delete is preceded by confirmDraft, and any readback
+// failure is preserved as unconfirmedStatusError rather than swallowed.
 func (w *releaseWriter) DeleteOwn(id int64) error {
 	if gone, err := w.confirmDraft(id); err != nil || gone {
 		return err
@@ -592,11 +622,25 @@ func (w *releaseWriter) DeleteOwn(id int64) error {
 		return confirmErr
 	}
 	if assetErr := w.deleteOwnAssets(id); assetErr != nil {
-		if gone, readErr := w.releaseGone(id); readErr == nil && gone {
-			w.forget(id)
+		var published *publishedError
+		if errors.As(assetErr, &published) {
+			return assetErr
+		}
+		var unconfirmed *unconfirmedStatusError
+		if errors.As(assetErr, &unconfirmed) {
+			return assetErr
+		}
+		gone, readErr := w.releaseGone(id)
+		if errors.As(readErr, &published) {
+			return readErr
+		}
+		if readErr != nil {
+			return &unconfirmedStatusError{err: fmt.Errorf("%w; deleting its assets one by one also failed: %w; reading release id %d back also failed: %w", err, assetErr, id, readErr)}
+		}
+		if gone {
 			return nil
 		}
-		return fmt.Errorf("%w; deleting its assets one by one also failed: %v", err, assetErr)
+		return fmt.Errorf("%w; deleting its assets one by one also failed: %w", err, assetErr)
 	}
 	if gone, confirmErr := w.confirmDraft(id); confirmErr != nil || gone {
 		return confirmErr
@@ -605,13 +649,33 @@ func (w *releaseWriter) DeleteOwn(id int64) error {
 	if err == nil || !retryable(err) {
 		return err
 	}
+	var lastReadErr error
+	confirmedStillDraft := false
 	for _, d := range deleteConfirmSchedule {
 		w.sleep(d)
-		if gone, readErr := w.releaseGone(id); readErr == nil && gone {
+		gone, readErr := w.releaseGone(id)
+		var published *publishedError
+		if errors.As(readErr, &published) {
+			return readErr
+		}
+		if readErr != nil {
+			lastReadErr = readErr
+			confirmedStillDraft = false
+			continue
+		}
+		if gone {
 			fmt.Fprintf(os.Stderr, "%s: the delete of release id %d answered with an error (%v), but the release is gone\n", intent.CommandPublishRelease, id, err)
 			w.forget(id)
 			return nil
 		}
+		lastReadErr = nil
+		confirmedStillDraft = true
+	}
+	if lastReadErr != nil {
+		return &unconfirmedStatusError{err: fmt.Errorf("%w; reading release id %d back also failed: %w", err, id, lastReadErr)}
+	}
+	if !confirmedStillDraft {
+		return &unconfirmedStatusError{err: err}
 	}
 	return err
 }
@@ -661,6 +725,11 @@ func (w *releaseWriter) deleteOwnAssets(id int64) error {
 	}
 	slices.Sort(ids)
 	for _, a := range ids {
+		if gone, err := w.confirmDraft(id); err != nil {
+			return err
+		} else if gone {
+			return nil
+		}
 		target := w.repoURL("/releases/assets/" + strconv.FormatInt(a, 10))
 		call, resp, err := w.send(http.MethodDelete, target, nil, 0, "")
 		if err != nil {
@@ -682,8 +751,17 @@ func (w *releaseWriter) releaseGone(id int64) (bool, error) {
 	case err != nil:
 		return false, err
 	case resp.status == http.StatusNotFound:
+		w.forget(id)
 		return true, nil
 	case resp.status == http.StatusOK:
+		var r apiRelease
+		if err := json.Unmarshal(resp.body, &r); err != nil || r.ID != id {
+			return false, fmt.Errorf("GitHub API GET releases/%d: cannot read the release back after deleting it", id)
+		}
+		if !r.Draft {
+			w.forget(id)
+			return false, &publishedError{repo: w.repo, id: id}
+		}
 		return false, nil
 	}
 	return false, w.statusError(call, http.MethodGet, target, resp)

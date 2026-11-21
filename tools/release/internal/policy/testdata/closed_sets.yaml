@@ -55,6 +55,7 @@ sets:
       - bot-branch-via-classify
       - tool-calls-match-the-cli
       - inherited-verdicts-are-recorded
+      - npm-installs-use-private-prefix
     refused: ["", "no-such-rule", "Required-Contexts"]
 
   - name: github-event

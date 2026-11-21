@@ -28,6 +28,12 @@ assets:
   - {name: annotation-push-request-0.12.0.schema.json, content: '{"a":12}'}
 notes: |
   - add the kickstart preview stream contract (#264)
+read_required_names: [read-draft-retains, read-published-forgets, gone-read-published-forgets, publish-error-forgets]
+read_cases:
+  - {name: read-draft-retains, draft: true, retained: true}
+  - {name: read-published-forgets, draft: false, retained: false}
+  - {name: gone-read-published-forgets, draft: false, retained: false, gone_read: true}
+  - {name: publish-error-forgets, draft: true, retained: false, publish_error: true}
 required_names:
   - final-publishes
   - rc-publishes
@@ -37,21 +43,26 @@ required_names:
   - leftover-draft-fails
   - leftover-draft-on-page-two
   - list-cap-fails
-  - upload-failure-deletes-own-draft
-  - upload-failure-delete-fails
-  - digest-mismatch-deletes-own-draft
-  - extra-asset-deletes-own-draft
-  - missing-asset-deletes-own-draft
+  - upload-failure-leaves-own-draft
+  - upload-failure-readback-fails
+  - digest-mismatch-leaves-own-draft
+  - extra-asset-leaves-own-draft
+  - missing-asset-leaves-own-draft
   - not-immutable-after-publish
   - tag-missing
   - rehearse-creates-verifies-deletes
   - rehearse-release-tag-refused
   - rehearse-pushed-tag-refused
   - rehearse-digest-mismatch
+  - rehearse-delete-fails
+  - rehearse-delete-readback-fails
+  - rehearse-published-during-asset-cleanup
   - draft-published-by-another-actor
   - publish-lands-late-not-deleted
+  - publish-ambiguous-readback-fails
   - redirect-refused
   - digest-reported-late
+  - digest-never-reported
   - create-answer-lost
   - asset-list-past-page-one
   - asset-list-past-page-cap
@@ -183,7 +194,7 @@ cases:
     sibling: final-publishes
     provenance: {source: boundary, ref: "50 pages of 30 releases is the cap; fail closed past it"}
     mutation: {description: "1501 releases need a 51st page."}
-  - name: upload-failure-deletes-own-draft
+  - name: upload-failure-leaves-own-draft
     input:
       tag: v0.59.0
       prerelease: "false"
@@ -192,27 +203,33 @@ cases:
     expected:
       exit: 1
       lines: [release_id=9001]
-      stderr: ["status 502", "deleted this run's draft id 9001"]
+      stderr: ["status 502", "was not deleted automatically", "gh api -X DELETE repos/peasant-labs/schema/releases/9001"]
+      no_delete: true
+      no_publish: true
+      after: [{id: 9001, draft: true, assets: 2}]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "on failure before publish, delete the run's own draft by id"}
-    mutation: {description: "The second upload fails with 502."}
-  - name: upload-failure-delete-fails
+    provenance: {source: requirement, ref: "real release runs send no automatic DELETE when GitHub cannot enforce draft-only deletion"}
+    mutation: {description: "The second upload fails with 502; the draft is left untouched."}
+  - name: upload-failure-readback-fails
     input:
       tag: v0.59.0
       prerelease: "false"
       latest: "true"
-      server: {tags: [v0.59.0], faults: {upload_fail: annotation-push-request-0.11.0.schema.json, delete_status: 403}}
+      server: {tags: [v0.59.0], faults: {upload_fail: annotation-push-request-0.11.0.schema.json, read_release_fail_from_read: 1, read_release_fail_status: 503}}
     expected:
       exit: 1
       lines: [release_id=9001]
-      stderr: ["could not delete this run's draft id 9001", "status 403", "gh api -X DELETE repos/peasant-labs/schema/releases/9001"]
+      stderr: ["status 502", "reading release id 9001 back also failed", "status 503", "status is unconfirmed"]
+      stderr_absent: ["gh api -X DELETE", "Delete it by id"]
+      no_delete: true
+      no_publish: true
       after: [{id: 9001, draft: true, assets: 2}]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "a draft that cannot be deleted is named with its delete command"}
-    mutation: {description: "The upload fails and the cleanup delete fails too."}
-  - name: digest-mismatch-deletes-own-draft
+    provenance: {source: requirement, ref: "preserve readback error and print no deletion advice when status is unconfirmed"}
+    mutation: {description: "Upload fails and the subsequent readback fails with 503."}
+  - name: digest-mismatch-leaves-own-draft
     input:
       tag: v0.59.0
       prerelease: "false"
@@ -221,12 +238,15 @@ cases:
     expected:
       exit: 2
       lines: [release_id=9001, error=draft-incomplete]
-      stderr: ["1 changed (annotation-push-request-0.12.0.schema.json)", "deleted this run's draft id 9001"]
+      stderr: ["1 changed (annotation-push-request-0.12.0.schema.json)", "was not deleted automatically"]
+      no_delete: true
+      no_publish: true
+      after: [{id: 9001, draft: true, assets: 3}]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "GitHub's digest must equal the local SHA-256"}
+    provenance: {source: requirement, ref: "GitHub's digest must equal the local SHA-256; real runs send no automatic DELETE"}
     mutation: {description: "GitHub stores other bytes for one asset."}
-  - name: extra-asset-deletes-own-draft
+  - name: extra-asset-leaves-own-draft
     input:
       tag: v0.59.0
       prerelease: "false"
@@ -235,12 +255,15 @@ cases:
     expected:
       exit: 2
       lines: [release_id=9001, error=draft-incomplete]
-      stderr: ["1 extra (stray.json)"]
+      stderr: ["1 extra (stray.json)", "was not deleted automatically"]
+      no_delete: true
+      no_publish: true
+      after: [{id: 9001, draft: true, assets: 4}]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "nothing extra"}
+    provenance: {source: requirement, ref: "nothing extra; real runs send no automatic DELETE"}
     mutation: {description: "An asset no local file names appears on the draft."}
-  - name: missing-asset-deletes-own-draft
+  - name: missing-asset-leaves-own-draft
     input:
       tag: v0.59.0
       prerelease: "false"
@@ -249,10 +272,13 @@ cases:
     expected:
       exit: 2
       lines: [release_id=9001, error=draft-incomplete]
-      stderr: ["1 missing (annotation-push-request-0.10.0.schema.json)"]
+      stderr: ["1 missing (annotation-push-request-0.10.0.schema.json)", "was not deleted automatically"]
+      no_delete: true
+      no_publish: true
+      after: [{id: 9001, draft: true, assets: 2}]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "nothing missing"}
+    provenance: {source: requirement, ref: "nothing missing; real runs send no automatic DELETE"}
     mutation: {description: "An upload is acknowledged but never lands on the draft."}
   - name: not-immutable-after-publish
     input:
@@ -336,10 +362,65 @@ cases:
       exit: 2
       lines: [release_id=9001, error=draft-incomplete]
       stderr: ["deleted this run's draft id 9001"]
+      no_publish: true
     classification: must-fail
     sibling: rehearse-creates-verifies-deletes
     provenance: {source: requirement, ref: "the strict-failure rehearsal: verification fails and the draft is deleted"}
     mutation: {description: "GitHub stores other bytes for one asset during a rehearsal."}
+  - name: rehearse-delete-fails
+    input:
+      tag: rehearsal-1763500000
+      prerelease: "false"
+      latest: "true"
+      rehearse: true
+      server: {faults: {upload_fail: annotation-push-request-0.11.0.schema.json, delete_status: 403}}
+    expected:
+      exit: 1
+      lines: [release_id=9001]
+      stderr: ["could not delete this run's draft id 9001", "status 403", "gh api -X DELETE repos/peasant-labs/schema/releases/9001"]
+      no_publish: true
+      after: [{id: 9001, draft: true, assets: 2}]
+    classification: must-fail
+    sibling: rehearse-creates-verifies-deletes
+    provenance: {source: requirement, ref: "a confirmed rehearsal draft that cannot be deleted is named with its delete command"}
+    mutation: {description: "Rehearsal upload fails and the cleanup delete returns 403."}
+  - name: rehearse-delete-readback-fails
+    input:
+      tag: rehearsal-1763500000
+      prerelease: "false"
+      latest: "true"
+      rehearse: true
+      server: {faults: {upload_fail: annotation-push-request-0.11.0.schema.json, read_release_fail_from_read: 1, read_release_fail_status: 503}}
+    expected:
+      exit: 1
+      lines: [release_id=9001]
+      stderr: ["status 502", "status 503", "status is unconfirmed"]
+      stderr_absent: ["gh api -X DELETE", "Delete it by id"]
+      no_delete: true
+      no_publish: true
+      after: [{id: 9001, draft: true, assets: 2}]
+    classification: must-fail
+    sibling: rehearse-creates-verifies-deletes
+    provenance: {source: requirement, ref: "preserve readback error and print no deletion advice when rehearsal status is unconfirmed"}
+    mutation: {description: "Rehearsal upload fails and confirmDraft readback fails with 503."}
+  - name: rehearse-published-during-asset-cleanup
+    input:
+      tag: rehearsal-1763500000
+      prerelease: "false"
+      latest: "true"
+      rehearse: true
+      server: {faults: {upload_fail: annotation-push-request-0.12.0.schema.json, delete_times_out_with_assets: true, publish_after_asset_deletes: 1}}
+    expected:
+      exit: 1
+      lines: [release_id=9001]
+      stderr: ["no longer a draft"]
+      stderr_absent: ["gh api -X DELETE", "Delete it by id"]
+      no_publish: true
+      after: [{id: 9001, draft: false, assets: 2}]
+    classification: must-fail
+    sibling: rehearse-creates-verifies-deletes
+    provenance: {source: requirement, ref: "never delete assets after publication"}
+    mutation: {description: "Publication lands after the first fallback asset deletion during a rehearsal."}
   - name: draft-published-by-another-actor
     input:
       tag: v0.59.0
@@ -349,12 +430,15 @@ cases:
     expected:
       exit: 2
       lines: [release_id=9001, error=draft-incomplete]
-      stderr: ["is no longer a draft before this run published it", "not deleting release id 9001", "it is immutable; do not delete it"]
+      stderr: ["is no longer a draft before this run published it", "command does not delete it"]
+      stderr_absent: ["gh api -X DELETE", "Delete it by id"]
+      no_delete: true
+      no_publish: true
       after: [{id: 9001, draft: false, assets: 3}]
     classification: must-fail
     sibling: final-publishes
     provenance: {source: requirement, ref: "never delete a non-draft: another actor publishes this run's draft mid-run"}
-    mutation: {description: "Someone publishes the draft as the last upload lands; the run refuses to delete it."}
+    mutation: {description: "Someone publishes the draft as the last upload lands; the run sends no DELETE and no PATCH."}
   - name: publish-lands-late-not-deleted
     input:
       tag: v0.59.0
@@ -364,12 +448,31 @@ cases:
     expected:
       exit: 1
       lines: [release_id=9001]
-      stderr: ["status 502", "not deleting release id 9001", "it is immutable; do not delete it"]
-      after: [{id: 9001, draft: false, make_latest: "true", assets: 3}]
+      stderr: ["status 502", "did not delete it automatically", "Inspect release id 9001 by hand"]
+      stderr_absent: ["gh api -X DELETE", "Delete it by id"]
+      no_delete: true
+      after: [{id: 9001, draft: true, make_latest: "true", assets: 3}]
     classification: must-fail
     sibling: final-publishes
-    provenance: {source: requirement, ref: "never delete a non-draft: a publish request that timed out lands after the read-back"}
-    mutation: {description: "The publish answers 502 and the read-back still sees a draft, but the publish lands before the cleanup's read; the cleanup refuses."}
+    provenance: {source: requirement, ref: "never send automatic DELETE or deletion advice after an ambiguous publish"}
+    mutation: {description: "The publish answers 502 and the read-back still sees a draft; no DELETE is sent."}
+  - name: publish-ambiguous-readback-fails
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {patch_lands_on_read: 2, read_release_fail_from_read: 2, read_release_fail_status: 503}}
+    expected:
+      exit: 1
+      lines: [release_id=9001]
+      stderr: ["status 502", "reading release id 9001 back also failed", "status 503", "status is unconfirmed"]
+      stderr_absent: ["gh api -X DELETE", "Delete it by id"]
+      no_delete: true
+      after: [{id: 9001, draft: true, make_latest: "true", assets: 3}]
+    classification: must-fail
+    sibling: final-publishes
+    provenance: {source: requirement, ref: "preserve readback error and print no deletion advice when ambiguous publish status is unconfirmed"}
+    mutation: {description: "Publish answers 502 and the follow-up readback fails with 503."}
   - name: redirect-refused
     input:
       tag: v0.59.0
@@ -398,6 +501,23 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "a digest GitHub reports late is read again, not judged missing"}
     mutation: {description: "The first asset listing reports every digest as null; the second reports them."}
+  - name: digest-never-reported
+    input:
+      tag: v0.59.0
+      prerelease: "false"
+      latest: "true"
+      server: {tags: [v0.59.0], faults: {digest_null_reads: 10}}
+    expected:
+      exit: 2
+      lines: [release_id=9001, error=draft-incomplete]
+      stderr: ["digest not reported", "was not deleted automatically"]
+      no_delete: true
+      no_publish: true
+      after: [{id: 9001, draft: true, assets: 3}]
+    classification: must-fail
+    sibling: digest-reported-late
+    provenance: {source: requirement, ref: "missing digest after retries fails with draft-incomplete and sends no DELETE or publish"}
+    mutation: {description: "GitHub keeps returning null digests beyond the retry schedule."}
   - name: create-answer-lost
     input:
       tag: v0.59.0
@@ -453,7 +573,10 @@ cases:
     expected:
       exit: 2
       lines: [release_id=9001, error=draft-incomplete]
-      stderr: ["1 changed (annotation-push-request-0.12.0.schema.json)", "deleted this run's draft id 9001"]
+      stderr: ["1 changed (annotation-push-request-0.12.0.schema.json)", "was not deleted automatically"]
+      no_delete: true
+      no_publish: true
+      after: [{id: 9001, draft: true, assets: 3}]
     classification: must-fail
     sibling: final-publishes
     provenance: {source: requirement, ref: "the manifest is hashed once at the start; GitHub's digest of what was uploaded is compared with it"}
@@ -492,6 +615,9 @@ permit_required_names:
   - update-own
   - delete-own
   - delete-own-asset
+  - refuse-delete-release-non-rehearsal
+  - refuse-delete-asset-non-rehearsal
+  - refuse-publish-rehearsal
   - refuse-delete-own-unconfirmed
   - refuse-delete-own-asset-unconfirmed
   - refuse-delete-not-own
@@ -517,19 +643,22 @@ permit_cases:
   - {name: read-release, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062", call: "read-release"}
   - {name: list-assets, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062/assets?per_page=100", call: "list-assets"}
   - {name: update-own, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], call: "update-release"}
-  - {name: delete-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], confirmed: [9001], call: "delete-release"}
-  - {name: delete-own-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], confirmed: [9001], own_assets: [765391957], call: "delete-asset"}
-  - {name: refuse-delete-own-unconfirmed, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], error_contains: "was not read back as a draft before the delete", call: ""}
-  - {name: refuse-delete-own-asset-unconfirmed, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], own_assets: [765391957], error_contains: "was not read back as a draft before the delete", call: ""}
-  - {name: refuse-delete-not-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/449898580", created: [9001], confirmed: [9001], error_contains: "was not created by this run", call: ""}
+  - {name: delete-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], confirmed: [9001], allow_delete: true, call: "delete-release"}
+  - {name: delete-own-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], confirmed: [9001], own_assets: [765391957], allow_delete: true, call: "delete-asset"}
+  - {name: refuse-delete-release-non-rehearsal, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], confirmed: [9001], error_contains: "automatic deletion is disabled", call: ""}
+  - {name: refuse-delete-asset-non-rehearsal, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], confirmed: [9001], own_assets: [765391957], error_contains: "automatic deletion is disabled", call: ""}
+  - {name: refuse-publish-rehearsal, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], allow_delete: true, error_contains: "rehearsal mode never publishes", call: ""}
+  - {name: refuse-delete-own-unconfirmed, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001", created: [9001], allow_delete: true, error_contains: "was not read back as a draft before the delete", call: ""}
+  - {name: refuse-delete-own-asset-unconfirmed, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391957", created: [9001], own_assets: [765391957], allow_delete: true, error_contains: "was not read back as a draft before the delete", call: ""}
+  - {name: refuse-delete-not-own, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/449898580", created: [9001], confirmed: [9001], allow_delete: true, error_contains: "was not created by this run", call: ""}
   - {name: refuse-update-not-own, method: PATCH, url: "https://api.github.com/repos/peasant-labs/schema/releases/450679062", error_contains: "was not created by this run", call: ""}
   - {name: refuse-upload-not-own, method: POST, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/450679062/assets?name=a.json", error_contains: "was not created by this run", call: ""}
   - {name: refuse-upload-on-api-host, method: POST, url: "https://api.github.com/repos/peasant-labs/schema/releases/9001/assets?name=a.json", created: [9001], error_contains: "the method does not belong to the endpoint", call: ""}
   - {name: refuse-other-repo, method: GET, url: "https://api.github.com/repos/peasant-labs/peasant/releases?per_page=30", error_contains: "the path is not under /repos/peasant-labs/schema", call: ""}
   - {name: refuse-other-tag-ref, method: GET, url: "https://api.github.com/repos/peasant-labs/schema/git/ref/tags/v0.57.1", error_contains: "the path is not a release endpoint", call: ""}
   - {name: refuse-delete-tag-ref, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/git/refs/tags/v0.58.0", error_contains: "the path is not a release endpoint", call: ""}
-  - {name: refuse-delete-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [450679062], confirmed: [450679062], error_contains: "is not on a release this run created", call: ""}
-  - {name: refuse-delete-foreign-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [9001], confirmed: [9001], own_assets: [765391957], error_contains: "is not on a release this run created", call: ""}
+  - {name: refuse-delete-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [450679062], confirmed: [450679062], allow_delete: true, error_contains: "is not on a release this run created", call: ""}
+  - {name: refuse-delete-foreign-asset, method: DELETE, url: "https://api.github.com/repos/peasant-labs/schema/releases/assets/765391956", created: [9001], confirmed: [9001], own_assets: [765391957], allow_delete: true, error_contains: "is not on a release this run created", call: ""}
   - {name: refuse-http-scheme, method: GET, url: "http://api.github.com/repos/peasant-labs/schema/releases?per_page=30", error_contains: "the host is not https://api.github.com", call: ""}
   - {name: refuse-foreign-host, method: GET, url: "https://evil.example/repos/peasant-labs/schema/releases?per_page=30", error_contains: "the host is not https://api.github.com", call: ""}
   - {name: refuse-upload-host-read, method: GET, url: "https://uploads.github.com/repos/peasant-labs/schema/releases/9001/assets?per_page=100", created: [9001], error_contains: "takes only POST /releases/<id>/assets", call: ""}
@@ -547,10 +676,12 @@ delete_required_names:
   - delete-times-out-with-assets
   - delete-502-removed
   - delete-502-kept
+  - delete-502-readback-fails
   - delete-403
 delete_cases:
   - {name: delete-no-content, faults: {}, deleted: true, sleeps: 0}
   - {name: delete-times-out-with-assets, faults: {delete_times_out_with_assets: true}, deleted: true, sleeps: 0}
   - {name: delete-502-removed, faults: {delete_status: 502, delete_removes: true}, deleted: true, sleeps: 0}
   - {name: delete-502-kept, faults: {delete_status: 502}, deleted: false, sleeps: 5}
+  - {name: delete-502-readback-fails, faults: {delete_status: 502, read_release_fail_from_read: 5, read_release_fail_status: 503}, deleted: false, sleeps: 5, unconfirmed: true, error_contains: "status 503"}
   - {name: delete-403, faults: {delete_status: 403}, deleted: false, sleeps: 0}

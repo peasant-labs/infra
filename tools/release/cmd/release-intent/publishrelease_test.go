@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,6 +78,13 @@ type publishFaults struct {
 	// DigestNullReads reports every asset's digest as null on the first N
 	// asset listings of a release this run created.
 	DigestNullReads int `yaml:"digest_null_reads"`
+	// PublishAfterAssetDeletes flips the release to published after N
+	// individual asset deletions.
+	PublishAfterAssetDeletes int `yaml:"publish_after_asset_deletes"`
+	// ReadReleaseFailFromRead answers GET /releases/<id> with
+	// ReadReleaseFailStatus starting at the Nth read of that release.
+	ReadReleaseFailFromRead int `yaml:"read_release_fail_from_read"`
+	ReadReleaseFailStatus   int `yaml:"read_release_fail_status"`
 	// CreateLost creates the draft, then answers the create with 502.
 	CreateLost bool `yaml:"create_lost"`
 	// RewriteLocalOnUpload rewrites a local file (same size, other bytes)
@@ -117,13 +125,18 @@ type publishCase struct {
 		Server           publishServer `yaml:"server"`
 	} `yaml:"input"`
 	Expected struct {
-		Exit   int      `yaml:"exit"`
-		Lines  []string `yaml:"lines"`
-		Stderr []string `yaml:"stderr"`
+		Exit         int      `yaml:"exit"`
+		Lines        []string `yaml:"lines"`
+		Stderr       []string `yaml:"stderr"`
+		StderrAbsent []string `yaml:"stderr_absent"`
 		// After lists every release for the tag once the run ended.
 		After []publishAfter `yaml:"after"`
 		// NoRequests asserts the run refused before any request.
 		NoRequests bool `yaml:"no_requests"`
+		// NoDelete asserts the run sent no DELETE request.
+		NoDelete bool `yaml:"no_delete"`
+		// NoPublish asserts the run sent no PATCH (publish) request.
+		NoPublish bool `yaml:"no_publish"`
 		// Requests, when set, is the exact request log.
 		Requests []string `yaml:"requests"`
 	} `yaml:"expected"`
@@ -140,16 +153,27 @@ type permitCase struct {
 	Created       []int64 `yaml:"created"`
 	Confirmed     []int64 `yaml:"confirmed"`
 	OwnAssets     []int64 `yaml:"own_assets"`
+	AllowDelete   bool    `yaml:"allow_delete"`
 	Call          string  `yaml:"call"`
 	ErrorContains string  `yaml:"error_contains"`
 }
 
 // deleteCase drives DeleteOwn in process with a counting sleep.
 type deleteCase struct {
-	Name    string        `yaml:"name"`
-	Faults  publishFaults `yaml:"faults"`
-	Deleted bool          `yaml:"deleted"`
-	Sleeps  int           `yaml:"sleeps"`
+	Name          string        `yaml:"name"`
+	Faults        publishFaults `yaml:"faults"`
+	Deleted       bool          `yaml:"deleted"`
+	Sleeps        int           `yaml:"sleeps"`
+	Unconfirmed   bool          `yaml:"unconfirmed"`
+	ErrorContains string        `yaml:"error_contains"`
+}
+
+type readStateCase struct {
+	Name         string `yaml:"name"`
+	Draft        bool   `yaml:"draft"`
+	Retained     bool   `yaml:"retained"`
+	GoneRead     bool   `yaml:"gone_read"`
+	PublishError bool   `yaml:"publish_error"`
 }
 
 type publishFixture struct {
@@ -161,6 +185,8 @@ type publishFixture struct {
 	PermitCases         []permitCase       `yaml:"permit_cases"`
 	DeleteRequiredNames []string           `yaml:"delete_required_names"`
 	DeleteCases         []deleteCase       `yaml:"delete_cases"`
+	ReadRequiredNames   []string           `yaml:"read_required_names"`
+	ReadCases           []readStateCase    `yaml:"read_cases"`
 }
 
 func loadPublishFixture(t *testing.T) publishFixture {
@@ -200,7 +226,56 @@ func loadPublishFixture(t *testing.T) publishFixture {
 		deleteSeen[c.Name] = struct{}{}
 	}
 	checkRequiredNames(t, f.DeleteRequiredNames, deleteSeen, "publish-release delete fixture")
+	readSeen := map[string]struct{}{}
+	for _, c := range f.ReadCases {
+		readSeen[c.Name] = struct{}{}
+	}
+	checkRequiredNames(t, f.ReadRequiredNames, readSeen, "publish-release read fixture")
 	return f
+}
+
+func TestPublishRelease_ReadDraftState(t *testing.T) {
+	for _, c := range loadPublishFixture(t).ReadCases {
+		t.Run(c.Name, func(t *testing.T) {
+			faults := publishFaults{}
+			if c.PublishError {
+				faults.PatchLandsOnRead = 2
+			}
+			api := newFakeReleaseServer(t, publishServer{Faults: faults}, nil)
+			w, err := newReleaseWriter(api.server.URL, fakeReleaseRepo, "v0.59.0", fakeReleaseToken, api.server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := w.CreateDraft("notes", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.confirmedDraft[id] = true
+			const assetID = 1
+			w.ownAssets[assetID] = id
+			api.mu.Lock()
+			api.find(id).Draft = c.Draft
+			api.mu.Unlock()
+			switch {
+			case c.PublishError:
+				if err := w.Publish(id, false, true); err == nil {
+					t.Fatal("Publish unexpectedly succeeded")
+				}
+			case c.GoneRead:
+				if _, err := w.releaseGone(id); err == nil {
+					t.Fatal("releaseGone accepted a published release")
+				}
+			default:
+				if _, err := w.ReadRelease(id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, assetRetained := w.ownAssets[assetID]
+			if w.created[id] != c.Retained || w.confirmedDraft[id] != c.Retained || assetRetained != c.Retained {
+				t.Fatalf("draft state retained (release/confirmation/asset) = %v/%v/%v, want %v", w.created[id], w.confirmedDraft[id], assetRetained, c.Retained)
+			}
+		})
+	}
 }
 
 // fakeRelease and fakeAsset are the fake server's state.
@@ -238,8 +313,11 @@ type fakeReleaseServer struct {
 	pendingPatch map[int64]int
 	// assetReads counts asset listings per release.
 	assetReads map[int64]int
-	requests   []string
-	server     *httptest.Server
+	// releaseReads counts GET /releases/<id> calls per release.
+	releaseReads map[int64]int
+	assetDeletes int
+	requests     []string
+	server       *httptest.Server
 	// localDir is the run's asset directory, for RewriteLocalOnUpload.
 	localDir string
 }
@@ -394,6 +472,10 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 			for i, a := range rel.Assets {
 				if a.ID == aid {
 					rel.Assets = append(rel.Assets[:i], rel.Assets[i+1:]...)
+					s.assetDeletes++
+					if s.cfg.Faults.PublishAfterAssetDeletes == s.assetDeletes {
+						rel.Draft = false
+					}
 					w.WriteHeader(http.StatusNoContent)
 					return
 				}
@@ -442,6 +524,18 @@ func (s *fakeReleaseServer) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		s.page(w, r, len(rel.Assets), func(lo, hi int) { s.writeJSON(w, http.StatusOK, rel.Assets[lo:hi]) })
 	case r.Method == http.MethodGet:
+		if s.releaseReads == nil {
+			s.releaseReads = map[int64]int{}
+		}
+		s.releaseReads[id]++
+		if s.cfg.Faults.ReadReleaseFailFromRead > 0 && s.releaseReads[id] >= s.cfg.Faults.ReadReleaseFailFromRead {
+			status := s.cfg.Faults.ReadReleaseFailStatus
+			if status == 0 {
+				status = http.StatusServiceUnavailable
+			}
+			s.writeJSON(w, status, map[string]string{"message": http.StatusText(status)})
+			return
+		}
 		if n, ok := s.pendingPatch[id]; ok {
 			if n <= 1 {
 				delete(s.pendingPatch, id)
@@ -611,6 +705,11 @@ func TestPublishRelease_Process(t *testing.T) {
 			if strings.Contains(res.Stderr+res.Stdout, fakeReleaseToken) {
 				t.Fatalf("the output carries the token")
 			}
+			for _, frag := range c.Expected.StderrAbsent {
+				if strings.Contains(res.Stderr, frag) {
+					t.Fatalf("stderr contains %q:\n%s", frag, res.Stderr)
+				}
+			}
 			api.mu.Lock()
 			defer api.mu.Unlock()
 			if c.Expected.Requests != nil && strings.Join(api.requests, "\n") != strings.Join(c.Expected.Requests, "\n") {
@@ -618,6 +717,20 @@ func TestPublishRelease_Process(t *testing.T) {
 			}
 			if c.Expected.NoRequests && len(api.requests) != 0 {
 				t.Fatalf("the run sent %d requests before refusing: %v", len(api.requests), api.requests)
+			}
+			if c.Expected.NoDelete {
+				for _, req := range api.requests {
+					if strings.HasPrefix(req, http.MethodDelete+" ") {
+						t.Fatalf("the run sent unexpected DELETE request %q; all requests: %v", req, api.requests)
+					}
+				}
+			}
+			if c.Expected.NoPublish {
+				for _, req := range api.requests {
+					if strings.HasPrefix(req, http.MethodPatch+" ") {
+						t.Fatalf("the run sent unexpected PATCH (publish) request %q; all requests: %v", req, api.requests)
+					}
+				}
 			}
 			var after []publishAfter
 			for _, r := range api.releases {
@@ -643,6 +756,7 @@ func TestPublishRelease_Permit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			w.allowDelete = c.AllowDelete
 			for _, id := range c.Created {
 				w.created[id] = true
 			}
@@ -703,10 +817,11 @@ func TestPublishRelease_DeleteConfirm(t *testing.T) {
 	for _, c := range f.DeleteCases {
 		t.Run(c.Name, func(t *testing.T) {
 			api := newFakeReleaseServer(t, publishServer{Faults: c.Faults}, nil)
-			w, err := newReleaseWriter(api.server.URL, fakeReleaseRepo, "v0.59.0", fakeReleaseToken, api.server.Client())
+			w, err := newReleaseWriter(api.server.URL, fakeReleaseRepo, "rehearsal-1763500000", fakeReleaseToken, api.server.Client())
 			if err != nil {
 				t.Fatal(err)
 			}
+			w.allowDelete = true
 			sleeps := 0
 			w.sleep = func(time.Duration) { sleeps++ }
 			id, err := w.CreateDraft("notes", false)
@@ -723,6 +838,13 @@ func TestPublishRelease_DeleteConfirm(t *testing.T) {
 			err = w.DeleteOwn(id)
 			if (err == nil) != c.Deleted {
 				t.Fatalf("DeleteOwn = %v, want deleted=%t", err, c.Deleted)
+			}
+			var unconfirmed *unconfirmedStatusError
+			if errors.As(err, &unconfirmed) != c.Unconfirmed {
+				t.Fatalf("DeleteOwn unconfirmed = %t (%v), want %t", errors.As(err, &unconfirmed), err, c.Unconfirmed)
+			}
+			if c.ErrorContains != "" && (err == nil || !strings.Contains(err.Error(), c.ErrorContains)) {
+				t.Fatalf("DeleteOwn error = %v, want fragment %q", err, c.ErrorContains)
 			}
 			if sleeps != c.Sleeps {
 				t.Fatalf("slept %d times, want %d", sleeps, c.Sleeps)

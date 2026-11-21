@@ -54,7 +54,13 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
       - name: Build
-        run: go build ./...
+        run: |
+          go build ./...
+          go build -o "${RUNNER_TEMP}/release-intent" ./cmd/release-intent
+
+      - name: Check infra workflows with the current release tool
+        working-directory: .
+        run: '"${RUNNER_TEMP}/release-intent" check-workflows --policy .github/release-queue.policy.yml --dir .github/workflows'
 
       - name: Vet
         run: go vet ./...

@@ -9,6 +9,9 @@
 # required_names is the manifest: every case must be listed and every listed
 # case must exist, so a dropped or stray sample fails loudly.
 required_names:
+  - accept-private-npm
+  - reject-global-npm
+  - reject-pre-tag-workflows-npm-only
   - accept-inherit-verdict
   - accept-inherit-verdict-unset
   - reject-inherit-verdict-no-full-suite-need
@@ -3076,3 +3079,31 @@ cases:
     classification: must-fail
     provenance: { source: requirement, ref: "a job-level continue-on-error makes a failed aggregator report success, which the runtime check cannot detect" }
     mutation: { description: "Let the aggregator job fail softly." }
+
+  - name: accept-private-npm
+    input: {overlay: ""}
+    expected: {rule: npm-installs-use-private-prefix, want_contains: []}
+    sibling: ""
+    classification: must-pass
+    provenance: {source: requirement, ref: "npm installs use job-private prefixes"}
+    mutation: {description: "The workflow has no global npm install."}
+  - name: reject-global-npm
+    input:
+      overlay: ""
+      edits:
+        - {file: workflows/ci.yml, old: "run: echo", new: "run: npm install -g example #"}
+    expected: {rule: npm-installs-use-private-prefix, want_contains: ["$RUNNER_TEMP", "GITHUB_PATH"]}
+    sibling: accept-private-npm
+    classification: must-fail
+    provenance: {source: requirement, ref: "global npm installs race on shared runners"}
+    mutation: {description: "Replace a local command with a global npm install."}
+  - name: reject-pre-tag-workflows-npm-only
+    input:
+      overlay: ""
+      edits:
+        - {file: workflows/release-batch.yml, old: "run: release-intent check-workflows --dir workflows", new: "run: release-intent check-workflows --dir workflows --npm-only"}
+    expected: {rule: release-actions-gated, want_contains: ["verify-workflows"]}
+    sibling: accept-private-npm
+    classification: must-fail
+    provenance: {source: requirement, ref: "pre-tag workflows check cannot weaken full policy validation to --npm-only"}
+    mutation: {description: "Add --npm-only to the declared pre-tag workflows check step."}

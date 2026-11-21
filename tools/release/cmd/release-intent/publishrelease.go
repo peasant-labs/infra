@@ -21,8 +21,10 @@ import (
 // asset to that draft by id, verifies the draft carries exactly the local
 // manifest, publishes it by id and verifies the published release again. A
 // rerun that meets the published release accepts it only when it is exactly
-// the manifest. Before the publish, any failure deletes this run's own
-// draft; nothing the run did not create is ever changed.
+// the manifest. Because GitHub's REST API cannot enforce draft-only deletion,
+// real release runs never send automatic DELETE requests (neither on
+// pre-publish failures nor on ambiguous publish); nothing the run did not
+// create is ever changed.
 //
 // --rehearse runs the same create, upload and verify for a never-pushed
 // rehearsal-* tag and then deletes the draft. It never publishes. It exists
@@ -74,6 +76,9 @@ func publishRelease(w *releaseWriter, opts publishOptions) error {
 		if err := intent.CheckRehearsalTag(opts.tag); err != nil {
 			return reject(err)
 		}
+		w.allowDelete = true
+	} else {
+		w.allowDelete = false
 	}
 	notes, err := readNotes(opts.notes, opts.assets)
 	if err != nil {
@@ -141,19 +146,25 @@ func publishRelease(w *releaseWriter, opts publishOptions) error {
 			if errors.As(err, &published) {
 				return err
 			}
+			var unconfirmed *unconfirmedStatusError
+			if errors.As(err, &unconfirmed) {
+				return fmt.Errorf("could not delete rehearsal draft id %d (%w); release status is unconfirmed, inspect it by hand (gh api repos/%s/releases/%d)", id, err, opts.repo, id)
+			}
 			return deleteFailed(opts, id, err, err)
 		}
 		fmt.Fprintf(os.Stderr, "%s: rehearsal draft id %d verified with %d assets and deleted\n", intent.CommandPublishRelease, id, len(manifest))
 		return emit(out(intent.OutputState, intent.PublishStateRehearsed.String()))
 	}
 	if err := w.Publish(id, opts.prerelease, opts.latest); err != nil {
-		// The publish may or may not have taken effect: read it back by id.
+		// The publish may or may not have taken effect: read it back by id,
+		// and never send an automatic DELETE after an ambiguous publish.
 		rel, readErr := w.ReadRelease(id)
 		if readErr != nil {
-			return fmt.Errorf("%w; reading release id %d back also failed (%v): check it by hand, and if it is still a draft delete it with %s", err, id, readErr, intent.DeleteCommand(opts.repo, id))
+			return fmt.Errorf("%w; reading release id %d back also failed: %w. Release status is unconfirmed; inspect release id %d by hand (gh api repos/%s/releases/%d)", err, id, readErr, id, opts.repo, id)
 		}
 		if rel.Draft {
-			return cleanupOwnDraft(w, opts, id, err)
+			fmt.Fprintf(os.Stderr, "%s: the publish request failed (%v), and release id %d still read back as a draft, but the publish may still land; the command did not delete it automatically. Inspect release id %d by hand (gh api repos/%s/releases/%d) before taking any action; if it published, rerun to verify it\n", intent.CommandPublishRelease, err, id, id, opts.repo, id)
+			return err
 		}
 		w.forget(id)
 		fmt.Fprintf(os.Stderr, "%s: the publish request failed (%v), but release id %d is published; verifying it\n", intent.CommandPublishRelease, err, id)
@@ -226,11 +237,26 @@ func verifyPublished(w *releaseWriter, opts publishOptions, id int64, manifest [
 	return nil
 }
 
-// cleanupOwnDraft deletes this run's draft by id after a failure before
-// publish and returns the failure. A draft that cannot be deleted is named
-// with the command that deletes it.
+// cleanupOwnDraft handles this run's draft after a failure before publish.
+// Real release runs never send automatic DELETE requests because GitHub cannot
+// enforce draft-only deletion: they read the release back and report status
+// without deletion advice when status is unconfirmed or published. Rehearsal
+// runs (never-pushed rehearsal-* tags) delete their own draft via DeleteOwn.
 func cleanupOwnDraft(w *releaseWriter, opts publishOptions, id int64, cause error) error {
 	if id == 0 || !w.created[id] {
+		return cause
+	}
+	if !opts.rehearse {
+		rel, readErr := w.ReadRelease(id)
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "%s: release id %d was not deleted automatically because GitHub cannot enforce draft-only deletion, and reading release id %d back also failed (%v). Release status is unconfirmed; inspect release id %d by hand (gh api repos/%s/releases/%d)\n", intent.CommandPublishRelease, id, id, readErr, id, opts.repo, id)
+			return fmt.Errorf("%w; reading release id %d back also failed: %w", cause, id, readErr)
+		}
+		if !rel.Draft {
+			fmt.Fprintf(os.Stderr, "%s: release id %d is no longer a draft; it is immutable and was not deleted. Rerun the job to check it without changing it, or fix forward with a new tag\n", intent.CommandPublishRelease, id)
+			return cause
+		}
+		fmt.Fprintf(os.Stderr, "%s: release id %d was not deleted automatically because GitHub cannot enforce draft-only deletion. Verify it is still a draft before deleting it by id: %s\n", intent.CommandPublishRelease, id, intent.DeleteCommand(opts.repo, id))
 		return cause
 	}
 	if err := w.DeleteOwn(id); err != nil {
@@ -238,6 +264,11 @@ func cleanupOwnDraft(w *releaseWriter, opts publishOptions, id int64, cause erro
 		if errors.As(err, &published) {
 			fmt.Fprintf(os.Stderr, "%s: not deleting release id %d after the failure below: %v\n", intent.CommandPublishRelease, id, err)
 			return cause
+		}
+		var unconfirmed *unconfirmedStatusError
+		if errors.As(err, &unconfirmed) {
+			fmt.Fprintf(os.Stderr, "%s: could not delete rehearsal draft id %d (%v); release status is unconfirmed, inspect release id %d by hand (gh api repos/%s/releases/%d)\n", intent.CommandPublishRelease, id, err, id, opts.repo, id)
+			return fmt.Errorf("%w; cleanup readback failed: %w", cause, err)
 		}
 		return deleteFailed(opts, id, cause, err)
 	}

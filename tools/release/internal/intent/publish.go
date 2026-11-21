@@ -375,8 +375,8 @@ func JudgeDraft(repo string, rel ReleaseFact, local []LocalAsset, remote []Relea
 		Why:   "a release is published only when GitHub reports every local file, by name, size and sha256 digest, and nothing else",
 		Where: "the draft's assets in " + repo + ", compared by " + ProgramName + " " + CommandPublishRelease.String(),
 		When:  "verifying the draft before publishing it",
-		Means: "the draft is not published; the command deletes its own draft",
-		Fix:   "rerun the publish job; if the compare fails again, check what the build staged and whether the upload was interrupted",
+		Means: "the draft is not published",
+		Fix:   "inspect the release by id, remove the draft if it is still a draft, and rerun the publish job; if the compare fails again, check what the build staged and whether the upload was interrupted",
 	}
 	if !rel.Draft {
 		e.What = "release id " + strconv.FormatInt(rel.ID, 10) + " for " + rel.Tag + " is no longer a draft before this run published it"

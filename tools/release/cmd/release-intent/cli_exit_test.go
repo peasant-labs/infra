@@ -128,6 +128,14 @@ const (
 	// setupWorkflowsViolation is a policy an empty workflows directory
 	// cannot satisfy.
 	setupWorkflowsViolation processSetup = "workflows-violation"
+	// setupWorkflowsGlobalNpm adds an unlisted workflow with a global npm install.
+	setupWorkflowsGlobalNpm processSetup = "workflows-global-npm"
+	// setupWorkflowsNpmOnlyAccept is clean workflows with no policy or config.
+	setupWorkflowsNpmOnlyAccept processSetup = "workflows-npm-only-accept"
+	// setupWorkflowsNpmOnlyReject is a global-npm workflow with no policy or config.
+	setupWorkflowsNpmOnlyReject processSetup = "workflows-npm-only-reject"
+	// setupWorkflowsNoConfig is a valid policy and workflows without a release config.
+	setupWorkflowsNoConfig processSetup = "workflows-no-config"
 	// setupWorkflowsPolicyOnly is a loadable policy and an empty workflows
 	// directory.
 	setupWorkflowsPolicyOnly processSetup = "workflows-policy-only"
@@ -155,7 +163,7 @@ var allProcessSetups = []processSetup{
 	setupNone, setupConfigValid, setupConfigRaw, setupQueue,
 	setupGitPending, setupGitRawSubject, setupGitEmptyRelease,
 	setupClassifyAllBots, setupClassifyRawConfig, setupClassifyHeadTamper,
-	setupWorkflowsAccept, setupWorkflowsDefaultPolicy, setupWorkflowsViolation, setupWorkflowsPolicyOnly,
+	setupWorkflowsAccept, setupWorkflowsDefaultPolicy, setupWorkflowsViolation, setupWorkflowsPolicyOnly, setupWorkflowsGlobalNpm, setupWorkflowsNpmOnlyAccept, setupWorkflowsNpmOnlyReject, setupWorkflowsNoConfig,
 	setupCurrentSame, setupCurrentCleanTip, setupCurrentDiffers, setupCurrentConflict,
 	setupTitleReleaseContent, setupTitleReleaseSourceEdit, setupTitleCutReleaseEmpty, setupTitleCutReleaseFile, setupTitleChangelogEdit,
 	setupTagOnBranch, setupTagOffBranch,
@@ -420,7 +428,7 @@ func setupProcessCase(t *testing.T, in cliInput) processState {
 			phTag:   r.TagName(next),
 			phTrunk: r.branchName(r.Trunk()),
 		}}
-	case setupWorkflowsAccept, setupWorkflowsDefaultPolicy, setupWorkflowsViolation, setupWorkflowsPolicyOnly:
+	case setupWorkflowsAccept, setupWorkflowsDefaultPolicy, setupWorkflowsViolation, setupWorkflowsPolicyOnly, setupWorkflowsGlobalNpm, setupWorkflowsNpmOnlyAccept, setupWorkflowsNpmOnlyReject, setupWorkflowsNoConfig:
 		return setupWorkflows(t, in.Setup, standard)
 	case setupCurrentSame, setupCurrentCleanTip, setupCurrentDiffers, setupCurrentConflict:
 		r := setupCurrentBranch(t, in.Setup)
@@ -496,34 +504,47 @@ const (
 )
 
 // setupWorkflows writes a queue policy, a release config and a workflows
-// directory. The release config is present because the queue rules resolve
-// bot branches from it.
+// directory. Standalone npm-only and missing-file setups omit the policy
+// and/or release config as required.
 func setupWorkflows(t *testing.T, setup processSetup, cfg intent.Config) processState {
 	t.Helper()
 	dir := t.TempDir()
-	writeTreeFile(t, dir, intent.DefaultConfigPath, string(marshalConfig(t, cfg)))
 	workflows := filepath.Join(dir, treeWorkflowsDir)
 	if err := os.MkdirAll(workflows, 0o755); err != nil {
 		t.Fatalf("mkdir workflows: %v", err)
 	}
-	tree, policyPath, withWorkflows := treeAccept, treePolicyFile, false
+	tree, policyPath := treeAccept, treePolicyFile
+	withConfig, withPolicy, withWorkflows, withGlobalNpm := true, true, false, false
 	switch setup {
 	case setupWorkflowsAccept:
 		withWorkflows = true
+	case setupWorkflowsGlobalNpm:
+		withWorkflows, withGlobalNpm = true, true
 	case setupWorkflowsDefaultPolicy:
 		policyPath, withWorkflows = policy.DefaultPath, true
 	case setupWorkflowsViolation:
 		tree = treeViolation
 	case setupWorkflowsPolicyOnly:
+	case setupWorkflowsNpmOnlyAccept:
+		withConfig, withPolicy, withWorkflows = false, false, true
+	case setupWorkflowsNpmOnlyReject:
+		withConfig, withPolicy, withWorkflows, withGlobalNpm = false, false, true, true
+	case setupWorkflowsNoConfig:
+		withConfig, withWorkflows = false, true
 	default:
 		t.Fatalf("setup %q is not a workflows setup", setup)
 	}
-	root := workflowTreesDir + "/" + string(tree)
-	policyBytes, err := workflowTreesFS.ReadFile(root + "/" + treePolicyFile)
-	if err != nil {
-		t.Fatalf("read embedded policy of tree %q: %v", tree, err)
+	if withConfig {
+		writeTreeFile(t, dir, intent.DefaultConfigPath, string(marshalConfig(t, cfg)))
 	}
-	writeTreeFile(t, dir, policyPath, string(policyBytes))
+	root := workflowTreesDir + "/" + string(tree)
+	if withPolicy {
+		policyBytes, err := workflowTreesFS.ReadFile(root + "/" + treePolicyFile)
+		if err != nil {
+			t.Fatalf("read embedded policy of tree %q: %v", tree, err)
+		}
+		writeTreeFile(t, dir, policyPath, string(policyBytes))
+	}
 	if withWorkflows {
 		entries, err := fs.ReadDir(workflowTreesFS, root+"/"+treeWorkflowsDir)
 		if err != nil {
@@ -536,6 +557,13 @@ func setupWorkflows(t *testing.T, setup processSetup, cfg intent.Config) process
 			}
 			writeTreeFile(t, workflows, e.Name(), string(body))
 		}
+	}
+	if withGlobalNpm {
+		body, err := workflowTreesFS.ReadFile(workflowTreesDir + "/global-npm.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeTreeFile(t, workflows, "global-npm.yml", string(body))
 	}
 	return processState{dir, map[placeholder]string{
 		phDir:       dir,
