@@ -436,18 +436,24 @@ policy therefore requires the workflow or the publish job to set
    "digest not reported", not as a mismatch. A create whose answer is lost (no
    answer, a server error, no id) may have made a draft: the error says so and
    gives the read that lists the tag's drafts by id and the by-id delete. A
-   publish request that fails is read back by id: still a draft is cleaned up,
-   published is verified.
-6. **Cleanup.** Any failure before the publish deletes this run's own draft by
-   id. Every delete first reads the release back by id: a 404 is already gone,
-   and a release that is no longer a draft (published by someone else, or by
-   this run's publish landing late) is immutable and is never deleted; the
-   command says so and leaves it. GitHub has no conditional delete, so a
-   publish landing between that read and the delete is not excluded. GitHub answers a delete of a release with hundreds of assets with 502
-   after about ten seconds and may keep it, so a server error or a lost answer
-   makes the command delete that draft's assets one by one, then the empty
-   draft, and read it back until it is gone. If that fails it prints the id
-   and the delete command.
+   publish request that fails is read back by id without sending any automatic
+   delete: if it is published it is verified; if it still reads back as a draft
+   or the readback fails, the run preserves any readback error, leaves the
+   release untouched, and prints no deletion advice (only the by-id inspect
+   command), because the publish may still land or its status is unconfirmed.
+6. **Cleanup.** Because GitHub's REST API cannot enforce draft-only deletion
+   (there is no conditional delete precondition), real release runs never send
+   automatic `DELETE` requests for a release or its assets — neither on
+   pre-publish failures nor on ambiguous publish. On a pre-publish failure, the
+   run reads the release back by id: if the readback fails, it preserves the
+   readback error and prints no deletion advice; if the release is no longer a
+   draft, it prints no deletion advice; only when the readback confirms it is
+   still a draft does it name the by-id delete command after verification.
+   Automatic draft cleanup (`DeleteOwn`, including asset-by-asset fallback when
+   a large draft delete times out with 502) is enabled only for `--rehearse` on
+   a never-pushed `rehearsal-*` tag, and still confirms draft status before
+   each delete, preserves readback errors, and prints no deletion advice when
+   status is unconfirmed or published.
 
 Exit 0 prints `release_id=` and `state=` (`published`, `already-published`,
 `rehearsed`); exit 2 is a typed rejection with `error=` and the six-part
@@ -464,8 +470,9 @@ as a programming error. The API base is `https://api.github.com` (uploads to
 `https://uploads.github.com`) or, for tests, a plain-http loopback server; a
 response over 32 MiB is an error; a redirect is never followed (it is a
 status error), so no request bypasses the allow-list; the token travels only
-in the `Authorization` header and is never printed. A release or asset delete
-is permitted only after the read-back found the release still a draft.
+in the `Authorization` header and is never printed. Release and asset deletes
+are refused for real releases and permitted only in `--rehearse` mode after the
+read-back found the release still a draft.
 
 **Rehearsal.** `--rehearse` runs steps 1-2, refuses unless the tag starts with
 `rehearsal-` and neither a release nor a ref exists for it
