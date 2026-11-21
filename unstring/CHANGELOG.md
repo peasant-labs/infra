@@ -2,6 +2,10 @@
 
 The release automation generates this file from landed release intents.
 
+## [0.4.0]
+
+- exclude vendored paths from every scan (#120)
+
 ## [0.3.0]
 
 - ignore type-position literal unions in the schema catalog (#104)
