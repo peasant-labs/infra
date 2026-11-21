@@ -61,6 +61,7 @@ type mutationStep struct {
 	Exit        int           `yaml:"exit"`
 	Kinds       []string      `yaml:"kinds"`
 	Stdout      []string      `yaml:"stdout"`
+	NotStdout   []string      `yaml:"notStdout"`
 	Stderr      []string      `yaml:"stderr"`
 	Baseline    *baselineWant `yaml:"baseline"`
 }
@@ -99,6 +100,7 @@ var requiredMutations = []string{
 	"marker-accepted-on-other-rule",
 	"wrong-ast-grep",
 	"schema-module-missing",
+	"exclude-vendored-paths",
 }
 
 func loadMutations(t *testing.T) mutationsFixture {
@@ -453,6 +455,11 @@ func TestEndToEnd(t *testing.T) {
 					for _, want := range s.Stdout {
 						if !strings.Contains(stdout, want) {
 							t.Errorf("stdout lacks %q\n%s", want, ctx)
+						}
+					}
+					for _, bad := range s.NotStdout {
+						if strings.Contains(stdout, bad) {
+							t.Errorf("stdout has %q\n%s", bad, ctx)
 						}
 					}
 					for _, want := range s.Stderr {

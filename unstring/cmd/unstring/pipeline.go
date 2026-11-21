@@ -73,6 +73,7 @@ func (s *session) buildCatalog(l rules.Lang) (catalog.Catalog, error) {
 		Roots:        s.cfg.RootsFor(l),
 		SchemaModule: s.cfg.Schema.Module,
 		Env:          s.environ,
+		Excluded:     s.cfg.Excluded,
 	})
 	if err != nil {
 		if ferr, ok := s.deps.Failure(err); ok {
@@ -94,7 +95,8 @@ func (s *session) buildCatalog(l rules.Lang) (catalog.Catalog, error) {
 
 // runScan builds the rules of the selected languages, scans each language's
 // roots with them and the marker comment rule, and returns the hits that
-// remain after exempt and definition-site hits are dropped.
+// remain after excluded files, exempt hits and definition-site hits are
+// dropped.
 func (s *session) runScan(langs []rules.Lang) (scanned, error) {
 	reg, err := s.registry()
 	if err != nil {
@@ -151,6 +153,11 @@ func (s *session) runScan(langs []rules.Lang) (scanned, error) {
 				"fix the cause ast-grep names above; if it names a rule document, report it to the infra maintainers.")
 		}
 		for _, m := range matches {
+			if s.cfg.Excluded(m.File) {
+				// Vendored code outside the repository's ownership: no
+				// rule, marker or baseline entry applies to it.
+				continue
+			}
 			if ratchet.IsCommentRule(m.RuleID) {
 				out.scan.Comments = append(out.scan.Comments, ratchet.CommentFromMatch(m))
 				continue

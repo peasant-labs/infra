@@ -22,3 +22,14 @@ exemption: |
     - rule: "*"
       paths: [src/example.go]
       reason: generated source file
+# A vendored package under the Go root, with its own typed set and a literal
+# comparison the typed pass reports unless the file is excluded.
+vendored: |
+  package sqlite
+  type Mode string
+  const WAL Mode = "wal"
+  func IsWAL(m Mode) bool { return m == "wal" }
+exclusion: |
+  exclude:
+    - paths: [src/third_party]
+      reason: vendored copy of an upstream driver

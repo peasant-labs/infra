@@ -74,7 +74,7 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 			fmt.Sprintf("the config file %s does not decode: %v.", name, err),
 			"unstring refuses unknown keys and wrong value types so that a misspelt setting cannot be silently ignored.",
 			where,
-			"correct the key or value on the line named above; the keys are version, baseline, ts, go, typed, schema, endpoints, dataDirs and exempt.")
+			"correct the key or value on the line named above; the keys are version, baseline, ts, go, typed, schema, endpoints, dataDirs, exempt and exclude.")
 	}
 	// Preserve presence independently of the boolean value: even an explicit
 	// false is a misplaced option when the pass is disabled.
@@ -250,7 +250,163 @@ func Parse(name string, data []byte, dir string) (Config, error) {
 			}
 		}
 	}
+	if ferr := c.validateExclude(dir, name, where); ferr != nil {
+		return Config{}, ferr
+	}
 	return c, nil
+}
+
+// validateExclude refuses an exclude entry without paths or a reason, a path
+// that is not a clean relative glob, a path that covers a whole configured
+// root, and a path that matches no file under any configured root.
+func (c Config) validateExclude(dir, name, where string) error {
+	fail := func(what, why, fix string) error { return failure.New(what, why, where, fix) }
+	roots := c.allRoots()
+	for i, e := range c.Exclude {
+		label := fmt.Sprintf("exclude entry %d in %s", i+1, name)
+		if len(e.Paths) == 0 {
+			return fail(
+				fmt.Sprintf("%s lists no paths.", label),
+				"an exclusion removes the files its paths match from every scan, so an entry with none excludes nothing.",
+				"list the vendored directories or globs under `paths`, for example `third_party`, or remove the entry.")
+		}
+		if len(strings.Fields(e.Reason)) == 0 {
+			return fail(
+				fmt.Sprintf("%s has no reason.", label),
+				"an exclusion takes code out of every rule and out of the catalog, so it says whose code it is, for the reviewer.",
+				"add `reason: <whose code this is and why the repository does not own it>` to the entry, for example "+
+					"`reason: vendored copy of an upstream driver`.")
+		}
+		for _, p := range e.Paths {
+			if msg := relativePathProblem(strings.ReplaceAll(p, "*", "x")); msg != "" {
+				return fail(
+					fmt.Sprintf("%s has the path %q, which %s.", label, p, msg),
+					"exclude paths are relative to the config's directory, with `/` separators, so they can only name files of this repository.",
+					"write the path or glob relative to the config, for example `third_party` or `web/vendor/**`.")
+			}
+			if _, err := path.Match(globSegments(p), ""); err != nil {
+				return fail(
+					fmt.Sprintf("%s has the malformed glob %q.", label, p),
+					"exclude paths are globs with `*`, `?`, `[…]` and `**` for any number of directories.",
+					"correct the glob.")
+			}
+			for _, r := range roots {
+				if coversRoot(p, r.root) {
+					return fail(
+						fmt.Sprintf("%s has the path %q, which covers the whole %s root %q.", label, p, r.lang, r.root),
+						"an exclusion removes vendored code from inside a root; a path that excludes every file of a root "+
+							"would leave the root configured but guard nothing, so the config would claim coverage it does not have.",
+						fmt.Sprintf("remove %q from `%s.roots` instead of excluding it, or narrow the path to the vendored directory.", r.root, r.lang))
+				}
+			}
+			found, err := matchesScannedFile(dir, p, roots)
+			if err != nil {
+				return fail(
+					fmt.Sprintf("the files matched by %s could not be read: %v.", label, err),
+					"unstring checks that every exclude path matches a file under a configured root.",
+					"check the permissions of the matched directories.")
+			}
+			if !found {
+				return fail(
+					fmt.Sprintf("%s has the path %q, which matches no file under a configured root.", label, p),
+					"an exclusion that matches nothing hides a typo, or outlived the vendored code it was written for.",
+					"correct the path to the vendored directory under one of the roots, or remove it from the entry.")
+			}
+		}
+	}
+	return nil
+}
+
+// configuredRoot is one root and the language section that names it.
+type configuredRoot struct {
+	lang rules.Lang
+	root string
+}
+
+func (c Config) allRoots() []configuredRoot {
+	var out []configuredRoot
+	for _, l := range rules.AllLangs {
+		for _, r := range c.RootsFor(l) {
+			out = append(out, configuredRoot{lang: l, root: r})
+		}
+	}
+	return out
+}
+
+// underRoot reports whether file lies under root; both are relative to the
+// config's directory.
+func underRoot(file, root string) bool {
+	return root == "." || file == root || strings.HasPrefix(file, root+"/")
+}
+
+// coversRoot reports whether pattern matches every file that can exist under
+// root: a plain path at or above the root, `.`, or a glob ending in `**` (or
+// `**/*`) whose leading part matches the root or a directory above it.
+func coversRoot(pattern, root string) bool {
+	if pattern == "." {
+		return true
+	}
+	if !strings.ContainsAny(pattern, "*?[") {
+		return root != "." && MatchPath(pattern, root)
+	}
+	segs := strings.Split(pattern, "/")
+	n := len(segs)
+	switch {
+	case segs[n-1] == "**":
+		segs = segs[:n-1]
+	case n >= 2 && segs[n-1] == "*" && segs[n-2] == "**":
+		segs = segs[:n-2]
+	default:
+		return false
+	}
+	if len(segs) == 0 {
+		return true
+	}
+	prefix := strings.Join(segs, "/")
+	for r := root; r != "."; r = path.Dir(r) {
+		if MatchPath(prefix, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesScannedFile reports whether pattern matches at least one file under
+// one of the roots. The walk skips .git and node_modules, as the exempt check
+// does.
+func matchesScannedFile(dir, pattern string, roots []configuredRoot) (bool, error) {
+	start := filepath.Join(dir, filepath.FromSlash(globBase(pattern)))
+	found := false
+	err := filepath.WalkDir(start, func(full string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" || d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(dir, full)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if !MatchPath(pattern, rel) {
+			return nil
+		}
+		for _, r := range roots {
+			if underRoot(rel, r.root) {
+				found = true
+				return fs.SkipAll
+			}
+		}
+		return nil
+	})
+	return found, err
 }
 
 // exemptCoversClosedSet reports whether an exempt entry for this rule value
@@ -393,6 +549,20 @@ func (c Config) Exempted(id rules.RuleID, file string) bool {
 		if e.Rule != ExemptAllRules && e.Rule != id.String() {
 			continue
 		}
+		for _, p := range e.Paths {
+			if MatchPath(p, file) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Excluded reports whether an exclude entry removes file from every scan and
+// from the catalog. file is relative to the config's directory, with `/`
+// separators.
+func (c Config) Excluded(file string) bool {
+	for _, e := range c.Exclude {
 		for _, p := range e.Paths {
 			if MatchPath(p, file) {
 				return true

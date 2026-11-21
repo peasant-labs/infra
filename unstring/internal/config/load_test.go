@@ -42,6 +42,10 @@ type loadCase struct {
 		File string `yaml:"file"`
 		Want bool   `yaml:"want"`
 	} `yaml:"exempted"`
+	Excluded []struct {
+		File string `yaml:"file"`
+		Want bool   `yaml:"want"`
+	} `yaml:"excluded"`
 	Error []string `yaml:"error"`
 }
 
@@ -74,6 +78,18 @@ var requiredLoadCases = []string{
 	"refuses-exempt-without-paths",
 	"refuses-closed-set-exempt-on-hand-written-file",
 	"refuses-all-rules-exempt-on-hand-written-file",
+	"exclude-vendored-directory",
+	"exclude-glob-inside-root",
+	"refuses-exclude-without-paths",
+	"refuses-exclude-without-reason",
+	"refuses-absolute-exclude-path",
+	"refuses-exclude-path-outside-config-directory",
+	"refuses-exclude-path-with-backslash",
+	"refuses-exclude-covering-root",
+	"refuses-exclude-above-root",
+	"refuses-exclude-glob-covering-root",
+	"refuses-exclude-matching-nothing",
+	"refuses-exclude-matching-only-outside-roots",
 	"typed-mount-defaults-applied",
 	"typed-mount-explicit-settings-kept",
 	"typed-mount-off-by-default",
@@ -188,6 +204,11 @@ func TestLoad(t *testing.T) {
 			for _, e := range c.Exempted {
 				if g := got.Exempted(rules.RuleID(e.Rule), e.File); g != e.Want {
 					t.Errorf("Exempted(%s, %s) = %v, want %v", e.Rule, e.File, g, e.Want)
+				}
+			}
+			for _, e := range c.Excluded {
+				if g := got.Excluded(e.File); g != e.Want {
+					t.Errorf("Excluded(%s) = %v, want %v", e.File, g, e.Want)
 				}
 			}
 		})

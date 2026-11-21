@@ -6,10 +6,23 @@
 # has these entries (the test asserts them before any step):
 #
 #   closed-set-literal:     web/src/compare.ts 3
+#                           web/src/mode.ts 1
+#                           web/third_party/lib.ts 1
 #   exported-literal-union: web/src/phase.ts 1
+#                           web/third_party/lib.ts 1
 #   go-closed-set-literal:  server/handle.go 2
+#                           server/journal.go 1
+#                           server/third_party.go 1
+#                           server/third_party/sqlite/blob.go 2
 #   go-json-key-assert:     server/handle.go 2
 #   jsx-literal-testid:     web/src/view.tsx 2
+#
+# server/third_party/ and web/third_party/ stand for vendored upstream code.
+# The config does not exclude them until a mutation adds an `exclude` entry.
+# "wal" is a catalog member only through server/third_party/sqlite/blob.go and
+# "alpha" only through web/third_party/lib.ts, so server/journal.go and
+# web/src/mode.ts lose their hits when the vendored code leaves the catalog.
+# server/third_party.go is a sibling whose name shares the excluded prefix.
 #
 # A step is one of:
 #   replace: {file, old, new}   replace the one occurrence of old in file
@@ -24,6 +37,7 @@
 #     exit      the exit code
 #     kinds     the exact set of finding kinds the report prints
 #     stdout    substrings of standard output
+#     notStdout substrings standard output must not contain
 #     stderr    substrings of standard error
 #     baseline  unchanged: true          byte-identical to before the run
 #               changedLines: [lines]    only these lines differ, same count
@@ -32,10 +46,15 @@
 setupEntries:
   - "  closed-set-literal:"
   - "    web/src/compare.ts: 3"
+  - "    web/src/mode.ts: 1"
+  - "    web/third_party/lib.ts: 1"
   - "  exported-literal-union:"
   - "    web/src/phase.ts: 1"
   - "  go-closed-set-literal:"
   - "    server/handle.go: 2"
+  - "    server/journal.go: 1"
+  - "    server/third_party.go: 1"
+  - "    server/third_party/sqlite/blob.go: 2"
   - "  go-json-key-assert:"
   - "    server/handle.go: 2"
   - "  jsx-literal-testid:"
@@ -297,3 +316,59 @@ mutations:
       - run: [check]
         exit: 2
         stderr: ["example.test/schema", "go mod download"]
+
+  - name: exclude-vendored-paths
+    steps:
+      - run: [show, catalog]
+        exit: 0
+        stdout: ['"wal"', '"alpha"', server/third_party/sqlite/blob.go, web/third_party/lib.ts]
+      - replace:
+          file: .unstring.yaml
+          old: "schema:\n"
+          new: "exclude:\n  - paths: [server/third_party, web/third_party]\n    reason: vendored upstream code\nschema:\n"
+      - run: [show, catalog]
+        exit: 0
+        stdout: ['"ready"', '"draft"']
+        notStdout: ['"wal"', '"alpha"', server/third_party/sqlite/blob.go, web/third_party/lib.ts]
+      - run: [check]
+        exit: 1
+        kinds: [stale-missing-file]
+        stdout: [server/third_party/sqlite/blob.go, web/third_party/lib.ts, server/journal.go, web/src/mode.ts]
+        notStdout: [server/third_party.go:, server/handle.go]
+      - run: [update]
+        exit: 0
+        baseline:
+          contains:
+            - "    server/handle.go: 2"
+            - "    server/third_party.go: 1"
+            - "    web/src/compare.ts: 3"
+            - "    web/src/phase.ts: 1"
+          lacks:
+            - "    server/third_party/sqlite/blob.go: 2"
+            - "    web/third_party/lib.ts: 1"
+            - "    server/journal.go: 1"
+            - "    web/src/mode.ts: 1"
+      - run: [check]
+        exit: 0
+        kinds: []
+      # A new literal, a marker and a typed set in excluded code are never seen.
+      - replace:
+          file: server/third_party/sqlite/blob.go
+          old: "\treturn db == \"public\"\n"
+          new: "\t// unstring-allow: go-closed-set-literal — upstream vocabulary\n\treturn db == \"public\" || db == \"failed\"\n"
+      - replace:
+          file: web/third_party/lib.ts
+          old: 'export const isUpstreamReady'
+          new: "export const Row = () => <li data-testid=\"row\">row</li>;\nexport const isUpstreamReady"
+      - run: [check]
+        exit: 0
+        kinds: []
+      # The sibling is still guarded: a new hit next to the excluded path is raised.
+      - replace:
+          file: server/third_party.go
+          old: "func failed"
+          new: "func isReady(s string) bool { return s == \"ready\" }\n\nfunc failed"
+      - run: [check]
+        exit: 1
+        kinds: [raised]
+        stdout: ["server/third_party.go:3", "allowed 1, found 2"]

@@ -47,13 +47,13 @@ func (b *builder) Build(ctx context.Context, req BuildRequest) (Catalog, error) 
 	var members []Member
 	switch req.Lang {
 	case rules.LangTS:
-		found, err := harvestTS(ctx, b.deps.Runner, req.Dir, req.Roots, allTSDiscovery)
+		found, err := harvestTS(ctx, b.deps.Runner, req.Dir, req.Roots, allTSDiscovery, req.Excluded)
 		if err != nil {
 			return Catalog{}, err
 		}
 		members = append(members, found...)
 	case rules.LangGo:
-		found, err := harvestGo(req.Dir, req.Roots, false)
+		found, err := harvestGo(req.Dir, req.Roots, false, req.Excluded)
 		if err != nil {
 			return Catalog{}, err
 		}
@@ -96,13 +96,13 @@ func (b *builder) schemaMembers(ctx context.Context, req BuildRequest) ([]Member
 	}
 	module := pin.String()
 
-	goMembers, err := harvestGo(dir, []string{"."}, true)
+	goMembers, err := harvestGo(dir, []string{"."}, true, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 	var tsMembers []Member
 	if info, statErr := os.Stat(filepath.Join(dir, filepath.FromSlash(SchemaGeneratedTSDir))); statErr == nil && info.IsDir() {
-		tsMembers, err = harvestTS(ctx, b.deps.Runner, dir, []string{SchemaGeneratedTSDir}, unionDiscovery)
+		tsMembers, err = harvestTS(ctx, b.deps.Runner, dir, []string{SchemaGeneratedTSDir}, unionDiscovery, nil)
 		if err != nil {
 			return nil, nil, err
 		}

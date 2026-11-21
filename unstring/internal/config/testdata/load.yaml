@@ -3,6 +3,7 @@
 #
 # want      the loaded values (valid cases). Omitted keys are not compared.
 # exempted  Exempted(rule, file) results on the loaded config.
+# excluded  Excluded(file) results on the loaded config.
 # error     substrings the failure must contain (refused cases). Every refusal
 #           is a failure with non-empty what, why, where and fix.
 
@@ -104,8 +105,140 @@ cases:
     config: |
       version: 1
       ts: {roots: [web]}
-      exclude: [web/gen]
-    error: ["field exclude not found", "unknown keys"]
+      excludes: [web/gen]
+    error: ["field excludes not found", "unknown keys"]
+
+  - name: exclude-vendored-directory
+    files:
+      third_party/sqlite/blob.go: "package sqlite\n"
+      third_party_owned/x.go: "package owned\n"
+      server/a.go: "package server\n"
+    config: |
+      version: 1
+      go: {roots: ["."]}
+      exclude:
+        - paths: [third_party]
+          reason: vendored copy of an upstream SQLite driver
+    excluded:
+      - {file: third_party/sqlite/blob.go, want: true}
+      - {file: third_party/UPSTREAM.json, want: true}
+      - {file: third_party_owned/x.go, want: false}
+      - {file: server/a.go, want: false}
+
+  - name: exclude-glob-inside-root
+    files:
+      web/vendor-lib/a.js: ""
+      web/vendor-lib/deep/b.js: ""
+      web/src/a.ts: ""
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - paths: [web/vendor-*/**]
+          reason: vendored upstream bundle
+    excluded:
+      - {file: web/vendor-lib/a.js, want: true}
+      - {file: web/vendor-lib/deep/b.js, want: true}
+      - {file: web/src/a.ts, want: false}
+
+  - name: refuses-exclude-without-paths
+    files: {web/a.ts: ""}
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - reason: vendored upstream bundle
+    error: ["exclude entry 1", "lists no paths"]
+
+  - name: refuses-exclude-without-reason
+    files: {web/vendor/a.js: ""}
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - paths: [web/vendor]
+          reason: "  "
+    error: ["exclude entry 1", "has no reason", "add `reason:"]
+
+  - name: refuses-absolute-exclude-path
+    files: {web/vendor/a.js: ""}
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - paths: [/srv/web/vendor]
+          reason: vendored upstream bundle
+    error: ["\"/srv/web/vendor\"", "is absolute"]
+
+  - name: refuses-exclude-path-outside-config-directory
+    files: {web/vendor/a.js: ""}
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - paths: [../vendor]
+          reason: vendored upstream bundle
+    error: ["\"../vendor\"", "leaves the config's directory"]
+
+  - name: refuses-exclude-path-with-backslash
+    files: {web/vendor/a.js: ""}
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - paths: ['web\vendor']
+          reason: vendored upstream bundle
+    error: ["uses `\\` separators"]
+
+  - name: refuses-exclude-covering-root
+    files: {web/a.ts: ""}
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - paths: [web]
+          reason: vendored upstream bundle
+    error: ["covers the whole ts root \"web\"", "remove \"web\" from `ts.roots`"]
+
+  - name: refuses-exclude-above-root
+    files: {server/internal/a.go: "package internal\n"}
+    config: |
+      version: 1
+      go: {roots: [server/internal]}
+      exclude:
+        - paths: [server]
+          reason: vendored upstream bundle
+    error: ["covers the whole go root \"server/internal\""]
+
+  - name: refuses-exclude-glob-covering-root
+    files: {a.go: "package a\n"}
+    config: |
+      version: 1
+      go: {roots: ["."]}
+      exclude:
+        - paths: ["**"]
+          reason: vendored upstream bundle
+    error: ["covers the whole go root \".\""]
+
+  - name: refuses-exclude-matching-nothing
+    files: {web/a.ts: ""}
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - paths: [web/thrid_party]
+          reason: vendored upstream bundle
+    error: ["\"web/thrid_party\"", "matches no file under a configured root"]
+
+  - name: refuses-exclude-matching-only-outside-roots
+    files: {web/a.ts: "", third_party/lib.js: ""}
+    config: |
+      version: 1
+      ts: {roots: [web]}
+      exclude:
+        - paths: [third_party]
+          reason: vendored upstream bundle
+    error: ["\"third_party\"", "matches no file under a configured root"]
 
   - name: refuses-other-version
     files: {web/a.ts: ""}

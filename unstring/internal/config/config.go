@@ -44,6 +44,9 @@ type Config struct {
 	DataDirs []string `yaml:"dataDirs"`
 	// Exempt lists the definition-site exemptions, each with a reason.
 	Exempt []Exempt `yaml:"exempt"`
+	// Exclude lists the paths no rule scans and no catalog harvests: vendored
+	// third-party code the repository does not own.
+	Exclude []Exclude `yaml:"exclude"`
 }
 
 // DefaultMountRouters returns the router packages the typed mount pass
@@ -103,5 +106,17 @@ type Exempt struct {
 	// Paths are the exempt files or globs.
 	Paths []string `yaml:"paths"`
 	// Reason says why the site is exempt. It is required.
+	Reason string `yaml:"reason"`
+}
+
+// Exclude is one exclusion: paths that are outside the repository's
+// ownership, such as a vendored copy of an upstream library. An excluded file
+// is not scanned by any rule of either language, contributes no catalog
+// member, and has no baseline entry.
+type Exclude struct {
+	// Paths are the excluded files, directories or globs, matched with
+	// MatchPath like exempt paths.
+	Paths []string `yaml:"paths"`
+	// Reason says why the code is not the repository's own. It is required.
 	Reason string `yaml:"reason"`
 }

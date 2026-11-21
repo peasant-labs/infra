@@ -113,7 +113,7 @@ func TestMountFixtures(t *testing.T) {
 				routers = config.DefaultMountRouters()
 			}
 			env := append(os.Environ(), "GOPROXY=off", "GOWORK=off")
-			prog, err := typed.LoadGo(context.Background(), dir, roots, env)
+			prog, err := typed.LoadGo(context.Background(), dir, roots, env, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

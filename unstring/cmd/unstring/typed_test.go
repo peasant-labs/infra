@@ -102,6 +102,61 @@ func TestTypedCheckIsOptInAndNotBaselined(t *testing.T) {
 	}
 }
 
+// An excluded file is skipped by the typed pass, and a file next to it is
+// still reported.
+func TestTypedCheckSkipsExcludedFiles(t *testing.T) {
+	var f struct {
+		Module, Source, Config, Vendored, Exclusion string
+	}
+	if err := yaml.Unmarshal(typedCheckFixture, &f); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "src", "third_party", "sqlite"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", f.Module)
+	write("src/example.go", f.Source)
+	write("src/third_party/sqlite/blob.go", f.Vendored)
+	bin := unstringBinary(t)
+	ag := astgreptest.Require(t)
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		c := exec.Command(bin, append(args, "--ast-grep", ag)...)
+		c.Dir = dir
+		c.Env = append(os.Environ(), "GOPROXY=off", "GOWORK=off")
+		var output bytes.Buffer
+		c.Stdout = &output
+		c.Stderr = &output
+		err := c.Run()
+		return output.String(), err
+	}
+	const vendored = "src/third_party/sqlite/blob.go"
+	typedConfig := f.Config + "typed:\n  goClosedSetLiteral: true\n"
+	write(".unstring.yaml", typedConfig)
+	if out, err := run("init"); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	out, err := run("check")
+	if err == nil || !strings.Contains(out, vendored) || !strings.Contains(out, "src/example.go") {
+		t.Fatalf("without the exclusion, check must report both files: %v\n%s", err, out)
+	}
+	write(".unstring.yaml", typedConfig+f.Exclusion)
+	out, err = run("check")
+	if err == nil || !strings.Contains(out, "src/example.go") {
+		t.Fatalf("the exclusion hid the file next to it: %v\n%s", err, out)
+	}
+	if strings.Contains(out, vendored) {
+		t.Fatalf("the typed pass reported an excluded file:\n%s", out)
+	}
+}
+
 func TestTypedMountCheckIsOptInAndNotBaselined(t *testing.T) {
 	var f struct {
 		Module, Source, TestSource, Config, Typed string

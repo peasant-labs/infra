@@ -54,6 +54,12 @@ func TestDocumentedConfigDecodes(t *testing.T) {
 				Reason: "sqlc output, regenerated from the queries",
 			},
 		},
+		Exclude: []config.Exclude{
+			{
+				Paths:  []string{"backend/third_party"},
+				Reason: "vendored copy of an upstream driver, patched in place",
+			},
+		},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("decoded config\n got: %+v\nwant: %+v", got, want)

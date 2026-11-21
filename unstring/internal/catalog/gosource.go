@@ -37,8 +37,9 @@ type goConstant struct {
 // Directories named vendor, testdata or node_modules, and those starting with
 // "." or "_", are skipped, as the go command skips them. With contractOnly,
 // packages under an internal/ or cmd/ directory are skipped as well: they are
-// not part of an importable contract.
-func harvestGo(base string, roots []string, contractOnly bool) ([]Member, error) {
+// not part of an importable contract. A file for which excluded reports true
+// is not read; nil excludes nothing.
+func harvestGo(base string, roots []string, contractOnly bool, excluded func(string) bool) ([]Member, error) {
 	stringTypes := map[goPackageKey]map[string]bool{}
 	constants := map[goPackageKey][]goConstant{}
 	fset := token.NewFileSet()
@@ -61,6 +62,9 @@ func harvestGo(base string, roots []string, contractOnly bool) ([]Member, error)
 				return nil
 			}
 			if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+				return nil
+			}
+			if excluded != nil && excluded(rel) {
 				return nil
 			}
 			file, perr := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)

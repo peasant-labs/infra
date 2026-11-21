@@ -205,7 +205,7 @@ func (p process) runTyped(s *session, langs []rules.Lang) ([]ratchet.Finding, bo
 	if !(typedCfg.GoClosedSetLiteral || mount.Enabled) || !slices.Contains(langs, rules.LangGo) {
 		return nil, true
 	}
-	prog, err := typed.LoadGo(s.ctx, s.dir, s.cfg.RootsFor(rules.LangGo), s.environ)
+	prog, err := typed.LoadGo(s.ctx, s.dir, s.cfg.RootsFor(rules.LangGo), s.environ, s.cfg.Excluded)
 	if err != nil {
 		environmentFailure(p.stderr, "the typed Go scan failed.",
 			err.Error(), "loading Go packages during unstring check; the baseline was not changed.",

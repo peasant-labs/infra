@@ -26,3 +26,6 @@ exempt:
   - rule: "*"
     paths: [backend/internal/db/gen/**]
     reason: sqlc output, regenerated from the queries
+exclude:
+  - paths: [backend/third_party]
+    reason: vendored copy of an upstream driver, patched in place
