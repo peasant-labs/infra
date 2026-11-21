@@ -11,15 +11,30 @@ import (
 
 // runCheckWorkflows implements the check-workflows command.
 //
-// It delegates to the policy package's exported checker. The policy file
-// defaults to the policy package's conventional path. The release config is
-// always read: the queue rules resolve bot branches from it.
+// In full policy mode, it reads the queue policy (defaulting to the policy
+// package's conventional path) and the release config, and runs every queue
+// rule. With --npm-only, it checks only the global-npm-install rule so
+// repositories without queue policy or release config files can still guard
+// the shared runner tool cache.
 func runCheckWorkflows(flags flagValues) error {
-	policyPath := flags.ValueOr(intent.FlagPolicy, policy.DefaultPath)
 	dir := flags.Value(intent.FlagDir)
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return fmt.Errorf("%s: cannot read workflows directory %q: %v. Fix the %s path or run from the repository root", intent.CommandCheckWorkflows, dir, err, intent.FlagDir)
 	}
+	if flags.Has(intent.FlagNpmOnly) {
+		if flags.Has(intent.FlagPolicy) {
+			return usageErr("%s: %s cannot be combined with %s: standalone npm mode does not read a queue policy. %s", intent.CommandCheckWorkflows, intent.FlagNpmOnly, intent.FlagPolicy, usageOf(intent.CommandCheckWorkflows))
+		}
+		if flags.Has(intent.FlagPrintRequired) {
+			return usageErr("%s: %s cannot be combined with %s: standalone npm mode does not compute required contexts. %s", intent.CommandCheckWorkflows, intent.FlagNpmOnly, intent.FlagPrintRequired, usageOf(intent.CommandCheckWorkflows))
+		}
+		diagnostics := policy.CheckPrivateNpm(dir)
+		if len(diagnostics) > 0 {
+			return rejectWorkflows(intent.FlagNpmOnly.String(), diagnostics, true)
+		}
+		return emit(outBool(intent.OutputOK, true))
+	}
+	policyPath := flags.ValueOr(intent.FlagPolicy, policy.DefaultPath)
 	queuePolicy, err := policy.LoadQueuePolicy(policyPath)
 	if err != nil {
 		return err

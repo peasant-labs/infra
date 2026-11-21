@@ -9,11 +9,12 @@ commands:
     flags:
       - {flag: --config}
   - name: check-workflows
-    usage: "usage: release-intent check-workflows [--policy FILE] --dir DIR [--print-required]"
+    usage: "usage: release-intent check-workflows [--policy FILE] --dir DIR [--print-required] [--npm-only]"
     flags:
       - {flag: --policy}
       - {flag: --dir, required: true}
       - {flag: --print-required}
+      - {flag: --npm-only}
   - name: check-title
     usage: "usage: release-intent check-title --base REV --head REV --author LOGIN --head-branch BRANCH"
     flags:
@@ -97,6 +98,7 @@ flags:
   - {flag: --policy, takes_value: true}
   - {flag: --dir, takes_value: true}
   - {flag: --print-required}
+  - {flag: --npm-only}
   - {flag: --base, takes_value: true}
   - {flag: --head, takes_value: true}
   - {flag: --author, takes_value: true}

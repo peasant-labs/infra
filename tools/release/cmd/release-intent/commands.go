@@ -38,6 +38,8 @@ func shapeOf(f intent.Flag) flagShape {
 		return flagShape{"DIR", "the workflows directory"}
 	case intent.FlagPrintRequired:
 		return flagShape{"", "print the required check contexts, one per line"}
+	case intent.FlagNpmOnly:
+		return flagShape{"", "check only the global-npm-install rule without requiring a queue policy or release config"}
 	case intent.FlagBase:
 		return flagShape{"REV", "the PR base revision"}
 	case intent.FlagHead:

@@ -1,0 +1,191 @@
+required_names:
+  - continued-global
+  - continued-crlf-global
+  - location-global
+  - location-spaced
+  - add-short-global
+  - trailing-short-global
+  - flags-before-verb
+  - location-before-verb
+  - quoted-global
+  - quoted-location-value
+  - quoted-location-spaced
+  - quoted-false-value
+  - global-false
+  - global-zero
+  - global-no
+  - no-global-flag
+  - last-flag-false-wins
+  - last-flag-true-wins
+  - location-local
+  - location-project-does-not-clear-global
+  - false-global-does-not-clear-global-location
+  - final-location-project-clears-global-location
+  - global-spaced-false-after-verb
+  - global-spaced-true-before-verb
+  - short-global-explicit-false
+  - separator-inside-quotes-global
+  - separator-inside-quotes-echo
+  - single-quoted-separator-echo
+  - comment-only
+  - inline-comment-flag
+  - later-command-and
+  - later-command-semicolon
+  - later-command-pipe
+  - later-command-global
+  - end-of-options
+  - prefix-value-looks-like-verb
+  - env-global-true
+  - env-global-overridden-false
+  - private-prefix
+  - local-install
+  - no-save
+  - ci
+  - ci-with-global
+  - run-install-script
+  - heredoc-body
+  - command-substitution-global
+cases:
+  - name: continued-global
+    input: |-
+      npm install \
+        --global x
+    want: true
+  - name: continued-crlf-global
+    input: "npm install \\\r\n  --global x"
+    want: true
+  - name: location-global
+    input: npm install --location=global x
+    want: true
+  - name: location-spaced
+    input: npm ins --location global x
+    want: true
+  - name: add-short-global
+    input: sudo npm add -g x
+    want: true
+  - name: trailing-short-global
+    input: npm install x -g
+    want: true
+  - name: flags-before-verb
+    input: npm -g install example
+    want: true
+  - name: location-before-verb
+    input: npm --location global install example
+    want: true
+  - name: quoted-global
+    input: npm install "--global" example
+    want: true
+  - name: quoted-location-value
+    input: npm install --location="global" example
+    want: true
+  - name: quoted-location-spaced
+    input: npm install --location "global" example
+    want: true
+  - name: quoted-false-value
+    input: npm install --global="false" example
+    want: false
+  - name: global-false
+    input: npm install --global=false example
+    want: false
+  - name: global-zero
+    input: npm install --global=0 example
+    want: false
+  - name: global-no
+    input: npm install --global=no example
+    want: false
+  - name: no-global-flag
+    input: npm install --no-global example
+    want: false
+  - name: last-flag-false-wins
+    input: npm -g install --global=false example
+    want: false
+  - name: last-flag-true-wins
+    input: npm --global=false install -g example
+    want: true
+  - name: location-local
+    input: npm install --location=local example
+    want: false
+  - name: location-project-does-not-clear-global
+    input: npm -g install --location=project example
+    want: true
+  - name: false-global-does-not-clear-global-location
+    input: npm --location=global install --global=false example
+    want: true
+  - name: final-location-project-clears-global-location
+    input: npm --location=global install --location=project example
+    want: false
+  - name: global-spaced-false-after-verb
+    input: npm install --global "false" example
+    want: false
+  - name: global-spaced-true-before-verb
+    input: npm --global "true" install example
+    want: true
+  - name: short-global-explicit-false
+    input: npm install -g=false example
+    want: false
+  - name: separator-inside-quotes-global
+    input: npm install "a;b&&c|d" -g
+    want: true
+  - name: separator-inside-quotes-echo
+    input: echo "a && npm install -g foo; bar"
+    want: false
+  - name: single-quoted-separator-echo
+    input: "echo 'a; npm install -g foo'"
+    want: false
+  - name: comment-only
+    input: "# npm install -g foo"
+    want: false
+  - name: inline-comment-flag
+    input: npm install foo # -g --global
+    want: false
+  - name: later-command-and
+    input: npm install example && echo --global
+    want: false
+  - name: later-command-semicolon
+    input: npm install example; grep -g foo
+    want: false
+  - name: later-command-pipe
+    input: npm install example | grep -g foo
+    want: false
+  - name: later-command-global
+    input: echo ok && npm install -g foo
+    want: true
+  - name: end-of-options
+    input: npm install foo -- --global
+    want: false
+  - name: prefix-value-looks-like-verb
+    input: npm --prefix install -g foo
+    want: false
+  - name: env-global-true
+    input: NPM_CONFIG_GLOBAL=true npm install foo
+    want: true
+  - name: env-global-overridden-false
+    input: NPM_CONFIG_GLOBAL=true npm install --global=false foo
+    want: false
+  - name: private-prefix
+    input: 'npm install --prefix "$RUNNER_TEMP/x" y'
+    want: false
+  - name: local-install
+    input: npm i foo
+    want: false
+  - name: no-save
+    input: npm install --no-save foo
+    want: false
+  - name: ci
+    input: npm ci
+    want: false
+  - name: ci-with-global
+    input: npm ci --global
+    want: false
+  - name: run-install-script
+    input: npm run install -g
+    want: false
+  - name: heredoc-body
+    input: |-
+      cat << 'EOF'
+      npm install -g foo
+      EOF
+    want: false
+  - name: command-substitution-global
+    input: 'echo "$(npm install -g foo)"'
+    want: true

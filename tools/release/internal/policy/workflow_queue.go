@@ -147,6 +147,9 @@ const (
 	// actions read, the full-suite job has a literal name, and the aggregator
 	// ends with one marker step per recorded verdict source.
 	QueueRuleInheritVerdict QueueRule = "inherited-verdicts-are-recorded"
+	// QueueRulePrivateNpm keeps global npm installs out of the shared runner
+	// tool cache.
+	QueueRulePrivateNpm QueueRule = "npm-installs-use-private-prefix"
 )
 
 // AllQueueRules is the canonical ordered closed set, used by generators and
@@ -175,6 +178,7 @@ var AllQueueRules = []QueueRule{
 	QueueRuleClassify,
 	QueueRuleToolCalls,
 	QueueRuleInheritVerdict,
+	QueueRulePrivateNpm,
 }
 
 // String renders the rule for diagnostic messages and CLI output.

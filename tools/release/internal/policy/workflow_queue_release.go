@@ -478,7 +478,15 @@ func checkMatches(check PreTagCheck, words []templateWord) bool {
 	case PreTagCheckConfig:
 		return literal(0, intent.ProgramName) && literal(1, intent.CommandCheckConfig.String()) && validPreTagToolFlags(words)
 	case PreTagCheckWorkflows:
-		return literal(0, intent.ProgramName) && literal(1, intent.CommandCheckWorkflows.String()) && validPreTagToolFlags(words)
+		if !literal(0, intent.ProgramName) || !literal(1, intent.CommandCheckWorkflows.String()) {
+			return false
+		}
+		for _, word := range words[2:] {
+			if s, ok := word.literal(); ok && s == intent.FlagNpmOnly.String() {
+				return false
+			}
+		}
+		return validPreTagToolFlags(words)
 	case PreTagCheckContract:
 		if !literal(0, intent.ProgramName) || !literal(1, intent.CommandCheckContract.String()) {
 			return false

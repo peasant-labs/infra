@@ -1,0 +1,11 @@
+name: global npm
+on: push
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: npm -g install --location=project example

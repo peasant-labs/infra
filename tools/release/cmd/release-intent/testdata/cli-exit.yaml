@@ -39,6 +39,13 @@ required_names:
   - verify-tag-missing
   - verify-tag-missing-branch
   - check-workflows-accept
+  - check-workflows-global-npm
+  - check-workflows-npm-only-accept
+  - check-workflows-npm-only-reject
+  - check-workflows-missing-policy
+  - check-workflows-missing-config
+  - check-workflows-npm-only-with-policy
+  - check-workflows-npm-only-with-print-required
   - check-workflows-default-policy
   - check-workflows-violation
   - check-workflows-print-required
@@ -399,6 +406,54 @@ cases:
       classification: must-pass
       provenance: {source: requirement, ref: "workflows satisfying the policy are accepted"}
       mutation: {description: "Runs the built binary on a queue policy and the two workflows that satisfy it."}
+    - name: check-workflows-global-npm
+      input: {argv: ["check-workflows", "--policy", "SETUP_POLICY", "--dir", "SETUP_WORKFLOWS"], stdin: "", setup: "workflows-global-npm"}
+      expected: {exit: 2, stdout: ["error=policy-violation"], stderr_rule: npm-installs-use-private-prefix, stderr_contains: "$RUNNER_TEMP"}
+      classification: must-fail
+      sibling: check-workflows-accept
+      provenance: {source: requirement, ref: "global npm installs fail even in an unlisted workflow"}
+      mutation: {description: "Add a workflow with a global npm install."}
+    - name: check-workflows-npm-only-accept
+      input: {argv: ["check-workflows", "--dir", "SETUP_WORKFLOWS", "--npm-only"], stdin: "", setup: "workflows-npm-only-accept"}
+      expected: {exit: 0, stdout: ["ok=true"]}
+      classification: must-pass
+      provenance: {source: requirement, ref: "standalone npm mode checks workflows when queue policy and release config are absent"}
+      mutation: {description: "Runs --npm-only on clean workflows without policy or config files."}
+    - name: check-workflows-npm-only-reject
+      input: {argv: ["check-workflows", "--dir", "SETUP_WORKFLOWS", "--npm-only"], stdin: "", setup: "workflows-npm-only-reject"}
+      expected: {exit: 2, stdout: ["error=policy-violation"], stderr_rule: npm-installs-use-private-prefix, stderr_contains: "$RUNNER_TEMP"}
+      classification: must-fail
+      sibling: check-workflows-npm-only-accept
+      provenance: {source: requirement, ref: "standalone npm mode rejects global npm installs without policy or config files"}
+      mutation: {description: "Add a workflow with a global npm install under --npm-only."}
+    - name: check-workflows-missing-policy
+      input: {argv: ["check-workflows", "--dir", "SETUP_WORKFLOWS"], stdin: "", setup: "workflows-npm-only-accept"}
+      expected: {exit: 1, stdout: []}
+      classification: must-fail
+      sibling: check-workflows-accept
+      provenance: {source: boundary, ref: "full policy mode still fails when the queue policy file is absent"}
+      mutation: {description: "Runs check-workflows without --npm-only when no queue policy exists."}
+    - name: check-workflows-missing-config
+      input: {argv: ["check-workflows", "--policy", "SETUP_POLICY", "--dir", "SETUP_WORKFLOWS"], stdin: "", setup: "workflows-no-config"}
+      expected: {exit: 1, stdout: []}
+      classification: must-fail
+      sibling: check-workflows-accept
+      provenance: {source: boundary, ref: "full policy mode still fails when the release config file is absent"}
+      mutation: {description: "Runs check-workflows without --npm-only when no release-intent config exists."}
+    - name: check-workflows-npm-only-with-policy
+      input: {argv: ["check-workflows", "--policy", "SETUP_POLICY", "--dir", "SETUP_WORKFLOWS", "--npm-only"], stdin: "", setup: "workflows-accept"}
+      expected: {exit: 1, stdout: []}
+      classification: must-fail
+      sibling: check-workflows-npm-only-accept
+      provenance: {source: boundary, ref: "standalone npm mode rejects --policy"}
+      mutation: {description: "Passes --policy together with --npm-only."}
+    - name: check-workflows-npm-only-with-print-required
+      input: {argv: ["check-workflows", "--dir", "SETUP_WORKFLOWS", "--npm-only", "--print-required"], stdin: "", setup: "workflows-npm-only-accept"}
+      expected: {exit: 1, stdout: []}
+      classification: must-fail
+      sibling: check-workflows-npm-only-accept
+      provenance: {source: boundary, ref: "standalone npm mode rejects --print-required"}
+      mutation: {description: "Passes --print-required together with --npm-only."}
     - name: check-workflows-default-policy
       input: {argv: ["check-workflows", "--dir", "SETUP_WORKFLOWS"], stdin: "", setup: "workflows-default-policy"}
       expected: {exit: 0, stdout: ["ok=true"]}

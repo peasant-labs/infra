@@ -247,6 +247,14 @@ against drifting when the writer changes.
 
 ## Pre-tag policy
 
+`check-workflows` checks every workflow in `--dir`, including workflows not
+named by the policy. It rejects global npm installs (`npm-installs-use-private-prefix`):
+the setup-node tool cache is shared by concurrent self-hosted VMs. Install into
+a job-private prefix under `$RUNNER_TEMP` and add its bin directory to
+`GITHUB_PATH` instead. Repositories without `.github/release-queue.policy.yml`
+or `.github/release-intent.yaml` can pass `--npm-only` to run only this rule;
+full policy mode (without `--npm-only`) still requires both files.
+
 The queue policy lists typed checks in verdict order:
 
 ```yaml
