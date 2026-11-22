@@ -290,6 +290,20 @@ required_names:
   - reject-credential-job-runner-expression
   - accept-release-tag-guarded
   - reject-release-tag-no-guard
+  - accept-bot-push-exact-lease
+  - reject-bot-push-exact-lease-missing-guard
+  - reject-bot-push-exact-lease-guard-disjunction
+  - reject-bot-push-exact-lease-guard-status-bypass
+  - reject-bot-push-exact-lease-guard-negated
+  - reject-bot-push-exact-lease-binding-step-output
+  - reject-bot-push-exact-lease-step-continue-on-error
+  - reject-bot-push-exact-lease-prep-continue-on-error
+  - reject-bot-push-exact-lease-job-status-bypass
+  - reject-bot-push-exact-lease-unqualified-refspec
+  - reject-bot-push-exact-lease-undeclared-output
+  - reject-bot-push-exact-lease-contents-write-preparer
+  - reject-bot-push-exact-lease-step-needs-result
+  - reject-bot-push-exact-lease-prep-step-continue-on-error
 cases:
   - name: accept-release-protected-writes
     input:
@@ -3107,3 +3121,233 @@ cases:
     classification: must-fail
     provenance: {source: requirement, ref: "pre-tag workflows check cannot weaken full policy validation to --npm-only"}
     mutation: {description: "Add --npm-only to the declared pre-tag workflows check step."}
+
+  - name: accept-bot-push-exact-lease
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - id: fix\n        run: |\n          nix run .#update-vendor-hash\n"
+          new: "      - id: fix\n        run: |\n          expected_head=\"$(git ls-remote --exit-code origin refs/heads/automation/vendor-hash | awk '$2 == \"refs/heads/automation/vendor-hash\" { print $1; exit }')\"\n          printf '%s\\n' \"$expected_head\" | grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$'\n          echo \"expected_head=${expected_head}\" >> \"$GITHUB_OUTPUT\"\n          nix run .#update-vendor-hash\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: []}
+    sibling: ""
+    classification: must-pass
+    provenance: &exact_lease_p {source: requirement, ref: "exact remote-head lease bound to direct needed preparation output with mandatory non-empty guard"}
+    mutation: {description: "Update the bot branch with an exact lease bound to needs.fix.outputs.expected_head and guarded by needs.fix.outputs.expected_head != ''."}
+
+  - name: reject-bot-push-exact-lease-missing-guard
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["has no if guarding that needs.fix.outputs.expected_head != ''"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Omit the mandatory push-step guard so an unemitted output could reach the push as an empty lease."}
+
+  - name: reject-bot-push-exact-lease-guard-disjunction
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != '' || vars.RELEASE_BATCH_MODE == 'tag'\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["holds a disjunction"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Bypass the push-step guard with a disjunction."}
+
+  - name: reject-bot-push-exact-lease-guard-status-bypass
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != '' && always()\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["calls the status function always()"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Add always() to the push-step guard."}
+
+  - name: reject-bot-push-exact-lease-guard-negated
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: \"!(needs.fix.outputs.expected_head != '')\"\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["does not require needs.fix.outputs.expected_head != '' as a top-level conjunct"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Negate the expected_head guard expression instead of writing a top-level conjunct."}
+
+  - name: reject-bot-push-exact-lease-binding-step-output
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ steps.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["not ${{ needs.<prepare>.outputs.expected_head }}"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Bind EXPECTED_HEAD from a step output instead of needs.<prepare>.outputs.expected_head."}
+
+  - name: reject-bot-push-exact-lease-step-continue-on-error
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        continue-on-error: ${{ fromJSON('true') }}\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["sets continue-on-error, which could mask a stale-lease push failure"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Mask a stale-lease push failure with continue-on-error on the push step."}
+
+  - name: reject-bot-push-exact-lease-prep-continue-on-error
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    continue-on-error: true\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["continue-on-error could let a failed preparation job supply an empty output"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Set continue-on-error on the preparation job."}
+
+  - name: reject-bot-push-exact-lease-job-status-bypass
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "  update:\n    needs: [fix]\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n"
+          new: "  update:\n    needs: [fix]\n    if: always() && github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["the job's if calls the status function always()"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Add always() to the push job's if."}
+
+  - name: reject-bot-push-exact-lease-unqualified-refspec
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["is not the job's own bot branch refspec \"refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\""]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Use an unqualified push destination instead of refs/heads/<bot branch>:refs/heads/<bot branch>."}
+
+  - name: reject-bot-push-exact-lease-undeclared-output
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["reads jobs.fix's expected_head output, which is not declared on jobs.fix from one of its own step outputs"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Read expected_head from a preparation job that does not declare the expected_head output."}
+
+  - name: reject-bot-push-exact-lease-contents-write-preparer
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, also: [default-token-read-only], want_contains: ["which may hold a credential; the preparation job must be credential-free"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Grant contents: write to the preparation job that produces expected_head."}
+
+  - name: reject-bot-push-exact-lease-step-needs-result
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != '' && needs.fix.result != 'failure'\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["the step's if reads a needed job's result"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Read needs.fix.result in the push step's if condition."}
+
+  - name: reject-bot-push-exact-lease-prep-step-continue-on-error
+    input:
+      overlay: ""
+      edits:
+        - file: workflows/nix-vendor-hash.yml
+          old: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n"
+          new: "  fix:\n    if: github.ref == 'refs/heads/develop' && vars.RELEASE_BATCH_MODE == 'tag'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    outputs:\n      expected_head: ${{ steps.fix.outputs.expected_head }}\n    steps:\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - id: fix\n        run: |\n"
+          new: "      - id: fix\n        continue-on-error: true\n        run: |\n"
+        - file: workflows/nix-vendor-hash.yml
+          old: "      - env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force origin automation/vendor-hash\n"
+          new: "      - id: push\n        if: needs.fix.outputs.expected_head != ''\n        env:\n          APP_TOKEN: ${{ steps.mint.outputs.token }}\n          EXPECTED_HEAD: ${{ needs.fix.outputs.expected_head }}\n        run: |\n          git -c credential.helper='!f() { echo \"username=x-access-token\"; echo \"password=${APP_TOKEN}\"; }; f' push --force-with-lease=\"refs/heads/automation/vendor-hash:${EXPECTED_HEAD}\" origin refs/heads/automation/vendor-hash:refs/heads/automation/vendor-hash\n"
+    expected: {rule: credential-steps-run-one-template, want_contains: ["continue-on-error could let a failed preparation job supply an empty output"]}
+    sibling: accept-bot-push-exact-lease
+    classification: must-fail
+    provenance: *exact_lease_p
+    mutation: {description: "Set continue-on-error on the preparation step that produces expected_head."}

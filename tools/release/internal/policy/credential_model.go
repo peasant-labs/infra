@@ -317,6 +317,10 @@ const (
 	// TemplateEnvGoWork turns workspace mode off for the publish job's build
 	// of the release tool; that build step's own env only, value off.
 	TemplateEnvGoWork TemplateEnv = "GOWORK"
+	// TemplateEnvExpectedHead carries the expected remote branch OID from one
+	// direct needed preparation job's declared expected_head output to an
+	// exact-lease update push.
+	TemplateEnvExpectedHead TemplateEnv = "EXPECTED_HEAD"
 )
 
 // AllTemplateEnvs is the canonical closed set of credential-step env names.
@@ -333,6 +337,7 @@ var AllTemplateEnvs = []TemplateEnv{
 	TemplateEnvJourneyAppToken,
 	TemplateEnvEvidenceDir,
 	TemplateEnvGoWork,
+	TemplateEnvExpectedHead,
 }
 
 func (e TemplateEnv) String() string { return string(e) }
@@ -360,6 +365,8 @@ func (e TemplateEnv) allowedFor(class credentialJobClass) bool {
 		return class == credentialJobComment
 	case TemplateEnvGoWork:
 		return class == credentialJobPublish
+	case TemplateEnvExpectedHead:
+		return class == credentialJobBot
 	default:
 		return true
 	}

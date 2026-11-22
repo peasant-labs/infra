@@ -118,9 +118,12 @@ const credentialCommandsDoc = `jobs:
     outputs:
       tag: ${{ steps.plan.outputs.tag }}
       prerelease: ${{ steps.kind.outputs.kind == 'rc' }}
+      expected_head: ${{ steps.prepare.outputs.expected_head }}
     steps:
       - id: plan
         run: release-intent plan --branch develop --mode tag
+      - id: prepare
+        run: echo expected_head= >> "$GITHUB_OUTPUT"
   guard:
     outputs:
       kind: ${{ steps.kind.outputs.kind }}
@@ -129,8 +132,16 @@ const credentialCommandsDoc = `jobs:
     steps:
       - id: kind
         run: echo kind=final >> "$GITHUB_OUTPUT"
+  prepare:
+    outputs:
+      expected_head: ${{ steps.prepare.outputs.expected_head }}
+      commit_sha: ${{ steps.prepare.outputs.commit_sha }}
+      forged_head: "0123456789abcdef0123456789abcdef01234567"
+    steps:
+      - id: prepare
+        run: echo expected_head= >> "$GITHUB_OUTPUT"
   cred:
-    needs: [plan, guard]
+    needs: [plan, guard, prepare]
     steps:
       - id: tool
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -209,6 +220,9 @@ func TestCredentialCommands(t *testing.T) {
 					var tmpl CredentialTemplate
 					tmpl, why = matchTemplate(words, step)
 					got = tmpl.String()
+					if why == "" && tmpl == TemplatePushOwnBranchLease {
+						_, _, _, why = step.expectedHeadOutput()
+					}
 				}
 			}
 			if want != "" {
