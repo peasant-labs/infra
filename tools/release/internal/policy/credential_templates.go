@@ -23,6 +23,11 @@ type CredentialTemplate string
 const (
 	// TemplatePushOwnBranch pushes the job's own bot branch.
 	TemplatePushOwnBranch CredentialTemplate = "push-own-branch"
+	// TemplatePushOwnBranchLease pushes the job's own bot branch with an exact
+	// remote-head lease bound to one direct needed preparation job's declared
+	// expected_head output, scoped to updates with a non-empty expectation;
+	// bot job only.
+	TemplatePushOwnBranchLease CredentialTemplate = "push-own-branch-lease"
 	// TemplatePushReleaseTag pushes the planner's tag; release job only.
 	TemplatePushReleaseTag CredentialTemplate = "push-release-tag"
 	// TemplatePRCreate opens a PR from the job's own bot branch.
@@ -57,6 +62,7 @@ const (
 // AllCredentialTemplates is the canonical closed set of templates.
 var AllCredentialTemplates = []CredentialTemplate{
 	TemplatePushOwnBranch,
+	TemplatePushOwnBranchLease,
 	TemplatePushReleaseTag,
 	TemplatePRCreate,
 	TemplatePREdit,
@@ -89,6 +95,8 @@ func (t CredentialTemplate) Shape() string {
 	switch t {
 	case TemplatePushOwnBranch:
 		return `git [-c ` + gitCredentialHelper + `] push [--force-with-lease|--force] [--no-verify] origin <own bot branch | HEAD:<own bot branch>>`
+	case TemplatePushOwnBranchLease:
+		return `git [-c ` + gitCredentialHelper + `] push --force-with-lease="` + intent.BranchRefPrefix + `<own bot branch>:${` + TemplateEnvExpectedHead.String() + `}" origin ` + intent.BranchRefPrefix + `<own bot branch>:` + intent.BranchRefPrefix + `<own bot branch>`
 	case TemplatePushReleaseTag:
 		return `git [-c ` + gitCredentialHelper + `] push origin "` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}:` + intent.TagRefPrefix + `${` + TemplateEnvTag.String() + `}"`
 	case TemplatePRCreate:
@@ -123,7 +131,7 @@ func templatesFor(class credentialJobClass) []CredentialTemplate {
 	case credentialJobRelease:
 		return []CredentialTemplate{TemplatePushOwnBranch, TemplatePushReleaseTag, TemplatePRCreate, TemplatePREdit, TemplatePRClose, TemplatePRMerge, TemplateQueueRead}
 	case credentialJobBot:
-		return []CredentialTemplate{TemplatePushOwnBranch, TemplatePRCreate, TemplatePREdit, TemplatePRClose, TemplatePRMerge, TemplateQueueRead}
+		return []CredentialTemplate{TemplatePushOwnBranch, TemplatePushOwnBranchLease, TemplatePRCreate, TemplatePREdit, TemplatePRClose, TemplatePRMerge, TemplateQueueRead}
 	case credentialJobPublish:
 		return []CredentialTemplate{TemplateReleaseView, TemplateReleaseEdit, TemplateReleaseCreate, TemplateReleasePublish}
 	case credentialJobComment:
@@ -218,43 +226,44 @@ type templateStep struct {
 // The fixed words the templates are built from. These are git's and gh's,
 // not the release tool's.
 const (
-	cmdGit             = "git"
-	cmdGH              = "gh"
-	gitConfigOption    = "-c"
-	gitPush            = "push"
-	gitFetch           = "fetch"
-	gitMergeBase       = "merge-base"
-	gitIsAncestor      = "--is-ancestor"
-	gitRemote          = "origin"
-	headRef            = "HEAD"
-	ghPR               = "pr"
-	ghAPI              = "api"
-	ghGraphQL          = "graphql"
-	ghRelease          = "release"
-	graphQLQueryField  = "query"
-	graphQLMergeQueue  = "mergeQueue"
-	ghVerbCreate       = "create"
-	ghVerbEdit         = "edit"
-	ghVerbClose        = "close"
-	ghVerbMerge        = "merge"
-	ghVerbView         = "view"
-	ghVerbList         = "list"
-	ghVerbComment      = "comment"
-	cmdNode            = "node"
-	cmdGo              = "go"
-	ghFlagHead         = "--head"
-	ghFlagVerifyTag    = "--verify-tag"
-	ghFlagDraft        = "--draft"
-	ghFlagAuto         = "--auto"
-	ghFlagDisableAuto  = "--disable-auto"
-	gitFlagForceLease  = "--force-with-lease"
-	gitFlagForce       = "--force"
-	gitFlagNoVerify    = "--no-verify"
-	gitFlagNoTags      = "--no-tags"
-	endOfOptions       = "--"
-	bundleSuffix       = ".bundle"
-	triggeringRefName  = "github.ref_name"
-	triggeringPRNumber = "github.event.pull_request.number"
+	cmdGit                 = "git"
+	cmdGH                  = "gh"
+	gitConfigOption        = "-c"
+	gitPush                = "push"
+	gitFetch               = "fetch"
+	gitMergeBase           = "merge-base"
+	gitIsAncestor          = "--is-ancestor"
+	gitRemote              = "origin"
+	headRef                = "HEAD"
+	ghPR                   = "pr"
+	ghAPI                  = "api"
+	ghGraphQL              = "graphql"
+	ghRelease              = "release"
+	graphQLQueryField      = "query"
+	graphQLMergeQueue      = "mergeQueue"
+	ghVerbCreate           = "create"
+	ghVerbEdit             = "edit"
+	ghVerbClose            = "close"
+	ghVerbMerge            = "merge"
+	ghVerbView             = "view"
+	ghVerbList             = "list"
+	ghVerbComment          = "comment"
+	cmdNode                = "node"
+	cmdGo                  = "go"
+	ghFlagHead             = "--head"
+	ghFlagVerifyTag        = "--verify-tag"
+	ghFlagDraft            = "--draft"
+	ghFlagAuto             = "--auto"
+	ghFlagDisableAuto      = "--disable-auto"
+	gitFlagForceLease      = "--force-with-lease"
+	gitFlagForce           = "--force"
+	gitFlagNoVerify        = "--no-verify"
+	gitFlagNoTags          = "--no-tags"
+	endOfOptions           = "--"
+	bundleSuffix           = ".bundle"
+	expectedHeadOutputName = "expected_head"
+	triggeringRefName      = "github.ref_name"
+	triggeringPRNumber     = "github.event.pull_request.number"
 )
 
 // gitCredentialHelper is the only accepted git -c value. The outer shell
@@ -290,6 +299,9 @@ func classifyTemplate(words []templateWord) (CredentialTemplate, bool) {
 		last := words[len(words)-1]
 		if strings.Contains(last.raw, intent.TagRefPrefix) {
 			return TemplatePushReleaseTag, true
+		}
+		if hasLeaseValueArg(words[i+1:]) {
+			return TemplatePushOwnBranchLease, true
 		}
 		return TemplatePushOwnBranch, true
 	case cmdGH:
@@ -362,6 +374,8 @@ func matchTemplate(words []templateWord, s templateStep) (CredentialTemplate, st
 	switch tmpl {
 	case TemplatePushOwnBranch, TemplatePushReleaseTag:
 		why = s.matchPush(words, tmpl)
+	case TemplatePushOwnBranchLease:
+		why = s.matchPushLease(words)
 	case TemplatePRCreate:
 		why = s.matchPRCreate(words[3:])
 	case TemplatePREdit:
@@ -577,9 +591,30 @@ func (s templateStep) matchPush(words []templateWord, tmpl CredentialTemplate) s
 		}
 		return s.releaseTagSpec(operands[1])
 	}
-	spec, isLit := operands[1].literal()
+	return s.ownBranchRefspec(operands[1])
+}
+
+// hasLeaseValueArg reports whether any word after `git push` begins with
+// `--force-with-lease=`, routing explicit lease pushes to the exact-lease
+// template while leaving bare `--force-with-lease` on TemplatePushOwnBranch.
+func hasLeaseValueArg(words []templateWord) bool {
+	for _, w := range words {
+		if w.redirect || len(w.parts) == 0 || w.parts[0].kind != partLiteral {
+			continue
+		}
+		if strings.HasPrefix(w.parts[0].text, gitFlagForceLease+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// ownBranchRefspec checks that a push refspec is one of the literal forms
+// targeting the job's own configured bot branch.
+func (s templateStep) ownBranchRefspec(w templateWord) string {
+	spec, isLit := w.literal()
 	if !isLit {
-		return "the refspec " + quote(operands[1].raw) + " expands, and the template takes the job's own bot branch as literal text"
+		return "the refspec " + quote(w.raw) + " expands, and the template takes the job's own bot branch as literal text"
 	}
 	for _, want := range []string{s.branch, headRef + ":" + s.branch, intent.BranchRef(s.branch).String(), headRef + ":" + intent.BranchRef(s.branch).String()} {
 		if spec == want {
@@ -587,6 +622,110 @@ func (s templateStep) matchPush(words []templateWord, tmpl CredentialTemplate) s
 		}
 	}
 	return "the refspec " + quote(spec) + " is not the job's own bot branch " + quote(s.branch)
+}
+
+// matchPushLease checks an exact-lease git push: optional fixed credential
+// helper, exactly one `--force-with-lease=refs/heads/<branch>:${EXPECTED_HEAD}`
+// flag (with no --force, --no-verify, bare --force-with-lease, or other option),
+// remote origin, and the explicit refspec `refs/heads/<branch>:refs/heads/<branch>`.
+// exactLeaseFault checks the workflow that supplies EXPECTED_HEAD.
+func (s templateStep) matchPushLease(words []templateWord) string {
+	i := 1
+	if literalAt(words, 1) == gitConfigOption {
+		if why := s.credentialHelper(words[2]); why != "" {
+			return why
+		}
+		i = 3
+	}
+	i++ // push
+	var lease *templateWord
+	var operands []templateWord
+	for ; i < len(words); i++ {
+		w := words[i]
+		if w.redirect {
+			return "the push redirects its output"
+		}
+		if len(w.parts) > 0 && w.parts[0].kind == partLiteral && strings.HasPrefix(w.parts[0].text, "-") {
+			if strings.HasPrefix(w.parts[0].text, gitFlagForceLease+"=") {
+				if lease != nil {
+					return "the push passes " + gitFlagForceLease + " twice"
+				}
+				leaseWord := w
+				lease = &leaseWord
+				continue
+			}
+			return "the push passes option " + quote(w.raw) + ", which the " + TemplatePushOwnBranchLease.String() + " template does not allow"
+		}
+		operands = append(operands, w)
+	}
+	if lease == nil {
+		return "the push passes no exact " + gitFlagForceLease + " lease"
+	}
+	if len(operands) != 2 {
+		return "the push names " + strconv.Itoa(len(operands)) + " operands, and the template takes exactly the remote and one refspec"
+	}
+	if lit, _ := operands[0].literal(); lit != gitRemote {
+		return "the push names remote " + quote(operands[0].raw) + ", and the template pushes only to " + gitRemote
+	}
+	spec, isLit := operands[1].literal()
+	if !isLit {
+		return "the refspec " + quote(operands[1].raw) + " expands, and the template takes the job's own bot branch as literal text"
+	}
+	branchRef := intent.BranchRef(s.branch).String()
+	wantSpec := branchRef + ":" + branchRef
+	if spec != wantSpec {
+		return "the refspec " + quote(spec) + " is not the job's own bot branch refspec " + quote(wantSpec)
+	}
+	wantPrefix := gitFlagForceLease + "=" + branchRef + ":"
+	if len(lease.parts) != 2 ||
+		lease.parts[0].kind != partLiteral || lease.parts[0].text != wantPrefix ||
+		lease.parts[1].kind != partParam || lease.parts[1].text != TemplateEnvExpectedHead.String() {
+		return "the lease " + quote(lease.raw) + " is not \"" + wantPrefix + "${" + TemplateEnvExpectedHead.String() + "}\""
+	}
+	return ""
+}
+
+// expectedHeadOutput checks that EXPECTED_HEAD is mapped from
+// ${{ needs.<prepare>.outputs.expected_head }} where <prepare> is one direct
+// needed job whose outputs.expected_head is declared from one of its own step
+// outputs. TemplatePushOwnBranchLease is scoped to updates with a non-empty
+// expectation (guarded at the push step by exactLeaseFault); separate
+// branch-creation support needs its own explicit absence proof and empty lease.
+func (s templateStep) expectedHeadOutput() (string, *yaml.Node, *yaml.Node, string) {
+	raw, set := s.env[TemplateEnvExpectedHead.String()]
+	if !set || strings.TrimSpace(raw) == "" {
+		return "", nil, nil, TemplateEnvExpectedHead.String() + " is not set in the step env; bind it from a direct needed preparation job's declared " + expectedHeadOutputName + " output"
+	}
+	expr := soleExpression(raw)
+	m := outputRead.FindStringSubmatch(expr)
+	if m == nil || m[1] != "needs" {
+		return "", nil, nil, TemplateEnvExpectedHead.String() + " is " + quote(raw) + ", which is not ${{ needs.<prepare>.outputs." + expectedHeadOutputName + " }}"
+	}
+	needs, err := needsList(s.job)
+	if err != nil || !slices.Contains(needs, m[2]) {
+		return "", nil, nil, TemplateEnvExpectedHead.String() + " reads needs." + m[2] + ", which is not a job this job directly needs"
+	}
+	if m[3] != expectedHeadOutputName {
+		return "", nil, nil, TemplateEnvExpectedHead.String() + " reads jobs." + m[2] + "'s " + m[3] + " output instead of " + expectedHeadOutputName
+	}
+	prepStep, _, ok := resolveOutput(s.doc, s.job, expr)
+	if !ok || prepStep == nil {
+		return "", nil, nil, TemplateEnvExpectedHead.String() + " reads jobs." + m[2] + "'s " + expectedHeadOutputName + " output, which is not declared on jobs." + m[2] + " from one of its own step outputs"
+	}
+	return m[2], jobNode(s.doc, m[2]), prepStep, ""
+}
+
+// leaseIfFault rejects job or step conditions that turn off GitHub's implicit
+// success() check or inspect a needed job's result, which could let a skipped
+// preparation job supply an empty EXPECTED_HEAD and look like branch absence.
+func leaseIfFault(scope, cond string) string {
+	if fns := statusFunctionsIn(cond); len(fns) > 0 {
+		return scope + "'s if calls the status function " + fns[0].Call() + ", which turns off GitHub's implicit success() check, so an empty " + TemplateEnvExpectedHead.String() + " from a skipped preparation job could be conflated with branch absence"
+	}
+	if needsResultRead.MatchString(cond) {
+		return scope + "'s if reads a needed job's result instead of relying on GitHub's implicit success() check, so a skipped preparation job could supply an empty " + TemplateEnvExpectedHead.String()
+	}
+	return ""
 }
 
 // credentialHelper checks the complete raw -c word, including the single

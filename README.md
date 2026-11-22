@@ -252,10 +252,10 @@ one artifact holding git bundles.
   or a group: a hosted runner is a fresh machine per job. No service container,
   no `working-directory`, and every step's env (workflow, job and step) holds
   only `GH_TOKEN`, `GITHUB_TOKEN`, `APP_TOKEN`, `JOURNEY_APP_TOKEN`, `TAG`,
-  `TITLE`, `BODY`, `PRERELEASE`, `LATEST`, `PR_NUMBER`, `EVIDENCE_DIR` and
-  `GOWORK`. `PR_NUMBER`, `EVIDENCE_DIR` and `JOURNEY_APP_TOKEN` are
+  `TITLE`, `BODY`, `PRERELEASE`, `LATEST`, `PR_NUMBER`, `EVIDENCE_DIR`,
+  `GOWORK` and `EXPECTED_HEAD`. `PR_NUMBER`, `EVIDENCE_DIR` and `JOURNEY_APP_TOKEN` are
   comment-job-only; `GOWORK` is publish-job-only, and only the tool build's own
-  step env may set it.
+  step env may set it; `EXPECTED_HEAD` is bot-job-only.
   Every `needs.<job>` it reads is in its `needs:`,
   and every artifact it downloads is uploaded by a job in its `needs:`.
 - **`credential-steps-run-one-template`.** A step that receives a credential
@@ -402,6 +402,7 @@ operator step per repository; it does not replace any check above.
 | credential template | command |
 |---|---|
 | `push-own-branch` | `git [-c <fixed credential helper>] push [--force-with-lease\|--force] [--no-verify] origin <own bot branch \| HEAD:<own bot branch>>` |
+| `push-own-branch-lease` (bot job) | `git [-c <fixed credential helper>] push --force-with-lease="refs/heads/<own bot branch>:${EXPECTED_HEAD}" origin refs/heads/<own bot branch>:refs/heads/<own bot branch>` |
 | `push-release-tag` (release job) | `git [-c <fixed credential helper>] push origin "refs/tags/${TAG}:refs/tags/${TAG}"` |
 | `pr-create` | `gh pr create --head <own bot branch> [--base <branch>] [--title <text>] [--body <text>]` |
 | `pr-edit`, `pr-close` | `gh pr edit\|close [--title\|--body\|--comment <text>] [--] <own bot branch>` |
@@ -435,6 +436,25 @@ The variable parts are typed:
   the planning job's outputs could name any PR, and the App token would then
   retitle, arm, disarm or close it. A comment job instead maps `PR_NUMBER`
   exactly from `${{ github.event.pull_request.number }}`.
+- `EXPECTED_HEAD` (for `push-own-branch-lease`, bot job only) is mapped from
+  `${{ needs.<prepare>.outputs.expected_head }}`, where `<prepare>` is one
+  direct needed credential-free preparation job that declares `expected_head`
+  from one of its own step outputs. This template is scoped to updates with a
+  non-empty expectation: `<prepare>` emits its exact 40-hex OID, and the push
+  step's own `if:` must carry `needs.<prepare>.outputs.expected_head != ''` as a
+  top-level conjunct with no disjunction (`||`). Declaring an output does not
+  prove a successful producer actually emitted a non-empty value, and GitHub
+  evaluates a missing or skipped job output to `""`, which would turn the lease
+  into an empty-expectation absence assertion; separate branch-creation support
+  needs its own explicit absence proof and empty lease. The policy therefore
+  fails closed on an undeclared, non-direct, or unguarded output, requires the
+  explicit `refs/heads/<own bot branch>:refs/heads/<own bot branch>` refspec
+  (populated locally by bundle fetch, with no `HEAD` source), forbids
+  `--force`, `--no-verify`, bare `--force-with-lease`, and extra push targets,
+  forbids `continue-on-error` on the push job, push step, and preparation
+  job/step, and forbids status functions (`always()`, `failure()`,
+  `cancelled()`, `success()`) or `needs.<job>.result` in the push job's or push
+  step's `if:` so a skipped `<prepare>` job never runs the push.
 - `<text>` is literal, or double-quoted env names that carry no credential,
   such as `"${TITLE}"`.
 

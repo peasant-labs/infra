@@ -128,12 +128,13 @@ sets:
   # The env names a credential step may carry: three credential carriers and
   # the values the templates' typed parts read.
   - name: template-env
-    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, TITLE, BODY, PRERELEASE, LATEST, PR_NUMBER, JOURNEY_APP_TOKEN, EVIDENCE_DIR, GOWORK]
+    members: [GH_TOKEN, GITHUB_TOKEN, APP_TOKEN, TAG, TITLE, BODY, PRERELEASE, LATEST, PR_NUMBER, JOURNEY_APP_TOKEN, EVIDENCE_DIR, GOWORK, EXPECTED_HEAD]
     refused: ["", "BASH_ENV", "PATH", "GIT_CONFIG_PARAMETERS", "NODE_OPTIONS", "CANDIDATE", "gh_token"]
 
   - name: credential-template
     members:
       - push-own-branch
+      - push-own-branch-lease
       - push-release-tag
       - pr-create
       - pr-edit

@@ -641,7 +641,7 @@ func (c *queueChecker) checkCredentialTemplates() {
 						stepLabel(jobName, i, step)+" sets continue-on-error on a comment step",
 						"a failed evidence post must not report success", rejected, "remove continue-on-error"))
 				}
-				if why := c.templateFault(doc, job, step, cj); why != "" {
+				if why := c.templateFault(name, doc, job, step, cj); why != "" {
 					c.emit(QueueRuleCredentialTemplates, name, jobName, violation(
 						stepLabel(jobName, i, step)+" receives a credential but "+why,
 						"a step that holds a credential runs exactly one command the checker can read, so it can write only the job's own bot branch, the planner's tag, its own PR or the triggering tag's Release",
@@ -664,7 +664,7 @@ func templateShapes(class credentialJobClass) string {
 
 // templateFault says why a credential step is not exactly one template its
 // job may run, or "" when it is.
-func (c *queueChecker) templateFault(doc, job, step *yaml.Node, cj credentialJob) string {
+func (c *queueChecker) templateFault(file string, doc, job, step *yaml.Node, cj credentialJob) string {
 	env := effectiveEnv(doc, job, step)
 	for _, name := range sortedKeys(env) {
 		member, err := ParseTemplateEnv(name)
@@ -680,6 +680,9 @@ func (c *queueChecker) templateFault(doc, job, step *yaml.Node, cj credentialJob
 	if why != "" {
 		return why
 	}
+	if tmpl == TemplatePushOwnBranchLease {
+		return c.exactLeaseFault(file, doc, job, step, env)
+	}
 	if tmpl == TemplatePRMerge && cj.class == credentialJobRelease && !isArmHoldStep(doc, job, step) {
 		return "merges a PR outside an arm or hold step; only the steps gated on the " + intent.CommandQueueGate.String() + " output arm or hold the release PR"
 	}
@@ -687,6 +690,76 @@ func (c *queueChecker) templateFault(doc, job, step *yaml.Node, cj credentialJob
 		return c.reviewedScriptFault(doc, job, step, cj)
 	}
 	return ""
+}
+
+// expectedHeadNonEmpty matches the exact top-level conjunct that proves a
+// direct needed preparation job actually emitted a non-empty expected_head
+// output before an exact-lease update push runs.
+var expectedHeadNonEmpty = regexp.MustCompile(`^needs\.(` + stepIDPattern + `)\.outputs\.` + regexp.QuoteMeta(expectedHeadOutputName) + `\s*!=\s*''$`)
+
+// exactLeaseFault enforces workflow-level safety invariants for
+// TemplatePushOwnBranchLease: no continue-on-error on the push job, push step,
+// or preparation job/step, no status functions or needs.*.result on the push
+// job or step's if, a mandatory push-step guard requiring non-empty
+// needs.<prepare>.outputs.expected_head with no disjunction, and a
+// credential-free preparation job.
+func (c *queueChecker) exactLeaseFault(file string, doc, job, step *yaml.Node, env map[string]string) string {
+	if hasContinueOnError(job) {
+		return "the job sets continue-on-error, which could mask a stale-lease push failure"
+	}
+	if hasContinueOnError(step) {
+		return "the step sets continue-on-error, which could mask a stale-lease push failure"
+	}
+	if cond := mappingValue(job, "if"); cond != nil {
+		if why := leaseIfFault("the job", cond.Value); why != "" {
+			return why
+		}
+	}
+	stepIf := stepIfText(step)
+	if stepIf != "" {
+		if why := leaseIfFault("the step", stepIf); why != "" {
+			return why
+		}
+	}
+	prepName, prepJob, prepStep, why := (templateStep{doc: doc, job: job, env: env}).expectedHeadOutput()
+	if why != "" {
+		return why
+	}
+	if why := expectedHeadGuardFault(stepIf, prepName); why != "" {
+		return why
+	}
+	if prepCred := c.creds[file][prepName]; prepCred.class != "" || len(prepCred.mints) > 0 || prepCred.tokenWrites {
+		return "reads " + TemplateEnvExpectedHead.String() + " from jobs." + prepName + ", which may hold a credential; the preparation job must be credential-free"
+	}
+	if hasContinueOnError(prepJob) || hasContinueOnError(prepStep) {
+		return "reads " + TemplateEnvExpectedHead.String() + " from jobs." + prepName + ", where continue-on-error could let a failed preparation job supply an empty output"
+	}
+	return ""
+}
+
+// expectedHeadGuardFault requires the push step's if to carry the exact
+// top-level conjunct comparing needs.<prepare>.outputs.expected_head to
+// non-empty with no disjunction. Declaring the output on the preparation job
+// does not prove a successful producer actually emitted a non-empty value;
+// without this guard, an empty EXPECTED_HEAD would turn the lease into
+// `--force-with-lease=refs/heads/<branch>:`, which asserts branch absence
+// rather than updating an existing branch. Separate branch-creation support
+// needs its own explicit absence proof and empty-lease template.
+func expectedHeadGuardFault(stepIf, prepName string) string {
+	if strings.TrimSpace(stepIf) == "" {
+		return "has no if guarding that needs." + prepName + ".outputs." + expectedHeadOutputName + " != ''; add `if: needs." + prepName + ".outputs." + expectedHeadOutputName + " != ''` so an empty or unemitted output never reaches the push"
+	}
+	expr := stripIfExpression(stepIf)
+	if strings.Contains(expr, "||") {
+		return "its if holds a disjunction, which could run the push when needs." + prepName + ".outputs." + expectedHeadOutputName + " is empty"
+	}
+	for _, conjunct := range splitConjuncts(expr) {
+		m := expectedHeadNonEmpty.FindStringSubmatch(trimOuterParens(conjunct))
+		if m != nil && m[1] == prepName {
+			return ""
+		}
+	}
+	return "its if does not require needs." + prepName + ".outputs." + expectedHeadOutputName + " != '' as a top-level conjunct"
 }
 
 // shellBash is the one shell a credential step may name: the runner's
