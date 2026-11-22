@@ -19,3 +19,5 @@ paths:
     ignore:
       # The installed actionlint predates this existing hosted runner label.
       - 'label "ubuntu-26\.04" is unknown'
+      # Git expands the token later; the release policy requires single quotes.
+      - 'shellcheck reported issue in this script: SC2016:info:1:26:'

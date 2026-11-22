@@ -25,6 +25,10 @@ name: Runner image
 on:
   workflow_dispatch:
 
+concurrency:
+  group: runner-image-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   id-token: write
@@ -36,6 +40,8 @@ jobs:
       id-token: write
     name: build, sign, push
     runs-on: ubuntu-26.04
+    outputs:
+      digest: ${{ steps.verify.outputs.digest }}
     env:
       IMAGE: quay.io/peasant-labs/github-runner
       IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/runner-image.yml@${{ github.ref }}
@@ -115,11 +121,14 @@ jobs:
         run: cosign sign --yes "${IMAGE}@${digest}"
 
       - name: Verify the signature
+        id: verify
         run: |
+          set -euo pipefail
           cosign verify \
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${IMAGE}@${digest}"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         run: |
@@ -132,3 +141,126 @@ jobs:
             echo ""
             echo "Pin the digest in modules/nixos/services/github-runner/default.nix."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  prepare:
+    needs: [publish]
+    if: github.repository == 'peasant-labs/infra' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.ref == 'refs/heads/main'
+    name: prepare candidate pin
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      push: ${{ steps.prepare.outputs.push }}
+      digest: ${{ steps.prepare.outputs.digest }}
+      base_sha: ${{ steps.prepare.outputs.base_sha }}
+      commit_sha: ${{ steps.prepare.outputs.commit_sha }}
+      expected_head: ${{ steps.prepare.outputs.expected_head }}
+      pr_number: ${{ steps.prepare.outputs.pr_number }}
+      title: ${{ steps.prepare.outputs.title }}
+      body: ${{ steps.prepare.outputs.body }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare and verify candidate digest bundle
+        id: prepare
+        env:
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/prepare-runner-image-digest-pr.sh
+
+      - name: Upload verified digest bundle
+        if: steps.prepare.outputs.push == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: runner-image-digest-bundle
+          path: ${{ runner.temp }}/runner-image-bundle
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+      - name: Summary
+        if: always() && (steps.prepare.outputs.push == 'true' || steps.prepare.outputs.push == 'false')
+        run: |
+          {
+            echo "### Candidate digest handoff"
+            echo ""
+            echo "- digest: \`${{ steps.prepare.outputs.digest }}\`"
+            echo "- base commit: \`${{ steps.prepare.outputs.base_sha }}\`"
+            echo "- push required: \`${{ steps.prepare.outputs.push }}\`"
+            echo "- candidate commit: \`${{ steps.prepare.outputs.commit_sha }}\`"
+            echo "- known remote head: \`${{ steps.prepare.outputs.expected_head }}\`"
+            echo "- open PR: \`${{ steps.prepare.outputs.pr_number }}\`"
+            if [ "${{ steps.prepare.outputs.push }}" = "true" ] && [ -z "${{ steps.prepare.outputs.expected_head }}" ]; then
+              echo "- status: \`bootstrap pending\` (remote branch \`automation/runner-image-digest\` does not exist; update-only slice does not create it)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.prepare.outputs.push }}" = "true" ] && [ -z "${{ steps.prepare.outputs.expected_head }}" ]; then
+            echo "::notice::Bootstrap pending: remote branch automation/runner-image-digest does not exist; skipping push and PR creation."
+          fi
+
+  update-pr:
+    needs: [prepare]
+    if: github.repository == 'peasant-labs/infra' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.ref == 'refs/heads/main' && needs.prepare.outputs.push == 'true' && needs.prepare.outputs.expected_head != ''
+    name: update runner-image digest PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download verified digest bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: runner-image-digest-bundle
+          path: bundle
+
+      - name: Fetch prepared candidate branch
+        run: git fetch --no-tags bundle/runner-image-digest.bundle refs/heads/automation/runner-image-digest:refs/heads/automation/runner-image-digest
+
+      - name: Mint the releaser App token
+        id: mint
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          client-id: ${{ vars.PEASANT_RELEASER_CLIENT_ID }}
+          private-key: ${{ secrets.PEASANT_RELEASER_APP_PRIVATE_KEY }}
+          owner: peasant-labs
+          repositories: infra
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Push candidate branch with exact lease
+        id: push
+        if: needs.prepare.outputs.expected_head != ''
+        env:
+          APP_TOKEN: ${{ steps.mint.outputs.token }}
+          EXPECTED_HEAD: ${{ needs.prepare.outputs.expected_head }}
+        run: |
+          git -c credential.helper='!f() { echo "username=x-access-token"; echo "password=${APP_TOKEN}"; }; f' push --force-with-lease="refs/heads/automation/runner-image-digest:${EXPECTED_HEAD}" origin refs/heads/automation/runner-image-digest:refs/heads/automation/runner-image-digest
+
+      - name: Open the runner-image digest PR
+        if: steps.push.outcome == 'success' && needs.prepare.outputs.push == 'true' && needs.prepare.outputs.expected_head != '' && needs.prepare.outputs.pr_number == '' && needs.prepare.outputs.title != '' && needs.prepare.outputs.body != ''
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+          TITLE: ${{ needs.prepare.outputs.title }}
+          BODY: ${{ needs.prepare.outputs.body }}
+        run: gh pr create --head automation/runner-image-digest --base main --title "${TITLE}" --body "${BODY}"
+
+      - name: Update the runner-image digest PR
+        if: steps.push.outcome == 'success' && needs.prepare.outputs.push == 'true' && needs.prepare.outputs.expected_head != '' && needs.prepare.outputs.pr_number != '' && needs.prepare.outputs.title != '' && needs.prepare.outputs.body != ''
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+          TITLE: ${{ needs.prepare.outputs.title }}
+          BODY: ${{ needs.prepare.outputs.body }}
+        run: gh pr edit --title "${TITLE}" --body "${BODY}" -- automation/runner-image-digest

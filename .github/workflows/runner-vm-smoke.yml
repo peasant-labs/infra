@@ -52,3 +52,60 @@ jobs:
           touch "${marker}"
           test -f "${marker}"
           rm -f "${marker}"
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      # CLI rollout check only: compares the VM's installed `gh` against the
+      # single `ARG GH_VERSION` in `runner-image/Containerfile`. This does not
+      # prove the exact image digest when two builds share the same `gh` version;
+      # stronger digest proof and automated digest PRs are handled separately.
+      - name: Verify installed gh CLI matches Containerfile ARG GH_VERSION
+        run: |
+          set -euo pipefail
+          containerfile="runner-image/Containerfile"
+          if [[ ! -f "${containerfile}" ]]; then
+            echo "missing Containerfile: ${containerfile}" >&2
+            exit 1
+          fi
+
+          mapfile -t gh_arg_lines < <(grep -E '^[[:space:]]*ARG[[:space:]]+GH_VERSION=' "${containerfile}" || true)
+          if [[ "${#gh_arg_lines[@]}" -ne 1 ]]; then
+            echo "expected exactly one ARG GH_VERSION= line in ${containerfile}, found ${#gh_arg_lines[@]}" >&2
+            exit 1
+          fi
+
+          expected_gh="${gh_arg_lines[0]#*GH_VERSION=}"
+          if [[ ! "${expected_gh}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "malformed ARG GH_VERSION value in ${containerfile}: '${expected_gh}'" >&2
+            exit 1
+          fi
+
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "gh CLI not found on PATH" >&2
+            exit 1
+          fi
+
+          if ! gh_version_output="$(gh --version)"; then
+            echo "failed to run 'gh --version'" >&2
+            exit 1
+          fi
+
+          gh_first_line="${gh_version_output%%$'\n'*}"
+          if [[ "${gh_first_line}" =~ ^gh[[:space:]]+version[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)([[:space:]]|\(|$) ]]; then
+            installed_gh="${BASH_REMATCH[1]}"
+          else
+            echo "malformed 'gh --version' output: '${gh_first_line}'" >&2
+            exit 1
+          fi
+
+          echo "expected gh (Containerfile ARG GH_VERSION): ${expected_gh}"
+          echo "installed gh (current VM):                   ${installed_gh}"
+          echo "note: CLI rollout check only; does not prove the exact image digest for builds sharing the same gh version."
+
+          if [[ "${installed_gh}" != "${expected_gh}" ]]; then
+            echo "gh version mismatch: installed '${installed_gh}' != expected '${expected_gh}'" >&2
+            exit 1
+          fi

@@ -57,7 +57,7 @@ func TestClosedSets(t *testing.T) {
 		t.Errorf("AllFreshness = %v, want %v", got, want)
 	}
 	if got, want := intent.AllPRKinds, []intent.PRKind{
-		intent.PRKindOrdinary, intent.PRKindRelease, intent.PRKindVendorHash, intent.PRKindCutRelease,
+		intent.PRKindOrdinary, intent.PRKindRelease, intent.PRKindVendorHash, intent.PRKindCutRelease, intent.PRKindRunnerImage,
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("AllPRKinds = %v, want %v", got, want)
 	}
