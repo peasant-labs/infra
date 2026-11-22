@@ -12,3 +12,4 @@ surfaces: {}
 bot_branches:
   release: automation/release
   cut-release: automation/cut-release
+  runner-image: automation/runner-image-digest

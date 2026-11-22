@@ -13,12 +13,13 @@ import (
 var classifierCorpusYAML []byte
 
 type classifierInput struct {
-	Author           string `yaml:"author"`
-	HeadBranch       string `yaml:"head_branch"`
-	AutomationAuthor string `yaml:"automation_author"`
-	ReleaseBranch    string `yaml:"release_branch"`
-	VendorBranch     string `yaml:"vendor_branch"`
-	CutBranch        string `yaml:"cut_branch"`
+	Author            string `yaml:"author"`
+	HeadBranch        string `yaml:"head_branch"`
+	AutomationAuthor  string `yaml:"automation_author"`
+	ReleaseBranch     string `yaml:"release_branch"`
+	VendorBranch      string `yaml:"vendor_branch"`
+	CutBranch         string `yaml:"cut_branch"`
+	RunnerImageBranch string `yaml:"runner_image_branch"`
 }
 
 type classifierExpected struct {
@@ -32,9 +33,10 @@ func TestClassifyPR(t *testing.T) {
 			cfg := intent.Config{
 				AutomationAuthor: c.Input.AutomationAuthor,
 				BotBranches: map[intent.PRKind]string{
-					intent.PRKindRelease:    c.Input.ReleaseBranch,
-					intent.PRKindVendorHash: c.Input.VendorBranch,
-					intent.PRKindCutRelease: c.Input.CutBranch,
+					intent.PRKindRelease:     c.Input.ReleaseBranch,
+					intent.PRKindVendorHash:  c.Input.VendorBranch,
+					intent.PRKindCutRelease:  c.Input.CutBranch,
+					intent.PRKindRunnerImage: c.Input.RunnerImageBranch,
 				},
 			}
 			got := intent.ClassifyPR(cfg, c.Input.Author, c.Input.HeadBranch)

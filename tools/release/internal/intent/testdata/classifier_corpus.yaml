@@ -8,6 +8,8 @@ required_names:
   - bot-on-vendor-branch
   - bot-on-cut-branch
   - author-on-cut-branch
+  - bot-on-runner-image-branch
+  - author-on-runner-image-branch
   - empty-branch
 cases:
   - name: bot-on-release-branch
@@ -52,6 +54,18 @@ cases:
     classification: must-pass
     provenance: {source: requirement, ref: "classifier: a non-bot author never classifies as a bot PR"}
     mutation: {description: "an author reusing the cut-release branch name"}
+  - name: bot-on-runner-image-branch
+    input: {author: "peasant-labs-releaser[bot]", head_branch: "automation/runner-image-digest", automation_author: "peasant-labs-releaser[bot]", release_branch: "automation/release", vendor_branch: "automation/vendor-hash", cut_branch: "automation/cut-release", runner_image_branch: "automation/runner-image-digest"}
+    expected: {kind: "runner-image"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "classifier: the runner-image digest bump PR has its own kind"}
+    mutation: {description: "the automated runner-image digest bump PR"}
+  - name: author-on-runner-image-branch
+    input: {author: "alice", head_branch: "automation/runner-image-digest", automation_author: "peasant-labs-releaser[bot]", release_branch: "automation/release", vendor_branch: "automation/vendor-hash", cut_branch: "automation/cut-release", runner_image_branch: "automation/runner-image-digest"}
+    expected: {kind: "ordinary"}
+    classification: must-pass
+    provenance: {source: requirement, ref: "classifier: a non-bot author never classifies as a bot PR"}
+    mutation: {description: "an author reusing the runner-image digest branch name"}
   - name: empty-branch
     input: {author: "peasant-labs-releaser[bot]", head_branch: "", automation_author: "peasant-labs-releaser[bot]", release_branch: "automation/release", vendor_branch: "automation/vendor-hash", cut_branch: "automation/cut-release"}
     expected: {kind: "ordinary"}

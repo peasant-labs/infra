@@ -67,3 +67,11 @@ jobs:
 
       - name: Test
         run: go test ./... -count=1
+
+      - name: Test runner image pin validation
+        working-directory: .
+        run: bash scripts/test-prepare-runner-image-pin.sh
+
+      - name: Test runner digest bundle handoff without GitHub writes
+        working-directory: .
+        run: bash scripts/test-prepare-runner-image-digest-pr.sh

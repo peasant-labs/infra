@@ -125,6 +125,12 @@ Every pool consumer pins a digest, so the change reaches jobs only after:
    copy in the reported hash. Update the dotfiles `infra` flake input too.
 5. Rebuild the desktop, then run the smoke workflow on the pool.
 
+   The smoke workflow (`runner-vm-smoke.yml`) also checks that the VM's
+   installed `gh` CLI version matches the single `ARG GH_VERSION` in
+   `runner-image/Containerfile`. That check is a CLI rollout check only: it does
+   not prove the exact image digest when separate builds share the same `gh`
+   version (stronger digest proof and automated digest PRs are separate).
+
 [infra PR 114's rollout section](https://github.com/peasant-labs/infra/pull/114#rollout-the-pool-does-not-change-until-all-of-these-are-done)
 is a worked example.
 
