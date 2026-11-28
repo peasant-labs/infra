@@ -447,10 +447,12 @@ const (
 	PRKindVendorHash PRKind = "vendor-hash"
 	// PRKindCutRelease is the maintainer-triggered forced-release PR.
 	PRKindCutRelease PRKind = "cut-release"
+	// PRKindRunnerImage is the automated runner-image digest bump PR.
+	PRKindRunnerImage PRKind = "runner-image"
 )
 
 // AllPRKinds is the canonical closed set of PR kinds.
-var AllPRKinds = []PRKind{PRKindOrdinary, PRKindRelease, PRKindVendorHash, PRKindCutRelease}
+var AllPRKinds = []PRKind{PRKindOrdinary, PRKindRelease, PRKindVendorHash, PRKindCutRelease, PRKindRunnerImage}
 
 func (k PRKind) String() string { return string(k) }
 

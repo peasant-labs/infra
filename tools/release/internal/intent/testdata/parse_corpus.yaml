@@ -35,6 +35,7 @@ required_names:
   - freshness-misspelled
   - freshness-empty
   - pr-kind-vendor-hash
+  - pr-kind-runner-image
   - pr-kind-unknown
   - pr-kind-empty
   - error-code-protected-path
@@ -257,6 +258,12 @@ cases:
     classification: must-pass
     provenance: {source: enum, ref: "intent.AllPRKinds"}
     mutation: {description: "a known bot PR kind"}
+  - name: pr-kind-runner-image
+    input: {set: pr-kind, raw: "runner-image"}
+    expected: {member: "runner-image"}
+    classification: must-pass
+    provenance: {source: enum, ref: "intent.AllPRKinds"}
+    mutation: {description: "the runner-image digest bump bot PR kind"}
   - name: pr-kind-unknown
     input: {set: pr-kind, raw: "hotfix"}
     expected: {}
